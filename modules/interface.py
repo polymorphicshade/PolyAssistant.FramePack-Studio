@@ -13,7 +13,7 @@ import io
 from modules.video_queue import JobStatus, Job
 from modules.prompt_handler import get_section_boundaries, get_quick_prompts, parse_timestamped_prompt
 from diffusers_helper.gradio.progress_bar import make_progress_bar_css, make_progress_bar_html
-
+from diffusers_helper.bucket_tools import find_nearest_bucket
 
 def create_interface(
     process_fn,
@@ -116,7 +116,7 @@ def create_interface(
         selected_model_type = gr.State("Original")
 
         with gr.Tabs():
-            with gr.Tab("Generate (Original)", id="original_tab"):
+            with gr.Tab("Generate", id="original_tab"):
                 with gr.Row():
                     with gr.Column(scale=2):
                         input_image = gr.Image(
@@ -144,21 +144,33 @@ def create_interface(
                             with gr.Row():
                                 steps = gr.Slider(label="Steps", minimum=1, maximum=100, value=25, step=1)
                                 total_second_length = gr.Slider(label="Video Length (Seconds)", minimum=1, maximum=120, value=6, step=0.1)
-                            with gr.Row("Resolution"):
-                                resolutionW = gr.Slider(
-                                    label="Width", minimum=128, maximum=768, value=640, step=32, 
-                                    info="Nearest valid width will be used."
-                                )
-                                resolutionH = gr.Slider(
-                                    label="Height", minimum=128, maximum=768, value=640, step=32, 
-                                    info="Nearest valid height will be used."
-                                )
-                                def on_input_image_change(img):
-                                    if img is not None:
-                                        return gr.update(info="Nearest valid bucket size will be used. Height will be adjusted automatically."), gr.update(visible=False)
-                                    else:
-                                        return gr.update(info="Nearest valid width will be used."), gr.update(visible=True)
-                                input_image.change(fn=on_input_image_change, inputs=[input_image], outputs=[resolutionW, resolutionH])
+                            with gr.Group():
+                                with gr.Row("Resolution"):
+                                    resolutionW = gr.Slider(
+                                        label="Width", minimum=128, maximum=768, value=640, step=32, 
+                                        info="Nearest valid width will be used."
+                                    )
+                                    resolutionH = gr.Slider(
+                                        label="Height", minimum=128, maximum=768, value=640, step=32, 
+                                        info="Nearest valid height will be used."
+                                    )
+                                resolution_text = gr.Markdown(value="<div style='text-align:right; background:var(--neutral-800); padding:5px 15px 5px 5px;'>Selected bucket for resolution: 640 x 640</div>", label="", show_label=False)
+                            def on_input_image_change(img):
+                                if img is not None:
+                                    return gr.update(info="Nearest valid bucket size will be used. Height will be adjusted automatically."), gr.update(visible=False)
+                                else:
+                                    return gr.update(info="Nearest valid width will be used."), gr.update(visible=True)
+                            input_image.change(fn=on_input_image_change, inputs=[input_image], outputs=[resolutionW, resolutionH])
+                            def on_resolution_change(img, resolutionW, resolutionH):
+                                out_bucket_resH, out_bucket_resW = [640, 640]
+                                if img is not None:
+                                    H, W, _ = img.shape
+                                    out_bucket_resH, out_bucket_resW = find_nearest_bucket(H, W, resolution=resolutionW)
+                                else:
+                                    out_bucket_resH, out_bucket_resW = find_nearest_bucket(resolutionH, resolutionW, (resolutionW+resolutionH)/2) # if resolutionW > resolutionH else resolutionH
+                                return gr.update(value=f"<div style='text-align:right; background:var(--neutral-800); padding:5px 15px 5px 5px;'>Selected bucket for resolution: {out_bucket_resW} x {out_bucket_resH}</div>")
+                            resolutionW.change(fn=on_resolution_change, inputs=[input_image, resolutionW, resolutionH], outputs=[resolution_text], show_progress="hidden")
+                            resolutionH.change(fn=on_resolution_change, inputs=[input_image, resolutionW, resolutionH], outputs=[resolution_text], show_progress="hidden")
                             with gr.Row("LoRAs"):
                                 lora_selector = gr.Dropdown(
                                     choices=lora_names,
@@ -191,6 +203,9 @@ def create_interface(
                                 seed = gr.Number(label="Seed", value=31337, precision=0)
                                 randomize_seed = gr.Checkbox(label="Randomize", value=False, info="Generate a new random seed for each job")
 
+                            with gr.Row():
+                                using_model_type = gr.Radio(label="", choices=["Original", "F1"], value="Original", info="What model type to use", show_label=False)
+
                         with gr.Accordion("Advanced Parameters", open=False):
                             latent_window_size = gr.Slider(label="Latent Window Size", minimum=1, maximum=33, value=9, step=1, visible=True, info='Change at your own risk, very experimental')  # Should not change
                             cfg = gr.Slider(label="CFG Scale", minimum=1.0, maximum=32.0, value=1.0, step=0.01, visible=False)  # Should not change
@@ -216,7 +231,7 @@ def create_interface(
                             end_button = gr.Button(value="Cancel Current Job", interactive=True)
                             start_button = gr.Button(value="Add to Queue", elem_id="toolbar-add-to-queue-btn")
 
-            with gr.Tab("Generate (F1)", id="f1_tab"):
+            with gr.Tab("Generate (F1)", id="f1_tab", visible=False):
                 with gr.Row():
                     with gr.Column(scale=2):
                         f1_input_image = gr.Image(
@@ -243,22 +258,34 @@ def create_interface(
                         with gr.Accordion("Generation Parameters", open=True):
                             with gr.Row():
                                 f1_steps = gr.Slider(label="Steps", minimum=1, maximum=100, value=25, step=1)
-                                f1_total_second_length = gr.Slider(label="Video Length (Seconds)", minimum=1, maximum=120, value=5, step=0.1)
-                            with gr.Row("Resolution"):
-                                f1_resolutionW = gr.Slider(
-                                    label="Width", minimum=128, maximum=768, value=640, step=32, 
-                                    info="Nearest valid width will be used."
-                                )
-                                f1_resolutionH = gr.Slider(
-                                    label="Height", minimum=128, maximum=768, value=640, step=32,
-                                    info="Nearest valid height will be used."
-                                )
-                                def f1_on_input_image_change(img):
-                                    if img is not None:
-                                        return gr.update(info="Nearest valid bucket size will be used. Height will be adjusted automatically."), gr.update(visible=False)
-                                    else:
-                                        return gr.update(info="Nearest valid width will be used."), gr.update(visible=True)
-                                f1_input_image.change(fn=f1_on_input_image_change, inputs=[f1_input_image], outputs=[f1_resolutionW, f1_resolutionH])
+                                f1_total_second_length = gr.Slider(label="Video Length (Seconds)", minimum=1, maximum=120, value=6, step=0.1)
+                            with gr.Group():
+                                with gr.Row("Resolution"):
+                                    f1_resolutionW = gr.Slider(
+                                        label="Width", minimum=128, maximum=768, value=640, step=32, 
+                                        info="Nearest valid width will be used."
+                                    )
+                                    f1_resolutionH = gr.Slider(
+                                        label="Height", minimum=128, maximum=768, value=640, step=32, 
+                                        info="Nearest valid height will be used."
+                                    )
+                                f1_resolution_text = gr.Markdown(value="<div style='text-align:right; background:var(--neutral-800); padding:5px 15px 5px 5px;'>Selected bucket for resolution: 640 x 640</div>", label="", show_label=False)
+                            def f1_on_input_image_change(img):
+                                if img is not None:
+                                    return gr.update(info="Nearest valid bucket size will be used. Height will be adjusted automatically."), gr.update(visible=False)
+                                else:
+                                    return gr.update(info="Nearest valid width will be used."), gr.update(visible=True)
+                            f1_input_image.change(fn=f1_on_input_image_change, inputs=[f1_input_image], outputs=[f1_resolutionW, f1_resolutionH])
+                            def f1_on_resolution_change(img, resolutionW, resolutionH):
+                                out_bucket_resH, out_bucket_resW = [640, 640]
+                                if img is not None:
+                                    H, W, _ = img.shape
+                                    out_bucket_resH, out_bucket_resW = find_nearest_bucket(H, W, resolution=resolutionW)
+                                else:
+                                    out_bucket_resH, out_bucket_resW = find_nearest_bucket(resolutionH, resolutionW, (resolutionW+resolutionH)/2) # if resolutionW > resolutionH else resolutionH
+                                return gr.update(value=f"<div style='text-align:right; background:var(--neutral-800); padding:5px 15px 5px 5px;'>Selected bucket for resolution: {out_bucket_resW} x {out_bucket_resH}</div>")
+                            f1_resolutionW.change(fn=f1_on_resolution_change, inputs=[f1_input_image, f1_resolutionW, f1_resolutionH], outputs=[f1_resolution_text], show_progress="hidden")
+                            f1_resolutionH.change(fn=f1_on_resolution_change, inputs=[f1_input_image, f1_resolutionW, f1_resolutionH], outputs=[f1_resolution_text], show_progress="hidden")
                             with gr.Row("LoRAs"):
                                 f1_lora_selector = gr.Dropdown(
                                     choices=lora_names,
@@ -361,24 +388,25 @@ def create_interface(
                         }
                         """
             # with gr.TabItem("Outputs"):
-            #     outputDirectory = settings.get("output_dir", settings.default_settings['output_dir'])
+            #     outputDirectory_video = settings.get("output_dir", settings.default_settings['output_dir'])
+            #     outputDirectory_metadata = settings.get("metadata_dir", settings.default_settings['metadata_dir'])
             #     def get_gallery_items():
             #         items = []
-            #         for f in os.listdir(outputDirectory):
+            #         for f in os.listdir(outputDirectory_metadata):
             #             if f.endswith(".png"):
             #                 prefix = os.path.splitext(f)[0]
             #                 latest_video = get_latest_video_version(prefix)
             #                 if latest_video:
-            #                     video_path = os.path.join(outputDirectory, latest_video)
+            #                     video_path = os.path.join(outputDirectory_video, latest_video)
             #                     mtime = os.path.getmtime(video_path)
-            #                     preview_path = os.path.join(outputDirectory, f)
+            #                     preview_path = os.path.join(outputDirectory_metadata, f)
             #                     items.append((preview_path, prefix, mtime))
             #         items.sort(key=lambda x: x[2], reverse=True)
             #         return [(i[0], i[1]) for i in items]
             #     def get_latest_video_version(prefix):
             #         max_number = -1
             #         selected_file = None
-            #         for f in os.listdir(outputDirectory):
+            #         for f in os.listdir(outputDirectory_video):
             #             if f.startswith(prefix + "_") and f.endswith(".mp4"):
             #                 num = int(f.replace(prefix + "_", '').replace(".mp4", ''))
             #                 if num > max_number:
@@ -389,8 +417,8 @@ def create_interface(
             #         video_file = get_latest_video_version(prefix)
             #         if not video_file:
             #             return None, "JSON not found."
-            #         video_path = os.path.join(outputDirectory, video_file)
-            #         json_path = os.path.join(outputDirectory, prefix) + ".json"
+            #         video_path = os.path.join(outputDirectory_video, video_file)
+            #         json_path = os.path.join(outputDirectory_metadata, prefix) + ".json"
             #         info = {"description": "no info"}
             #         if os.path.exists(json_path):
             #             with open(json_path, "r", encoding="utf-8") as f:
@@ -415,7 +443,6 @@ def create_interface(
             #             new_items = get_gallery_items()
             #             return gr.update(value=[i[0] for i in new_items]), new_items
             #         refresh_button.click(fn=refresh_gallery, outputs=[thumbs, gallery_items_state])
-                    
             #         def on_select(evt: gr.SelectData, gallery_items):
             #             prefix = gallery_items[evt.index][1]
             #             video, info = load_video_and_info_from_prefix(prefix)
@@ -555,6 +582,7 @@ def create_interface(
         # --- Inputs Lists ---
         # --- Inputs for Original Model ---
         ips = [
+            using_model_type,
             input_image,
             prompt,
             n_prompt,
@@ -612,7 +640,7 @@ def create_interface(
         # --- Connect Buttons ---
         start_button.click(
             # Pass "Original" model type
-            fn=lambda *args: process_with_queue_update("Original", *args),
+            fn=process_with_queue_update,
             inputs=ips,
             outputs=[result_video, current_job_id, preview_image, progress_desc, progress_bar, start_button, end_button, queue_status, seed]
         )
