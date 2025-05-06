@@ -35,7 +35,15 @@ def load_lora(transformer, lora_path: Path, weight_name: Optional[str] = "pytorc
     
     # should weight_name even be Optional[str] or just str?
     # For now, we assume it is never None
-    adapter_name = PurePath(str(weight_name)).stem
+    # The module name in the state_dict must not include a . in the name
+    # See https://github.com/pytorch/pytorch/pull/6639/files#diff-4be56271f7bfe650e3521c81fd363da58f109cd23ee80d243156d2d6ccda6263R133-R134
+    adapter_name = PurePath(str(weight_name).replace('_DOT_', '.')).stem.replace('.', '_DOT_')
+    if '_DOT_' in adapter_name:
+        print(
+            f"LoRA file '{weight_name}' contains a '.' in the name. " +
+            'This may cause issues. Consider renaming the file.' +
+            f" Using '{adapter_name}' as the adapter name to be safe."
+        )
     
     # Check if adapter already exists and delete it if it does
     if hasattr(transformer, 'peft_config') and adapter_name in transformer.peft_config:
