@@ -2,6 +2,7 @@ from diffusers_helper.hf_login import login
 
 import json
 import os
+from pathlib import PurePath
 import time
 import argparse
 import traceback
@@ -152,14 +153,15 @@ os.makedirs(outputs_folder, exist_ok=True)
 settings = Settings()
 
 # --- Populate LoRA names AFTER settings are loaded ---
-lora_folder_from_settings = settings.get("lora_dir", default_lora_folder) # Use setting, fallback to default
+lora_folder_from_settings: str = settings.get("lora_dir", default_lora_folder) # Use setting, fallback to default
 print(f"Scanning for LoRAs in: {lora_folder_from_settings}")
 if os.path.isdir(lora_folder_from_settings):
     try:
         lora_files = [f for f in os.listdir(lora_folder_from_settings)
                      if f.endswith('.safetensors') or f.endswith('.pt')]
         for lora_file in lora_files:
-            lora_names.append(lora_file.split('.')[0]) # Get name without extension
+            lora_name = PurePath(lora_file).stem
+            lora_names.append(lora_name) # Get name without extension
         print(f"Found LoRAs: {lora_names}")
     except Exception as e:
         print(f"Error scanning LoRA directory '{lora_folder_from_settings}': {e}")
@@ -222,16 +224,17 @@ def move_lora_adapters_to_device(model, target_device):
 
 
 # Function to load a LoRA file
-def load_lora_file(lora_file):
+def load_lora_file(lora_file: str | PurePath):
     if not lora_file:
         return None, "No file selected"
     
     try:
         # Get the filename from the path
-        _, lora_name = os.path.split(lora_file)
+        lora_path = PurePath(lora_file)
+        lora_name = lora_path.name
         
         # Copy the file to the lora directory
-        lora_dest = os.path.join(lora_dir, lora_name)
+        lora_dest = PurePath(lora_dir, lora_path)
         import shutil
         shutil.copy(lora_file, lora_dest)
         
@@ -246,7 +249,7 @@ def load_lora_file(lora_file):
         current_transformer = lora_utils.load_lora(current_transformer, lora_dir, lora_name)
         
         # Add to lora_names if not already there
-        lora_base_name = lora_name.split('.')[0]
+        lora_base_name = lora_path.stem
         if lora_base_name not in lora_names:
             lora_names.append(lora_base_name)
         

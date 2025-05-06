@@ -1,4 +1,4 @@
-from pathlib import Path
+from pathlib import Path, PurePath
 from typing import Dict, List, Optional, Union
 from diffusers.loaders.lora_pipeline import _fetch_state_dict
 from diffusers.loaders.lora_conversion_utils import _convert_hunyuan_video_lora_to_diffusers
@@ -33,7 +33,9 @@ def load_lora(transformer, lora_path: Path, weight_name: Optional[str] = "pytorc
 
     state_dict = _convert_hunyuan_video_lora_to_diffusers(state_dict)
     
-    adapter_name = weight_name.split(".")[0]
+    # should weight_name even be Optional[str] or just str?
+    # For now, we assume it is never None
+    adapter_name = PurePath(str(weight_name)).stem
     
     # Check if adapter already exists and delete it if it does
     if hasattr(transformer, 'peft_config') and adapter_name in transformer.peft_config:
