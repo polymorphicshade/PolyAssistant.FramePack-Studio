@@ -116,7 +116,7 @@ def create_interface(
         selected_model_type = gr.State("Original")
 
         with gr.Tabs():
-            with gr.Tab("Generate", id="original_tab"):
+            with gr.Tab("Generate (Original)", id="original_tab"):
                 with gr.Row():
                     with gr.Column(scale=2):
                         input_image = gr.Image(
@@ -203,9 +203,6 @@ def create_interface(
                                 seed = gr.Number(label="Seed", value=31337, precision=0)
                                 randomize_seed = gr.Checkbox(label="Randomize", value=False, info="Generate a new random seed for each job")
 
-                            with gr.Row():
-                                using_model_type = gr.Radio(label="", choices=["Original", "F1"], value="Original", info="What model type to use", show_label=False)
-
                         with gr.Accordion("Advanced Parameters", open=False):
                             latent_window_size = gr.Slider(label="Latent Window Size", minimum=1, maximum=33, value=9, step=1, visible=True, info='Change at your own risk, very experimental')  # Should not change
                             cfg = gr.Slider(label="CFG Scale", minimum=1.0, maximum=32.0, value=1.0, step=0.01, visible=False)  # Should not change
@@ -231,7 +228,7 @@ def create_interface(
                             end_button = gr.Button(value="Cancel Current Job", interactive=True)
                             start_button = gr.Button(value="Add to Queue", elem_id="toolbar-add-to-queue-btn")
 
-            with gr.Tab("Generate (F1)", id="f1_tab", visible=False):
+            with gr.Tab("Generate (F1)", id="f1_tab"):
                 with gr.Row():
                     with gr.Column(scale=2):
                         f1_input_image = gr.Image(
@@ -582,7 +579,6 @@ def create_interface(
         # --- Inputs Lists ---
         # --- Inputs for Original Model ---
         ips = [
-            using_model_type,
             input_image,
             prompt,
             n_prompt,
@@ -640,7 +636,7 @@ def create_interface(
         # --- Connect Buttons ---
         start_button.click(
             # Pass "Original" model type
-            fn=process_with_queue_update,
+            fn=lambda *args: process_with_queue_update("Original", *args),
             inputs=ips,
             outputs=[result_video, current_job_id, preview_image, progress_desc, progress_bar, start_button, end_button, queue_status, seed]
         )
