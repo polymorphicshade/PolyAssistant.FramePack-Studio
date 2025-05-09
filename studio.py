@@ -887,7 +887,8 @@ def process(
         'metadata_dir': settings.get("metadata_dir"),
         'resolutionW': resolutionW, # Add resolution parameter
         'resolutionH': resolutionH,
-        'lora_loaded_names': lora_loaded_names
+        'lora_loaded_names': lora_loaded_names,
+        'generation_type': model_type  # Set generation_type to model_type for display in queue
     }
     
     # Add LoRA values if provided - extract them from the tuple
