@@ -182,7 +182,7 @@ class F1ModelGenerator(BaseModelGenerator):
         Returns:
             The number of section latent frames
         """
-        return (latent_window_size * 2 + 1) if is_last_section else (latent_window_size * 2)
+        return latent_window_size * 2
     
     def get_current_pixels(self, real_history_latents, section_latent_frames, vae):
         """
