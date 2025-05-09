@@ -887,8 +887,7 @@ def process(
         'metadata_dir': settings.get("metadata_dir"),
         'resolutionW': resolutionW, # Add resolution parameter
         'resolutionH': resolutionH,
-        'lora_loaded_names': lora_loaded_names,
-        'generation_type': model_type  # Set generation_type to model_type for display in queue
+        'lora_loaded_names': lora_loaded_names
     }
     
     # Add LoRA values if provided - extract them from the tuple
@@ -899,6 +898,11 @@ def process(
     
     # Add job to queue
     job_id = job_queue.add_job(job_params)
+    
+    # Set the generation_type attribute on the job object directly
+    job = job_queue.get_job(job_id)
+    if job:
+        job.generation_type = model_type  # Set generation_type to model_type for display in queue
     print(f"Added job {job_id} to queue")
     
     queue_status = update_queue_status()
