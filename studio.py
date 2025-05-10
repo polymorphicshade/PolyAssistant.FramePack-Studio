@@ -406,7 +406,6 @@ def worker(
                 "latent_type" : latent_type,
                 "blend_sections": blend_sections,
                 "latent_window_size": latent_window_size,
-                "mp4_crf": settings.get("mp4_crf"),
                 "timestamp": time.time(),
                 "resolutionW": resolutionW,  # Add resolution to metadata
                 "resolutionH": resolutionH,

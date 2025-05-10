@@ -598,7 +598,7 @@ def create_interface(
             if not json_path:
                 # Return updates for all potentially affected components
                 num_orig_sliders = len(lora_sliders)
-                return [gr.update()] * (2 + num_orig_sliders)
+                return [gr.update()] * (3 + num_orig_sliders)  # Updated to include total_second_length
 
             try:
                 with open(json_path, 'r') as f:
@@ -606,17 +606,19 @@ def create_interface(
 
                 prompt_val = metadata.get('prompt')
                 seed_val = metadata.get('seed')
+                total_second_length_val = metadata.get('total_second_length')  # Get total_second_length
 
                 # Check for LoRA values in metadata
                 lora_weights = metadata.get('loras', {}) # Changed key to 'loras' based on studio.py worker
 
                 print(f"Loaded metadata from JSON: {json_path}")
-                print(f"Prompt: {prompt_val}, Seed: {seed_val}")
+                print(f"Prompt: {prompt_val}, Seed: {seed_val}, Total Second Length: {total_second_length_val}")
 
                 # Update the UI components
                 updates = [
                     gr.update(value=prompt_val) if prompt_val else gr.update(),
-                    gr.update(value=seed_val) if seed_val is not None else gr.update()
+                    gr.update(value=seed_val) if seed_val is not None else gr.update(),
+                    gr.update(value=total_second_length_val) if total_second_length_val is not None else gr.update()  # Add total_second_length update
                 ]
 
                 # Update LoRA sliders if they exist in metadata
@@ -628,19 +630,19 @@ def create_interface(
 
                 # Ensure the number of updates matches the number of outputs
                 num_orig_sliders = len(lora_sliders)
-                return updates[:2 + num_orig_sliders] # Return updates for prompt, seed, and sliders
+                return updates[:3 + num_orig_sliders] # Return updates for prompt, seed, total_second_length, and sliders
 
             except Exception as e:
                 print(f"Error loading metadata: {e}")
                 num_orig_sliders = len(lora_sliders)
-                return [gr.update()] * (2 + num_orig_sliders)
+                return [gr.update()] * (3 + num_orig_sliders)  # Updated to include total_second_length
 
 
         # Connect JSON metadata loader for Original tab
         json_upload.change(
             fn=load_metadata_from_json,
             inputs=[json_upload],
-            outputs=[prompt, seed] + [lora_sliders[lora] for lora in lora_names]
+            outputs=[prompt, seed, total_second_length] + [lora_sliders[lora] for lora in lora_names]
         )
 
 
