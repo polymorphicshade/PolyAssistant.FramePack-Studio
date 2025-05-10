@@ -463,8 +463,8 @@ def create_interface(
             # Call the process function with all arguments
             # Pass the model_type and the ORIGINAL prompt_text string to the backend process function
             result = process_fn(model_type, input_image, prompt_text, n_prompt, seed_value, total_second_length, # Pass original prompt_text string
-                            latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation,
-                            use_teacache, mp4_crf, save_metadata_checked, blend_sections, latent_type, clean_up_videos, selected_loras, resolutionW, resolutionH, *lora_args)
+                            latent_window_size, steps, cfg, gs, rs,
+                            use_teacache, blend_sections, latent_type, clean_up_videos, selected_loras, resolutionW, resolutionH, *lora_args)
 
             # If randomize_seed is checked, generate a new random seed for the next job
             new_seed_value = None

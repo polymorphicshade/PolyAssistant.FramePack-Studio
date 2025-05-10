@@ -263,9 +263,7 @@ def worker(
     cfg, 
     gs, 
     rs, 
-    gpu_memory_preservation, 
     use_teacache, 
-    save_metadata, 
     blend_sections, 
     latent_type,
     selected_loras,
@@ -726,7 +724,7 @@ def worker(
                 unload_complete_models()
 
             output_filename = os.path.join(output_dir, f'{job_id}_{total_generated_latent_frames}.mp4')
-            save_bcthw_as_mp4(history_pixels, output_filename, fps=30, crf=mp4_crf)
+            save_bcthw_as_mp4(history_pixels, output_filename, fps=30, crf=settings.get("mp4_crf"))
             print(f'Decoded. Current latent shape {real_history_latents.shape}; pixel shape {history_pixels.shape}')
             stream_to_use.output_queue.push(('file', output_filename))
 
@@ -815,11 +813,10 @@ def process(
         cfg, 
         gs, 
         rs, 
-        gpu_memory_preservation, 
         use_teacache, 
-        save_metadata,
         blend_sections, 
         latent_type,
+        clean_up_videos,
         selected_loras,
         resolutionW,
         resolutionH,
@@ -872,12 +869,8 @@ def process(
         'gs': gs,
         'rs': rs,
         'blend_sections': blend_sections,
-        'gpu_memory_preservation': gpu_memory_preservation,
         'use_teacache': use_teacache,
-        'mp4_crf': settings.get("mp4_crf"),
-        'save_metadata': save_metadata,
         'selected_loras': selected_loras,
-        'clean_up_videos': settings.get("clean_up_videos"),
         'has_input_image': has_input_image,
         'output_dir': settings.get("output_dir"),
         'metadata_dir': settings.get("metadata_dir"),
