@@ -13,12 +13,16 @@ class Settings:
         
         # Set default paths relative to project root
         self.default_settings = {
+            "save_metadata": True,
+            "gpu_memory_preservation": 6,
             "output_dir": str(project_root / "outputs"),
             "metadata_dir": str(project_root / "outputs"),
             "lora_dir": str(project_root / "loras"),
             "gradio_temp_dir": str(project_root / "temp"),
             "auto_save_settings": True,
-            "gradio_theme": "default"
+            "gradio_theme": "base",
+            "mp4_crf": 16,
+            "clean_up_videos": True
         }
         self.settings = self.load_settings()
 
@@ -37,23 +41,20 @@ class Settings:
                 return self.default_settings.copy()
         return self.default_settings.copy()
 
-    def save_settings(self, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save_settings, gradio_theme="default"):
-        """Save settings to file"""
-        self.settings = {
-            "output_dir": output_dir,
-            "metadata_dir": metadata_dir,
-            "lora_dir": lora_dir,
-            "gradio_temp_dir": gradio_temp_dir,
-            "auto_save_settings": auto_save_settings,
-            "gradio_theme": gradio_theme
-        }
-        
-        # Ensure directories exist
-        os.makedirs(output_dir, exist_ok=True)
-        os.makedirs(metadata_dir, exist_ok=True)
-        os.makedirs(lora_dir, exist_ok=True)
-        os.makedirs(gradio_temp_dir, exist_ok=True)
-        
+    def save_settings(self, **kwargs):
+        """Save settings to file. Accepts keyword arguments for any settings to update."""
+        # Update self.settings with any provided keyword arguments
+        self.settings.update(kwargs)
+        # Ensure all default fields are present
+        for k, v in self.default_settings.items():
+            self.settings.setdefault(k, v)
+
+        # Ensure directories exist for relevant fields
+        for dir_key in ["output_dir", "metadata_dir", "lora_dir", "gradio_temp_dir"]:
+            dir_path = self.settings.get(dir_key)
+            if dir_path:
+                os.makedirs(dir_path, exist_ok=True)
+
         # Save to file
         with open(self.settings_file, 'w') as f:
             json.dump(self.settings, f, indent=4)

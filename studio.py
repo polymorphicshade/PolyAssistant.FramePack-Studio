@@ -265,12 +265,10 @@ def worker(
     rs, 
     gpu_memory_preservation, 
     use_teacache, 
-    mp4_crf, 
     save_metadata, 
     blend_sections, 
     latent_type,
     selected_loras,
-    clean_up_videos, 
     has_input_image,
     lora_values=None, 
     job_stream=None,
@@ -410,7 +408,7 @@ def worker(
                 "latent_type" : latent_type,
                 "blend_sections": blend_sections,
                 "latent_window_size": latent_window_size,
-                "mp4_crf": mp4_crf,
+                "mp4_crf": settings.get("mp4_crf"),
                 "timestamp": time.time(),
                 "resolutionW": resolutionW,  # Add resolution to metadata
                 "resolutionH": resolutionH,
@@ -765,7 +763,7 @@ def worker(
                 current_generator.transformer if current_generator else None
             )
 
-    if clean_up_videos:
+    if settings.get("clean_up_videos"):
         try:
             video_files = [
                 f for f in os.listdir(output_dir)
@@ -819,11 +817,9 @@ def process(
         rs, 
         gpu_memory_preservation, 
         use_teacache, 
-        mp4_crf, 
         save_metadata,
         blend_sections, 
         latent_type,
-        clean_up_videos,
         selected_loras,
         resolutionW,
         resolutionH,
@@ -878,10 +874,10 @@ def process(
         'blend_sections': blend_sections,
         'gpu_memory_preservation': gpu_memory_preservation,
         'use_teacache': use_teacache,
-        'mp4_crf': mp4_crf,
+        'mp4_crf': settings.get("mp4_crf"),
         'save_metadata': save_metadata,
         'selected_loras': selected_loras,
-        'clean_up_videos': clean_up_videos,
+        'clean_up_videos': settings.get("clean_up_videos"),
         'has_input_image': has_input_image,
         'output_dir': settings.get("output_dir"),
         'metadata_dir': settings.get("metadata_dir"),

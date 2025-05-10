@@ -4,6 +4,7 @@ import datetime
 import random
 import json
 import os
+import shutil
 from typing import List, Dict, Any, Optional
 from PIL import Image
 import numpy as np
@@ -48,15 +49,30 @@ def create_interface(
     # Create the interface
     css = make_progress_bar_css()
     css += """
-    .contain-image img {
+    /* Image container styling - more aggressive approach */
+    .contain-image, .contain-image > div, .contain-image > div > img {
+        object-fit: contain !important;
+    }
+    
+    /* Target all images in the contain-image class and its children */
+    .contain-image img,
+    .contain-image > div > img,
+    .contain-image * img {
         object-fit: contain !important;
         width: 100% !important;
         height: 100% !important;
-        background: #222;
+        max-height: 100% !important;
+        max-width: 100% !important;
     }
-    """
-
-    css += """
+    
+    /* Additional selectors to override Gradio defaults */
+    .gradio-container img,
+    .gradio-container .svelte-1b5oq5x,
+    .gradio-container [data-testid="image"] img {
+        object-fit: contain !important;
+    }
+    
+    /* Toolbar styling */
     #fixed-toolbar {
         position: fixed;
         top: 0;
@@ -72,29 +88,27 @@ def create_interface(
         box-shadow: 0 2px 8px rgba(0,0,0,0.1);
         border-bottom: 1px solid #4f46e5;
     }
+    
+    /* Button styling */
     #toolbar-add-to-queue-btn button {
         font-size: 14px !important;
         padding: 4px 16px !important;
         height: 32px !important;
         min-width: 80px !important;
     }
-
-
-
-    .gr-button-primary{
-        color:white;
-    }
-    body, .gradio-container {
-        padding-top: 40px !important;
-    }
-    """
-
-    css += """
     .narrow-button {
         min-width: 40px !important;
         width: 40px !important;
         padding: 0 !important;
         margin: 0 !important;
+    }
+    .gr-button-primary {
+        color: white;
+    }
+    
+    /* Layout adjustments */
+    body, .gradio-container {
+        padding-top: 40px !important;
     }
     """
 
@@ -121,7 +135,7 @@ def create_interface(
                         model_type = gr.Radio(
                             choices=["Original", "F1"],
                             value="Original",
-                            label="Model Type",
+                            label="Model",
                             info="Select which model to use for generation"
                         )
                         input_image = gr.Image(
@@ -129,9 +143,12 @@ def create_interface(
                             type="numpy",
                             label="Image (optional)",
                             height=420,
-                            elem_classes="contain-image"
+                            elem_classes="contain-image",
+                            image_mode="RGBA",  # Try RGBA mode for better scaling
+                            show_download_button=False,
+                            show_label=True,
+                            container=True
                         )
-                        
 
                         with gr.Accordion("Latent Image Options", open=False):
                             latent_type = gr.Dropdown(
@@ -141,6 +158,8 @@ def create_interface(
                         prompt = gr.Textbox(label="Prompt", value=default_prompt)
 
                         with gr.Accordion("Prompt Parameters", open=False):
+                            n_prompt = gr.Textbox(label="Negative Prompt", value="", visible=True)  # Make visible for both models
+
                             blend_sections = gr.Slider(
                                 minimum=0, maximum=10, value=4, step=1,
                                 label="Number of sections to blend between prompts"
@@ -199,10 +218,8 @@ def create_interface(
                                     type="filepath",
                                     height=100,
                                 )
-                                save_metadata = gr.Checkbox(label="Save Metadata", value=True, info="Save to JSON file")
                             with gr.Row("TeaCache"):
                                 use_teacache = gr.Checkbox(label='Use TeaCache', value=True, info='Faster speed, but often makes hands and fingers slightly worse.')
-                                n_prompt = gr.Textbox(label="Negative Prompt", value="", visible=True)  # Make visible for both models
 
                             with gr.Row():
                                 seed = gr.Number(label="Seed", value=31337, precision=0)
@@ -213,17 +230,17 @@ def create_interface(
                             cfg = gr.Slider(label="CFG Scale", minimum=1.0, maximum=32.0, value=1.0, step=0.01, visible=False)  # Should not change
                             gs = gr.Slider(label="Distilled CFG Scale", minimum=1.0, maximum=32.0, value=10.0, step=0.01)
                             rs = gr.Slider(label="CFG Re-Scale", minimum=0.0, maximum=1.0, value=0.0, step=0.01, visible=False)  # Should not change
-                            gpu_memory_preservation = gr.Slider(label="GPU Inference Preserved Memory (GB) (larger means slower)", minimum=1, maximum=128, value=6, step=0.1, info="Set this number to a larger value if you encounter OOM. Larger value causes slower speed.")
-                        with gr.Accordion("Output Parameters", open=False):
-                            mp4_crf = gr.Slider(label="MP4 Compression", minimum=0, maximum=100, value=16, step=1, info="Lower means better quality. 0 is uncompressed. Change to 16 if you get black outputs. ")
-                            clean_up_videos = gr.Checkbox(
-                                label="Clean up video files",
-                                value=True,
-                                info="If checked, only the final video will be kept after generation."
-                            )
 
                     with gr.Column():
-                        preview_image = gr.Image(label="Next Latents", height=150, visible=True, type="numpy", interactive=False)
+                        preview_image = gr.Image(
+                            label="Next Latents", 
+                            height=150, 
+                            visible=True, 
+                            type="numpy", 
+                            interactive=False,
+                            elem_classes="contain-image",
+                            image_mode="RGBA"
+                        )
                         result_video = gr.Video(label="Finished Frames", autoplay=True, show_share_button=False, height=256, loop=True)
                         progress_desc = gr.Markdown('', elem_classes='no-generating-animation')
                         progress_bar = gr.HTML('', elem_classes='no-generating-animation')
@@ -257,26 +274,6 @@ def create_interface(
                             thumbnail_container.elem_classes = ["thumbnail-container"]
 
                         # Add CSS for thumbnails
-                        css += """
-                        .thumbnail-container {
-                            display: flex;
-                            flex-wrap: wrap;
-                            gap: 10px;
-                            padding: 10px;
-                        }
-                        .thumbnail-item {
-                            width: 100px;
-                            height: 100px;
-                            border: 1px solid #444;
-                            border-radius: 4px;
-                            overflow: hidden;
-                        }
-                        .thumbnail-item img {
-                            width: 100%;
-                            height: 100%;
-                            object-fit: cover;
-                        }
-                        """
             with gr.TabItem("Outputs"):
                 outputDirectory_video = settings.get("output_dir", settings.default_settings['output_dir'])
                 outputDirectory_metadata = settings.get("metadata_dir", settings.default_settings['metadata_dir'])
@@ -341,6 +338,32 @@ def create_interface(
             with gr.Tab("Settings"):
                 with gr.Row():
                     with gr.Column():
+                        save_metadata = gr.Checkbox(
+                            label="Save Metadata", 
+                            info="Save to JSON file", 
+                            value=settings.get("save_metadata", 6),
+                        )
+                        gpu_memory_preservation = gr.Slider(
+                            label="GPU Inference Preserved Memory (GB) (larger means slower)",
+                            minimum=1,
+                            maximum=128,
+                            step=0.1,
+                            value=settings.get("gpu_memory_preservation", 6),
+                            info="Set this number to a larger value if you encounter OOM. Larger value causes slower speed."
+                        )
+                        mp4_crf = gr.Slider(
+                            label="MP4 Compression",
+                            minimum=0,
+                            maximum=100,
+                            step=1,
+                            value=settings.get("mp4_crf", 16),
+                            info="Lower means better quality. 0 is uncompressed. Change to 16 if you get black outputs."
+                        )
+                        clean_up_videos = gr.Checkbox(
+                            label="Clean up video files",
+                            value=settings.get("clean_up_videos", True),
+                            info="If checked, only the final video will be kept after generation."
+                        )
                         output_dir = gr.Textbox(
                             label="Output Directory",
                             value=settings.get("output_dir"),
@@ -374,9 +397,13 @@ def create_interface(
                         status = gr.HTML("")
                         cleanup_output = gr.Textbox(label="Cleanup Status", interactive=False)
 
-                        def save_settings(output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, selected_theme):
+                        def save_settings(save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, selected_theme):
                             try:
                                 settings.save_settings(
+                                    save_metadata=save_metadata,
+                                    gpu_memory_preservation=gpu_memory_preservation,
+                                    mp4_crf=mp4_crf,
+                                    clean_up_videos=clean_up_videos,
                                     output_dir=output_dir,
                                     metadata_dir=metadata_dir,
                                     lora_dir=lora_dir,
@@ -390,38 +417,38 @@ def create_interface(
 
                         save_btn.click(
                             fn=save_settings,
-                            inputs=[output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, theme_dropdown],
+                            inputs=[save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, theme_dropdown],
                             outputs=[status]
                         )
 
                         def cleanup_temp_files():
-                            """Clean up temporary files in the Gradio temp directory"""
+                            """Clean up temporary files and folders in the Gradio temp directory"""
                             temp_dir = settings.get("gradio_temp_dir")
                             if not temp_dir or not os.path.exists(temp_dir):
                                 return "No temporary directory found or directory does not exist."
                             
                             try:
-                                # Get all files in the temp directory
-                                files = os.listdir(temp_dir)
+                                # Get all items in the temp directory
+                                items = os.listdir(temp_dir)
                                 removed_count = 0
-                                
-                                for file in files:
-                                    file_path = os.path.join(temp_dir, file)
+                                print(f"Finding items in {temp_dir}")
+                                for item in items:
+                                    item_path = os.path.join(temp_dir, item)
                                     try:
-                                        if os.path.isfile(file_path):
-                                            os.remove(file_path)
+                                        if os.path.isfile(item_path) or os.path.islink(item_path):
+                                            print(f"Removing {item_path}")
+                                            os.remove(item_path)
+                                            removed_count += 1
+                                        elif os.path.isdir(item_path):
+                                            print(f"Removing directory {item_path}")
+                                            shutil.rmtree(item_path)
                                             removed_count += 1
                                     except Exception as e:
-                                        print(f"Error removing {file_path}: {e}")
+                                        print(f"Error removing {item_path}: {e}")
                                 
-                                return f"Cleaned up {removed_count} temporary files."
+                                return f"Cleaned up {removed_count} temporary files/folders."
                             except Exception as e:
                                 return f"Error cleaning up temporary files: {str(e)}"
-
-                        cleanup_btn.click(
-                            fn=cleanup_temp_files,
-                            outputs=[cleanup_output]
-                        )
 
         # --- Event Handlers and Connections (Now correctly indented) ---
 
@@ -519,6 +546,11 @@ def create_interface(
             fn=monitor_fn,
             inputs=[current_job_id],
             outputs=[result_video, current_job_id, preview_image, progress_desc, progress_bar, start_button, end_button]
+        )
+
+        cleanup_btn.click(
+            fn=cleanup_temp_files,
+            outputs=[cleanup_output]
         )
 
 
@@ -663,16 +695,6 @@ def create_interface(
                 """)
 
         # Add CSS for footer
-        css += """
-        #footer {
-            margin-top: 20px;
-            padding: 20px;
-            border-top: 1px solid #eee;
-        }
-        #footer a:hover {
-            color: #4f46e5 !important;
-        }
-        """
 
     return block
 
