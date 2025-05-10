@@ -388,7 +388,7 @@ def worker(
         height, width = find_nearest_bucket(H, W, resolution=resolutionW if has_input_image else (resolutionH+resolutionW)/2)
         input_image_np = resize_and_center_crop(input_image, target_width=width, target_height=height)
 
-        if save_metadata:
+        if settings.get("save_metadata"):
             metadata = PngInfo()
             # prompt_text should be a string here now
             metadata.add_text("prompt", prompt_text)
@@ -654,7 +654,7 @@ def worker(
             if not high_vram:
                 # Unload VAE etc. before loading transformer
                 unload_complete_models(vae, text_encoder, text_encoder_2, image_encoder)
-                move_model_to_device_with_memory_preservation(current_generator.transformer, target_device=gpu, preserved_memory_gb=gpu_memory_preservation)
+                move_model_to_device_with_memory_preservation(current_generator.transformer, target_device=gpu, preserved_memory_gb=settings.get("gpu_memory_preservation"))
                 if selected_loras:
                     current_generator.move_lora_adapters_to_device(gpu)
 
