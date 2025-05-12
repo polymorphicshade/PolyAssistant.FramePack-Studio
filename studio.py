@@ -264,6 +264,8 @@ def worker(
     gs, 
     rs, 
     use_teacache, 
+    teacache_num_steps, 
+    teacache_rel_l1_thresh,
     blend_sections, 
     latent_type,
     selected_loras,
@@ -658,7 +660,7 @@ def worker(
                     current_generator.move_lora_adapters_to_device(gpu)
 
             if use_teacache:
-                current_generator.transformer.initialize_teacache(enable_teacache=True, num_steps=steps)
+                current_generator.transformer.initialize_teacache(enable_teacache=True, num_steps=teacache_num_steps, rel_l1_thresh=teacache_rel_l1_thresh)
             else:
                 current_generator.transformer.initialize_teacache(enable_teacache=False)
 
@@ -813,6 +815,8 @@ def process(
         gs, 
         rs, 
         use_teacache, 
+        teacache_num_steps, 
+        teacache_rel_l1_thresh,
         blend_sections, 
         latent_type,
         clean_up_videos,
@@ -869,6 +873,8 @@ def process(
         'rs': rs,
         'blend_sections': blend_sections,
         'use_teacache': use_teacache,
+        'teacache_num_steps': teacache_num_steps,
+        'teacache_rel_l1_thresh': teacache_rel_l1_thresh,
         'selected_loras': selected_loras,
         'has_input_image': has_input_image,
         'output_dir': settings.get("output_dir"),
