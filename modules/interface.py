@@ -220,6 +220,9 @@ def create_interface(
                                 )
                             with gr.Row("TeaCache"):
                                 use_teacache = gr.Checkbox(label='Use TeaCache', value=True, info='Faster speed, but often makes hands and fingers slightly worse.')
+                                teacache_num_steps = gr.Slider(label="TeaCache steps", minimum=1, maximum=50, step=1, value=25, visible=False, info='How many intermediate sections to keep in the cache')
+                                teacache_rel_l1_thresh = gr.Slider(label="TeaCache rel_l1_thresh", minimum=0.01, maximum=1.0, step=0.01, value=0.15, visible=False, info='Relative L1 Threshold')
+                                use_teacache.change(lambda enabled: (gr.update(visible=enabled), gr.update(visible=enabled)), inputs=use_teacache, outputs=[teacache_num_steps, teacache_rel_l1_thresh])
 
                             with gr.Row():
                                 seed = gr.Number(label="Seed", value=31337, precision=0)
@@ -455,7 +458,7 @@ def create_interface(
         # Connect the main process function (wrapper for adding to queue)
         def process_with_queue_update(model_type, *args):
             # Extract all arguments (ensure order matches inputs lists)
-            input_image, prompt_text, n_prompt, seed_value, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, mp4_crf, randomize_seed_checked, save_metadata_checked, blend_sections, latent_type, clean_up_videos, selected_loras, resolutionW, resolutionH, *lora_args = args
+            input_image, prompt_text, n_prompt, seed_value, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, teacache_num_steps, teacache_rel_l1_thresh, mp4_crf, randomize_seed_checked, save_metadata_checked, blend_sections, latent_type, clean_up_videos, selected_loras, resolutionW, resolutionH, *lora_args = args
 
             # DO NOT parse the prompt here. Parsing happens once in the worker.
 
@@ -464,7 +467,7 @@ def create_interface(
             # Pass the model_type and the ORIGINAL prompt_text string to the backend process function
             result = process_fn(model_type, input_image, prompt_text, n_prompt, seed_value, total_second_length, # Pass original prompt_text string
                             latent_window_size, steps, cfg, gs, rs,
-                            use_teacache, blend_sections, latent_type, clean_up_videos, selected_loras, resolutionW, resolutionH, *lora_args)
+                            use_teacache, teacache_num_steps, teacache_rel_l1_thresh, blend_sections, latent_type, clean_up_videos, selected_loras, resolutionW, resolutionH, *lora_args)
 
             # If randomize_seed is checked, generate a new random seed for the next job
             new_seed_value = None
@@ -510,6 +513,8 @@ def create_interface(
             rs,
             gpu_memory_preservation,
             use_teacache,
+            teacache_num_steps,
+            teacache_rel_l1_thresh,
             mp4_crf,
             randomize_seed,
             save_metadata,
