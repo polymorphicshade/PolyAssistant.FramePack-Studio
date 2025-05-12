@@ -33,7 +33,15 @@ Install via the Pinokio community script "FP-Studio" or:
    cd FramePack-Studio
    ```
 
-2. Install dependencies:
+2. Install PyTorch:
+
+   Go to the [PyTorch Getting Started](https://pytorch.org/get-started/locally/) page and install PyTorch according to your system setup.
+   For example, if using CUDA 12.6 on Windows:
+   ```bash
+   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+   ```
+
+3. Install additional dependencies:
    ```bash
    pip install -r requirements.txt
    ```

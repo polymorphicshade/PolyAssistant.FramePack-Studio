@@ -144,7 +144,7 @@ def create_interface(
                             label="Image (optional)",
                             height=420,
                             elem_classes="contain-image",
-                            image_mode="RGBA",  # Try RGBA mode for better scaling
+                            image_mode="RGB",
                             show_download_button=False,
                             show_label=True,
                             container=True
@@ -239,7 +239,7 @@ def create_interface(
                             type="numpy", 
                             interactive=False,
                             elem_classes="contain-image",
-                            image_mode="RGBA"
+                            image_mode="RGB"
                         )
                         result_video = gr.Video(label="Finished Frames", autoplay=True, show_share_button=False, height=256, loop=True)
                         progress_desc = gr.Markdown('', elem_classes='no-generating-animation')
