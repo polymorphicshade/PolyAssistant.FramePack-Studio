@@ -1,4 +1,5 @@
 import torch
+import os # required for os.path
 from abc import ABC, abstractmethod
 from diffusers_helper import lora_utils
 
@@ -18,7 +19,8 @@ class BaseModelGenerator(ABC):
                  feature_extractor, 
                  high_vram=False,
                  prompt_embedding_cache=None,
-                 settings=None):
+                 settings=None,
+                 offline=False): # NEW: offline flag
         """
         Initialize the base model generator.
         
@@ -33,6 +35,7 @@ class BaseModelGenerator(ABC):
             high_vram: Whether high VRAM mode is enabled
             prompt_embedding_cache: Cache for prompt embeddings
             settings: Application settings
+            offline: Whether to run in offline mode for model loading
         """
         self.text_encoder = text_encoder
         self.text_encoder_2 = text_encoder_2
@@ -44,10 +47,38 @@ class BaseModelGenerator(ABC):
         self.high_vram = high_vram
         self.prompt_embedding_cache = prompt_embedding_cache or {}
         self.settings = settings
+        self.offline = offline 
         self.transformer = None
         self.gpu = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.cpu = torch.device("cpu")
-    
+
+    @staticmethod
+    def _get_snapshot_hash_from_refs(model_repo_id_for_cache: str) -> str | None:
+        """
+        Reads the commit hash from the refs/main file for a given model in the HF cache.
+        Args:
+            model_repo_id_for_cache (str): The model ID formatted for cache directory names
+                                           (e.g., "models--lllyasviel--FramePackI2V_HY").
+        Returns:
+            str: The commit hash if found, otherwise None.
+        """
+        hf_home_dir = os.environ.get('HF_HOME')
+        if not hf_home_dir:
+            print("Warning: HF_HOME environment variable not set. Cannot determine snapshot hash.")
+            return None
+            
+        refs_main_path = os.path.join(hf_home_dir, 'hub', model_repo_id_for_cache, 'refs', 'main')
+        if os.path.exists(refs_main_path):
+            try:
+                with open(refs_main_path, 'r') as f:
+                    return f.read().strip()
+            except Exception as e:
+                print(f"Warning: Could not read snapshot hash from {refs_main_path}: {e}")
+                return None
+        else:
+            print(f"Warning: refs/main file not found at {refs_main_path}. Cannot determine snapshot hash.")
+            return None
+            
     @abstractmethod
     def load_model(self):
         """
