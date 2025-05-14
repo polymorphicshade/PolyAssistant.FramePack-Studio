@@ -133,21 +133,43 @@ def create_interface(
                 with gr.Row():
                     with gr.Column(scale=2):
                         model_type = gr.Radio(
-                            choices=["Original", "F1"],
+                            choices=["Original", "F1", "Video"],
                             value="Original",
                             label="Model",
                             info="Select which model to use for generation"
                         )
-                        input_image = gr.Image(
-                            sources='upload',
-                            type="numpy",
-                            label="Image (optional)",
-                            height=420,
-                            elem_classes="contain-image",
-                            image_mode="RGB",
-                            show_download_button=False,
-                            show_label=True,
-                            container=True
+                        with gr.Group(visible=True) as image_input_group:
+                            input_image = gr.Image(
+                                sources='upload',
+                                type="numpy",
+                                label="Image (optional)",
+                                height=420,
+                                elem_classes="contain-image",
+                                image_mode="RGB",
+                                show_download_button=False,
+                                show_label=True,
+                                container=True
+                            )
+                        
+                        with gr.Group(visible=False) as video_input_group:
+                            input_video = gr.Video(
+                                sources='upload',
+                                label="Video Input",
+                                height=420,
+                                show_label=True
+                            )
+                        
+                        # Show/hide video or image input based on model selection
+                        def update_input_visibility(model_choice):
+                            if model_choice == "Video":
+                                return gr.update(visible=False), gr.update(visible=True)
+                            else:
+                                return gr.update(visible=True), gr.update(visible=False)
+                        
+                        model_type.change(
+                            fn=update_input_visibility,
+                            inputs=[model_type],
+                            outputs=[image_input_group, video_input_group]
                         )
 
                         with gr.Accordion("Latent Image Options", open=False):
@@ -458,14 +480,17 @@ def create_interface(
         # Connect the main process function (wrapper for adding to queue)
         def process_with_queue_update(model_type, *args):
             # Extract all arguments (ensure order matches inputs lists)
-            input_image, prompt_text, n_prompt, seed_value, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, teacache_num_steps, teacache_rel_l1_thresh, mp4_crf, randomize_seed_checked, save_metadata_checked, blend_sections, latent_type, clean_up_videos, selected_loras, resolutionW, resolutionH, *lora_args = args
+            input_image, input_video, prompt_text, n_prompt, seed_value, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, teacache_num_steps, teacache_rel_l1_thresh, mp4_crf, randomize_seed_checked, save_metadata_checked, blend_sections, latent_type, clean_up_videos, selected_loras, resolutionW, resolutionH, *lora_args = args
 
             # DO NOT parse the prompt here. Parsing happens once in the worker.
 
+            # Use the appropriate input based on model type
+            input_data = input_video if model_type == "Video" else input_image
+            
             # Use the current seed value as is for this job
             # Call the process function with all arguments
             # Pass the model_type and the ORIGINAL prompt_text string to the backend process function
-            result = process_fn(model_type, input_image, prompt_text, n_prompt, seed_value, total_second_length, # Pass original prompt_text string
+            result = process_fn(model_type, input_data, prompt_text, n_prompt, seed_value, total_second_length, # Pass original prompt_text string
                             latent_window_size, steps, cfg, gs, rs,
                             use_teacache, teacache_num_steps, teacache_rel_l1_thresh, blend_sections, latent_type, clean_up_videos, selected_loras, resolutionW, resolutionH, *lora_args)
 
@@ -499,9 +524,10 @@ def create_interface(
             return queue_status_data
 
         # --- Inputs Lists ---
-        # --- Inputs for Original Model ---
+        # --- Inputs for all models ---
         ips = [
             input_image,
+            input_video,
             prompt,
             n_prompt,
             seed,

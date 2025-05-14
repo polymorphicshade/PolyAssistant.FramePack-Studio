@@ -383,36 +383,71 @@ def worker(
                 n_prompt, text_encoder, text_encoder_2, tokenizer, tokenizer_2, gpu
             )
 
-        # Processing input image
-        stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Image processing ...'))))
+        # Processing input image or video
+        if model_type == "Video":
+            stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Video processing ...'))))
+            # For Video model, input_image is actually a video path
+            # We'll handle the video processing in the VideoModelGenerator
+            # Just set default values for now
+            height, width = find_nearest_bucket(resolutionH, resolutionW, resolution=(resolutionH+resolutionW)/2)
+            input_image_np = None  # Will be set by the VideoModelGenerator
+            
+            if settings.get("save_metadata"):
+                metadata_dict = {
+                    "prompt": prompt_text, # Use the original string
+                    "seed": seed,
+                    "total_second_length": total_second_length,
+                    "steps": steps,
+                    "cfg": cfg,
+                    "gs": gs,
+                    "rs": rs,
+                    "latent_type": latent_type,
+                    "blend_sections": blend_sections,
+                    "latent_window_size": latent_window_size,
+                    "timestamp": time.time(),
+                    "resolutionW": resolutionW,
+                    "resolutionH": resolutionH,
+                    "model_type": model_type,
+                    "video_path": input_image  # Save the video path
+                }
+                
+                # Create a placeholder image for the video
+                placeholder_img = Image.new('RGB', (width, height), (0, 0, 128))  # Blue for video
+                placeholder_img.save(os.path.join(metadata_dir, f'{job_id}.png'))
+                
+                with open(os.path.join(metadata_dir, f'{job_id}.json'), 'w') as f:
+                    json.dump(metadata_dict, f, indent=2)
+        else:
+            # Regular image processing
+            stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Image processing ...'))))
 
-        H, W, _ = input_image.shape
-        height, width = find_nearest_bucket(H, W, resolution=resolutionW if has_input_image else (resolutionH+resolutionW)/2)
-        input_image_np = resize_and_center_crop(input_image, target_width=width, target_height=height)
+            H, W, _ = input_image.shape
+            height, width = find_nearest_bucket(H, W, resolution=resolutionW if has_input_image else (resolutionH+resolutionW)/2)
+            input_image_np = resize_and_center_crop(input_image, target_width=width, target_height=height)
 
-        if settings.get("save_metadata"):
-            metadata = PngInfo()
-            # prompt_text should be a string here now
-            metadata.add_text("prompt", prompt_text)
-            metadata.add_text("seed", str(seed))
-            Image.fromarray(input_image_np).save(os.path.join(metadata_dir, f'{job_id}.png'), pnginfo=metadata)
+            if settings.get("save_metadata"):
+                metadata = PngInfo()
+                # prompt_text should be a string here now
+                metadata.add_text("prompt", prompt_text)
+                metadata.add_text("seed", str(seed))
+                Image.fromarray(input_image_np).save(os.path.join(metadata_dir, f'{job_id}.png'), pnginfo=metadata)
 
-            metadata_dict = {
-                "prompt": prompt_text, # Use the original string
-                "seed": seed,
-                "total_second_length": total_second_length,
-                "steps": steps,
-                "cfg": cfg,
-                "gs": gs,
-                "rs": rs,
-                "latent_type" : latent_type,
-                "blend_sections": blend_sections,
-                "latent_window_size": latent_window_size,
-                "timestamp": time.time(),
-                "resolutionW": resolutionW,  # Add resolution to metadata
-                "resolutionH": resolutionH,
-                "model_type": model_type  # Add model type to metadata
-            }
+                metadata_dict = {
+                    "prompt": prompt_text, # Use the original string
+                    "seed": seed,
+                    "total_second_length": total_second_length,
+                    "steps": steps,
+                    "cfg": cfg,
+                    "gs": gs,
+                    "rs": rs,
+                    "latent_type" : latent_type,
+                    "blend_sections": blend_sections,
+                    "latent_window_size": latent_window_size,
+                    "timestamp": time.time(),
+                    "resolutionW": resolutionW,  # Add resolution to metadata
+                    "resolutionH": resolutionH,
+                    "model_type": model_type  # Add model type to metadata
+                }
             # Add LoRA information to metadata if LoRAs are used
             def ensure_list(x):
                 if isinstance(x, list):
@@ -440,30 +475,72 @@ def worker(
                         lora_data[lora_name] = 1.0
                 metadata_dict["loras"] = lora_data
 
-            with open(os.path.join(metadata_dir, f'{job_id}.json'), 'w') as f:
-                json.dump(metadata_dict, f, indent=2)
+                with open(os.path.join(metadata_dir, f'{job_id}.json'), 'w') as f:
+                    json.dump(metadata_dict, f, indent=2)
+            else:
+                Image.fromarray(input_image_np).save(os.path.join(metadata_dir, f'{job_id}.png'))
+
+        # Process video input for Video model
+        if model_type == "Video":
+            # For Video model, we'll handle the video processing in the VideoModelGenerator
+            stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Video encoding ...'))))
+            
+            # Encode the video using the VideoModelGenerator
+            start_latent, input_image_np, video_latents, fps, height, width, input_video_pixels = current_generator.video_encode(
+                video_path=input_image,
+                resolution=resolutionW,
+                no_resize=False,
+                vae_batch_size=16,
+                device=gpu
+            )
+            
+            # CLIP Vision encoding for the first frame
+            stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'CLIP Vision encoding ...'))))
+            
+            if not high_vram:
+                load_model_as_complete(image_encoder, target_device=gpu)
+                
+            image_encoder_output = hf_clip_vision_encode(input_image_np, feature_extractor, image_encoder)
+            image_encoder_last_hidden_state = image_encoder_output.last_hidden_state
+            
+            # Store the input video pixels and latents for later use
+            input_video_pixels = input_video_pixels.cpu()
+            video_latents = video_latents.cpu()
+            
+            # Initialize history_latents with the video latents
+            # This is crucial for the video model to use the input video as a starting point
+            history_latents = video_latents.cpu()
+            
+            # Store the first frame of the video latents as start_latent
+            start_latent = video_latents[:, :, :1].cpu()
+            
+            # Initialize total_generated_latent_frames for Video model
+            # For Video model, we start with 0 since we'll be adding to the end of the video
+            total_generated_latent_frames = 0
+            
+            # Store the number of frames in the input video for later use
+            input_video_frame_count = video_latents.shape[2]
         else:
-            Image.fromarray(input_image_np).save(os.path.join(metadata_dir, f'{job_id}.png'))
+            # Regular image processing
+            input_image_pt = torch.from_numpy(input_image_np).float() / 127.5 - 1
+            input_image_pt = input_image_pt.permute(2, 0, 1)[None, :, None]
 
-        input_image_pt = torch.from_numpy(input_image_np).float() / 127.5 - 1
-        input_image_pt = input_image_pt.permute(2, 0, 1)[None, :, None]
+            # VAE encoding
+            stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'VAE encoding ...'))))
 
-        # VAE encoding
-        stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'VAE encoding ...'))))
+            if not high_vram:
+                load_model_as_complete(vae, target_device=gpu)
 
-        if not high_vram:
-            load_model_as_complete(vae, target_device=gpu)
+            start_latent = vae_encode(input_image_pt, vae)
 
-        start_latent = vae_encode(input_image_pt, vae)
+            # CLIP Vision
+            stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'CLIP Vision encoding ...'))))
 
-        # CLIP Vision
-        stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'CLIP Vision encoding ...'))))
+            if not high_vram:
+                load_model_as_complete(image_encoder, target_device=gpu)
 
-        if not high_vram:
-            load_model_as_complete(image_encoder, target_device=gpu)
-
-        image_encoder_output = hf_clip_vision_encode(input_image_np, feature_extractor, image_encoder)
-        image_encoder_last_hidden_state = image_encoder_output.last_hidden_state
+            image_encoder_output = hf_clip_vision_encode(input_image_np, feature_extractor, image_encoder)
+            image_encoder_last_hidden_state = image_encoder_output.last_hidden_state
 
         # Dtype
         for prompt_key in encoded_prompts:
@@ -483,16 +560,17 @@ def worker(
         num_frames = latent_window_size * 4 - 3
 
         # Initialize history latents based on model type
-        history_latents = current_generator.prepare_history_latents(height, width)
-        
-        # For F1 model, initialize with start latent
-        if model_type == "F1":
-            history_latents = current_generator.initialize_with_start_latent(history_latents, start_latent)
-            total_generated_latent_frames = 1  # Start with 1 for F1 model since it includes the first frame
+        if model_type != "Video":  # Skip for Video model as we already initialized it
+            history_latents = current_generator.prepare_history_latents(height, width)
+            
+            # For F1 model, initialize with start latent
+            if model_type == "F1":
+                history_latents = current_generator.initialize_with_start_latent(history_latents, start_latent)
+                total_generated_latent_frames = 1  # Start with 1 for F1 model since it includes the first frame
+            elif model_type == "Original":
+                total_generated_latent_frames = 0
 
         history_pixels = None
-        if model_type == "Original":
-            total_generated_latent_frames = 0
         
         # Get latent paddings from the generator
         latent_paddings = current_generator.get_latent_paddings(total_latent_sections)
@@ -545,8 +623,19 @@ def worker(
             segment_hint = f'Sampling {current_step}/{steps}  ETA {fmt_eta(segment_eta)}'
             total_hint = f'Total {total_steps_done}/{total_steps}  ETA {fmt_eta(total_eta)}'
 
-            current_pos = (total_generated_latent_frames * 4 - 3) / 30
-            original_pos = total_second_length - current_pos
+            # For Video model, add the input video frame count when calculating current position
+            if model_type == "Video":
+                # Calculate the time position including the input video frames
+                input_video_time = input_video_frame_count * 4 / 30  # Convert latent frames to time
+                current_pos = input_video_time + (total_generated_latent_frames * 4 - 3) / 30
+                # Original position is the remaining time to generate
+                original_pos = total_second_length - (total_generated_latent_frames * 4 - 3) / 30
+            else:
+                # For other models, calculate as before
+                current_pos = (total_generated_latent_frames * 4 - 3) / 30
+                original_pos = total_second_length - current_pos
+            
+            # Ensure positions are not negative
             if current_pos < 0: current_pos = 0
             if original_pos < 0: original_pos = 0
 
@@ -579,9 +668,18 @@ def worker(
                 stream_to_use.output_queue.push(('end', None))
                 return
 
-            current_time_position = (total_generated_latent_frames * 4 - 3) / 30  # in seconds
-            if current_time_position < 0:
-                current_time_position = 0.01
+            # Calculate the current time position
+            if model_type == "Video":
+                # For Video model, add the input video time to the current position
+                input_video_time = input_video_frame_count * 4 / 30  # Convert latent frames to time
+                current_time_position = (total_generated_latent_frames * 4 - 3) / 30  # in seconds
+                if current_time_position < 0:
+                    current_time_position = 0.01
+            else:
+                # For other models, calculate as before
+                current_time_position = (total_generated_latent_frames * 4 - 3) / 30  # in seconds
+                if current_time_position < 0:
+                    current_time_position = 0.01
 
             # Find the appropriate prompt for this section
             current_prompt = prompt_sections[0].prompt  # Default to first prompt
@@ -734,6 +832,20 @@ def worker(
 
             section_idx += 1  # PROMPT BLENDING: increment section index
 
+        # For Video model, concatenate the input video with the generated content
+        if model_type == "Video":
+            print("Concatenating input video with generated content...")
+            # Concatenate the input video pixels with the history pixels
+            # The input video should come first, followed by the generated content
+            # This matches the original implementation in video-example.py
+            history_pixels = torch.cat([input_video_pixels, history_pixels], dim=2)
+            
+            # Create the final video with both input and generated content
+            output_filename = os.path.join(output_dir, f'{job_id}_final_with_input.mp4')
+            save_bcthw_as_mp4(history_pixels, output_filename, fps=30, crf=settings.get("mp4_crf"))
+            print(f'Final video with input: {output_filename}')
+            stream_to_use.output_queue.push(('file', output_filename))
+
         # Unload all LoRAs after generation completed
         if selected_loras:
             print("Unloading all LoRAs after generation completed")
@@ -860,7 +972,7 @@ def process(
     # Create job parameters
     job_params = {
         'model_type': model_type,
-        'input_image': input_image.copy(),  # Make a copy to avoid reference issues
+        'input_image': input_image.copy() if hasattr(input_image, 'copy') else input_image,  # Handle both image arrays and video paths
         'prompt_text': prompt_text,
         'n_prompt': n_prompt,
         'seed': seed,

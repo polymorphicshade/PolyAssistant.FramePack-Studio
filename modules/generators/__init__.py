@@ -1,12 +1,13 @@
 from .original_generator import OriginalModelGenerator
 from .f1_generator import F1ModelGenerator
+from .video_generator import VideoModelGenerator
 
 def create_model_generator(model_type, **kwargs):
     """
     Create a model generator based on the model type.
     
     Args:
-        model_type: The type of model to create ("Original" or "F1")
+        model_type: The type of model to create ("Original", "F1", or "Video")
         **kwargs: Additional arguments to pass to the model generator constructor
         
     Returns:
@@ -19,5 +20,7 @@ def create_model_generator(model_type, **kwargs):
         return OriginalModelGenerator(**kwargs)
     elif model_type == "F1":
         return F1ModelGenerator(**kwargs)
+    elif model_type == "Video":
+        return VideoModelGenerator(**kwargs)
     else:
         raise ValueError(f"Unsupported model type: {model_type}")

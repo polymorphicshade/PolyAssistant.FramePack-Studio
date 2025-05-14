@@ -1,0 +1,430 @@
+import torch
+import os
+import numpy as np
+import decord
+from tqdm import tqdm
+import pathlib
+from PIL import Image
+
+from diffusers_helper.models.hunyuan_video_packed import HunyuanVideoTransformer3DModelPacked
+from diffusers_helper.memory import DynamicSwapInstaller
+from diffusers_helper.utils import resize_and_center_crop
+from diffusers_helper.bucket_tools import find_nearest_bucket
+from diffusers_helper.hunyuan import vae_encode, vae_decode
+from .base_generator import BaseModelGenerator
+
+class VideoModelGenerator(BaseModelGenerator):
+    """
+    Model generator for the Video extension of the Original HunyuanVideo model.
+    This generator accepts video input instead of a single image.
+    """
+    
+    def __init__(self, **kwargs):
+        """
+        Initialize the Video model generator.
+        """
+        super().__init__(**kwargs)
+        self.model_name = "Video"
+        self.model_path = 'lllyasviel/FramePackI2V_HY'  # Same as Original
+        self.resolution = 640  # Default resolution
+        self.no_resize = False  # Default to resize
+        self.vae_batch_size = 16  # Default VAE batch size
+        
+        # Import decord and tqdm here to avoid import errors if not installed
+        try:
+            import decord
+            from tqdm import tqdm
+            self.decord = decord
+            self.tqdm = tqdm
+        except ImportError:
+            print("Warning: decord or tqdm not installed. Video processing will not work.")
+            self.decord = None
+            self.tqdm = None
+    
+    def get_model_name(self):
+        """
+        Get the name of the model.
+        """
+        return self.model_name
+    
+    def load_model(self):
+        """
+        Load the Video transformer model.
+        """
+        print(f"Loading {self.model_name} Transformer...")
+        
+        # Create the transformer model
+        self.transformer = HunyuanVideoTransformer3DModelPacked.from_pretrained(
+            self.model_path, 
+            torch_dtype=torch.bfloat16
+        ).cpu()
+        
+        # Configure the model
+        self.transformer.eval()
+        self.transformer.to(dtype=torch.bfloat16)
+        self.transformer.requires_grad_(False)
+        
+        # Set up dynamic swap if not in high VRAM mode
+        if not self.high_vram:
+            DynamicSwapInstaller.install_model(self.transformer, device=self.gpu)
+        
+        print(f"{self.model_name} Transformer Loaded.")
+        return self.transformer
+    
+    @torch.no_grad()
+    def video_encode(self, video_path, resolution, no_resize=False, vae_batch_size=16, device=None):
+        """
+        Encode a video into latent representations using the VAE.
+        
+        Args:
+            video_path: Path to the input video file.
+            resolution: Target resolution for resizing frames.
+            no_resize: Whether to use the original video resolution.
+            vae_batch_size: Number of frames to process per batch.
+            device: Device for computation (e.g., "cuda").
+        
+        Returns:
+            A tuple containing:
+            - start_latent: Latent of the first frame
+            - input_image_np: First frame as numpy array
+            - history_latents: Latents of all frames
+            - fps: Frames per second of the input video
+            - target_height: Target height of the video
+            - target_width: Target width of the video
+            - input_video_pixels: Video frames as tensor
+        """
+        if device is None:
+            device = self.gpu
+            
+        # Normalize video path for Windows compatibility
+        video_path = str(pathlib.Path(video_path).resolve())
+        print(f"Processing video: {video_path}")
+
+        # Check CUDA availability and fallback to CPU if needed
+        if device == "cuda" and not torch.cuda.is_available():
+            print("CUDA is not available, falling back to CPU")
+            device = "cpu"
+
+        try:
+            # Load video and get FPS
+            print("Initializing VideoReader...")
+            vr = decord.VideoReader(video_path)
+            fps = vr.get_avg_fps()  # Get input video FPS
+            num_real_frames = len(vr)
+            print(f"Video loaded: {num_real_frames} frames, FPS: {fps}")
+
+            # Truncate to nearest latent size (multiple of 4)
+            latent_size_factor = 4
+            num_frames = (num_real_frames // latent_size_factor) * latent_size_factor
+            if num_frames != num_real_frames:
+                print(f"Truncating video from {num_real_frames} to {num_frames} frames for latent size compatibility")
+            num_real_frames = num_frames
+
+            # Read frames
+            print("Reading video frames...")
+            frames = vr.get_batch(range(num_real_frames)).asnumpy()  # Shape: (num_real_frames, height, width, channels)
+            print(f"Frames read: {frames.shape}")
+
+            # Get native video resolution
+            native_height, native_width = frames.shape[1], frames.shape[2]
+            print(f"Native video resolution: {native_width}x{native_height}")
+        
+            # Use native resolution if height/width not specified, otherwise use provided values
+            target_height = native_height
+            target_width = native_width
+        
+            # Adjust to nearest bucket for model compatibility
+            if not no_resize:
+                target_height, target_width = find_nearest_bucket(target_height, target_width, resolution=resolution)
+                print(f"Adjusted resolution: {target_width}x{target_height}")
+            else:
+                print(f"Using native resolution without resizing: {target_width}x{target_height}")
+
+            # Preprocess frames to match original image processing
+            processed_frames = []
+            for i, frame in enumerate(frames):
+                frame_np = resize_and_center_crop(frame, target_width=target_width, target_height=target_height)
+                processed_frames.append(frame_np)
+            processed_frames = np.stack(processed_frames)  # Shape: (num_real_frames, height, width, channels)
+            print(f"Frames preprocessed: {processed_frames.shape}")
+
+            # Save first frame for CLIP vision encoding
+            input_image_np = processed_frames[0]
+
+            # Convert to tensor and normalize to [-1, 1]
+            print("Converting frames to tensor...")
+            frames_pt = torch.from_numpy(processed_frames).float() / 127.5 - 1
+            frames_pt = frames_pt.permute(0, 3, 1, 2)  # Shape: (num_real_frames, channels, height, width)
+            frames_pt = frames_pt.unsqueeze(0)  # Shape: (1, num_real_frames, channels, height, width)
+            frames_pt = frames_pt.permute(0, 2, 1, 3, 4)  # Shape: (1, channels, num_real_frames, height, width)
+            print(f"Tensor shape: {frames_pt.shape}")
+            
+            # Save pixel frames for use in worker
+            input_video_pixels = frames_pt.cpu()
+
+            # Move to device
+            print(f"Moving tensor to device: {device}")
+            frames_pt = frames_pt.to(device)
+            print("Tensor moved to device")
+
+            # Move VAE to device
+            print(f"Moving VAE to device: {device}")
+            self.vae.to(device)
+            print("VAE moved to device")
+
+            # Encode frames in batches
+            print(f"Encoding input video frames in VAE batch size {vae_batch_size}")
+            latents = []
+            self.vae.eval()
+            with torch.no_grad():
+                for i in tqdm(range(0, frames_pt.shape[2], vae_batch_size), desc="Encoding video frames", mininterval=0.1):
+                    batch = frames_pt[:, :, i:i + vae_batch_size]  # Shape: (1, channels, batch_size, height, width)
+                    try:
+                        # Log GPU memory before encoding
+                        if device == "cuda":
+                            free_mem = torch.cuda.memory_allocated() / 1024**3
+                        batch_latent = vae_encode(batch, self.vae)
+                        # Synchronize CUDA to catch issues
+                        if device == "cuda":
+                            torch.cuda.synchronize()
+                        latents.append(batch_latent)
+                    except RuntimeError as e:
+                        print(f"Error during VAE encoding: {str(e)}")
+                        if device == "cuda" and "out of memory" in str(e).lower():
+                            print("CUDA out of memory, try reducing vae_batch_size or using CPU")
+                        raise
+            
+            # Concatenate latents
+            print("Concatenating latents...")
+            history_latents = torch.cat(latents, dim=2)  # Shape: (1, channels, frames, height//8, width//8)
+            print(f"History latents shape: {history_latents.shape}")
+
+            # Get first frame's latent
+            start_latent = history_latents[:, :, :1]  # Shape: (1, channels, 1, height//8, width//8)
+            print(f"Start latent shape: {start_latent.shape}")
+
+            # Move VAE back to CPU to free GPU memory
+            if device == "cuda":
+                self.vae.to(self.cpu)
+                torch.cuda.empty_cache()
+                print("VAE moved back to CPU, CUDA cache cleared")
+
+            return start_latent, input_image_np, history_latents, fps, target_height, target_width, input_video_pixels
+
+        except Exception as e:
+            print(f"Error in video_encode: {str(e)}")
+            raise
+    
+    def prepare_history_latents(self, height, width):
+        """
+        Prepare the history latents tensor for the Video model.
+        
+        Args:
+            height: The height of the image
+            width: The width of the image
+            
+        Returns:
+            The initialized history latents tensor
+        """
+        return torch.zeros(
+            size=(1, 16, 1 + 2 + 16, height // 8, width // 8), 
+            dtype=torch.float32
+        ).cpu()
+    
+    def get_latent_paddings(self, total_latent_sections):
+        """
+        Get the latent paddings for the Video model.
+        
+        Args:
+            total_latent_sections: The total number of latent sections
+            
+        Returns:
+            A list of latent paddings
+        """
+        # Video model uses reversed latent paddings like Original
+        if total_latent_sections > 4:
+            return [3] + [2] * (total_latent_sections - 3) + [1, 0]
+        else:
+            return list(reversed(range(total_latent_sections)))
+    
+    def prepare_indices(self, latent_padding_size, latent_window_size):
+        """
+        Prepare the indices for the Video model.
+        
+        Args:
+            latent_padding_size: The size of the latent padding
+            latent_window_size: The size of the latent window
+            
+        Returns:
+            A tuple of (clean_latent_indices, latent_indices, clean_latent_2x_indices, clean_latent_4x_indices)
+        """
+        indices = torch.arange(0, sum([1, latent_padding_size, latent_window_size, 1, 2, 16])).unsqueeze(0)
+        clean_latent_indices_pre, blank_indices, latent_indices, clean_latent_indices_post, clean_latent_2x_indices, clean_latent_4x_indices = indices.split([1, latent_padding_size, latent_window_size, 1, 2, 16], dim=1)
+        clean_latent_indices = torch.cat([clean_latent_indices_pre, clean_latent_indices_post], dim=1)
+        
+        return clean_latent_indices, latent_indices, clean_latent_2x_indices, clean_latent_4x_indices
+    
+    def prepare_clean_latents(self, start_latent, history_latents):
+        """
+        Prepare the clean latents for the Video model.
+        
+        Args:
+            start_latent: The start latent
+            history_latents: The history latents
+            
+        Returns:
+            A tuple of (clean_latents, clean_latents_2x, clean_latents_4x)
+        """
+        # Get the actual size of the history_latents tensor
+        history_frames = history_latents.shape[2]
+        
+        # Calculate the number of frames to use for each component
+        # Ensure we don't try to use more frames than are available
+        post_frames = min(1, history_frames)
+        frames_2x = min(2, max(0, history_frames - post_frames))
+        frames_4x = min(16, max(0, history_frames - post_frames - frames_2x))
+        
+        # Prepare the clean latents
+        clean_latents_pre = start_latent.to(history_latents)
+        
+        # Handle the case where history_latents doesn't have enough frames
+        if history_frames > 0:
+            if post_frames + frames_2x + frames_4x > 0:
+                # Split the history_latents tensor into chunks
+                splits = []
+                if post_frames > 0:
+                    splits.append(post_frames)
+                if frames_2x > 0:
+                    splits.append(frames_2x)
+                if frames_4x > 0:
+                    splits.append(frames_4x)
+                
+                # Split the tensor
+                split_tensors = history_latents[:, :, :sum(splits), :, :].split(splits, dim=2)
+                
+                # Assign the split tensors to the appropriate variables
+                split_idx = 0
+                if post_frames > 0:
+                    clean_latents_post = split_tensors[split_idx]
+                    split_idx += 1
+                else:
+                    clean_latents_post = torch.zeros_like(clean_latents_pre)
+                
+                if frames_2x > 0:
+                    clean_latents_2x = split_tensors[split_idx]
+                    split_idx += 1
+                else:
+                    clean_latents_2x = torch.zeros_like(clean_latents_pre)
+                
+                if frames_4x > 0:
+                    clean_latents_4x = split_tensors[split_idx]
+                else:
+                    clean_latents_4x = torch.zeros_like(clean_latents_pre)
+            else:
+                # Not enough frames, use zeros
+                clean_latents_post = torch.zeros_like(clean_latents_pre)
+                clean_latents_2x = torch.zeros_like(clean_latents_pre)
+                clean_latents_4x = torch.zeros_like(clean_latents_pre)
+        else:
+            # No frames in history_latents, use zeros
+            clean_latents_post = torch.zeros_like(clean_latents_pre)
+            clean_latents_2x = torch.zeros_like(clean_latents_pre)
+            clean_latents_4x = torch.zeros_like(clean_latents_pre)
+        
+        # Concatenate the pre and post latents
+        clean_latents = torch.cat([clean_latents_pre, clean_latents_post], dim=2)
+        
+        return clean_latents, clean_latents_2x, clean_latents_4x
+    
+    def update_history_latents(self, history_latents, generated_latents):
+        """
+        Update the history latents with the generated latents for the Video model.
+        
+        Args:
+            history_latents: The history latents
+            generated_latents: The generated latents
+            
+        Returns:
+            The updated history latents
+        """
+        # For Video model, we prepend the generated latents to the history latents
+        # This matches the original implementation in video-example.py
+        # It generates new sections backwards in time, chunk by chunk
+        return torch.cat([generated_latents.to(history_latents), history_latents], dim=2)
+    
+    def get_real_history_latents(self, history_latents, total_generated_latent_frames):
+        """
+        Get the real history latents for the Video model.
+        
+        Args:
+            history_latents: The history latents
+            total_generated_latent_frames: The total number of generated latent frames
+            
+        Returns:
+            The real history latents
+        """
+        return history_latents[:, :, :total_generated_latent_frames, :, :]
+    
+    def update_history_pixels(self, history_pixels, current_pixels, overlapped_frames):
+        """
+        Update the history pixels with the current pixels for the Video model.
+        
+        Args:
+            history_pixels: The history pixels
+            current_pixels: The current pixels
+            overlapped_frames: The number of overlapped frames
+            
+        Returns:
+            The updated history pixels
+        """
+        from diffusers_helper.utils import soft_append_bcthw
+        # For Video model, we prepend the current pixels to the history pixels
+        # This matches the original implementation in video-example.py
+        return soft_append_bcthw(current_pixels, history_pixels, overlapped_frames)
+    
+    def get_section_latent_frames(self, latent_window_size, is_last_section):
+        """
+        Get the number of section latent frames for the Video model.
+        
+        Args:
+            latent_window_size: The size of the latent window
+            is_last_section: Whether this is the last section
+            
+        Returns:
+            The number of section latent frames
+        """
+        return latent_window_size * 2
+    
+    def get_current_pixels(self, real_history_latents, section_latent_frames, vae):
+        """
+        Get the current pixels for the Video model.
+        
+        Args:
+            real_history_latents: The real history latents
+            section_latent_frames: The number of section latent frames
+            vae: The VAE model
+            
+        Returns:
+            The current pixels
+        """
+        return vae_decode(real_history_latents[:, :, :section_latent_frames], vae).cpu()
+    
+    def format_position_description(self, total_generated_latent_frames, current_pos, original_pos, current_prompt):
+        """
+        Format the position description for the Video model.
+        
+        Args:
+            total_generated_latent_frames: The total number of generated latent frames
+            current_pos: The current position in seconds (includes input video time)
+            original_pos: The original position in seconds
+            current_prompt: The current prompt
+            
+        Returns:
+            The formatted position description
+        """
+        # For Video model, current_pos already includes the input video time
+        # We just need to display the total generated frames and the current position
+        return (f'Total generated frames: {int(max(0, total_generated_latent_frames * 4 - 3))}, '
+                f'Generated video length: {max(0, (total_generated_latent_frames * 4 - 3) / 30):.2f} seconds (FPS-30). '
+                f'Current position: {current_pos:.2f}s (remaining: {original_pos:.2f}s). '
+                f'using prompt: {current_prompt[:256]}...')

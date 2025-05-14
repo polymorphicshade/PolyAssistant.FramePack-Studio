@@ -69,11 +69,23 @@ class Job:
         if 'input_image' in self.params and self.params['input_image'] is not None:
             self.input_image = self.params['input_image']
             # Create thumbnail
-            img = Image.fromarray(self.input_image)
-            img.thumbnail((100, 100))
-            buffered = io.BytesIO()
-            img.save(buffered, format="PNG")
-            self.thumbnail = f"data:image/png;base64,{base64.b64encode(buffered.getvalue()).decode()}"
+            if isinstance(self.input_image, np.ndarray):
+                # Handle numpy array (image)
+                img = Image.fromarray(self.input_image)
+                img.thumbnail((100, 100))
+                buffered = io.BytesIO()
+                img.save(buffered, format="PNG")
+                self.thumbnail = f"data:image/png;base64,{base64.b64encode(buffered.getvalue()).decode()}"
+            elif isinstance(self.input_image, str):
+                # Handle string (video path)
+                # Create a generic video thumbnail
+                img = Image.new('RGB', (100, 100), (0, 0, 128))  # Blue for video
+                buffered = io.BytesIO()
+                img.save(buffered, format="PNG")
+                self.thumbnail = f"data:image/png;base64,{base64.b64encode(buffered.getvalue()).decode()}"
+            else:
+                # Handle other types
+                self.thumbnail = None
         elif 'latent_type' in self.params:
             self.latent_type = self.params['latent_type']
             # Create a colored square based on latent type
