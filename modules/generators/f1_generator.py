@@ -24,43 +24,17 @@ class F1ModelGenerator(BaseModelGenerator):
         """
         return self.model_name
 
-    def _get_offline_load_path(self) -> str:
-        """
-        Attempts to find a specific local snapshot path for offline loading.
-        If a specific snapshot is found, its path is returned.
-        Otherwise, returns the default self.model_path as a fallback
-        This method is only intended to be called when self.offline is True.
-        """
-        snapshot_hash = self._get_snapshot_hash_from_refs(self.model_repo_id_for_cache)
-        hf_home = os.environ.get('HF_HOME')
-
-        if snapshot_hash and hf_home:
-            specific_snapshot_path = os.path.join(
-                hf_home, 'hub', self.model_repo_id_for_cache, 'snapshots', snapshot_hash
-            )
-            if os.path.isdir(specific_snapshot_path):
-                print(f"Offline mode: Using specific snapshot path: {specific_snapshot_path}")
-                return specific_snapshot_path
-            else:
-                # _get_snapshot_hash_from_refs prints warnings if hash/refs file is missing
-                print(f"Offline mode: Specific snapshot directory not found at '{specific_snapshot_path}'.")
-        else:
-            # _get_snapshot_hash_from_refs prints warnings if hf_home or hash is missing
-            print(f"Offline mode: Could not determine specific snapshot details.")
-        
-        print(f"Offline mode: Falling back to default model path for {self.model_name}: {self.model_path}")
-        return self.model_path
-        
     def load_model(self):
         """
         Load the F1 transformer model.
+        If offline mode is True, attempts to load from a local snapshot.
         """
         print(f"Loading {self.model_name} Transformer...")
         
         path_to_load = self.model_path # Initialize with the default path
 
         if self.offline:
-            path_to_load = self._get_offline_load_path()
+            path_to_load = self._get_offline_load_path() # Calls the method in BaseModelGenerator
 
         # Create the transformer model
         self.transformer = HunyuanVideoTransformer3DModelPacked.from_pretrained(

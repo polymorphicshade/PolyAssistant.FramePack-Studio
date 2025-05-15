@@ -52,6 +52,23 @@ class BaseModelGenerator(ABC):
         self.gpu = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.cpu = torch.device("cpu")
 
+            
+    @abstractmethod
+    def load_model(self):
+        """
+        Load the transformer model.
+        This method should be implemented by each specific model generator.
+        """
+        pass
+    
+    @abstractmethod
+    def get_model_name(self):
+        """
+        Get the name of the model.
+        This method should be implemented by each specific model generator.
+        """
+        pass
+
     @staticmethod
     def _get_snapshot_hash_from_refs(model_repo_id_for_cache: str) -> str | None:
         """
@@ -71,6 +88,7 @@ class BaseModelGenerator(ABC):
         if os.path.exists(refs_main_path):
             try:
                 with open(refs_main_path, 'r') as f:
+                    print(f"Offline mode: Reading snapshot hash from: {refs_main_path}")
                     return f.read().strip()
             except Exception as e:
                 print(f"Warning: Could not read snapshot hash from {refs_main_path}: {e}")
@@ -78,23 +96,36 @@ class BaseModelGenerator(ABC):
         else:
             print(f"Warning: refs/main file not found at {refs_main_path}. Cannot determine snapshot hash.")
             return None
-            
-    @abstractmethod
-    def load_model(self):
+
+    def _get_offline_load_path(self) -> str:
         """
-        Load the transformer model.
-        This method should be implemented by each specific model generator.
+        Returns the local snapshot path for offline loading if available.
+        Falls back to the default self.model_path if local snapshot can't be found.
+        Relies on self.model_repo_id_for_cache and self.model_path being set by subclasses.
         """
-        pass
-    
-    @abstractmethod
-    def get_model_name(self):
-        """
-        Get the name of the model.
-        This method should be implemented by each specific model generator.
-        """
-        pass
-    
+        # Ensure necessary attributes are set by the subclass
+        if not hasattr(self, 'model_repo_id_for_cache') or not self.model_repo_id_for_cache:
+            print(f"Warning: model_repo_id_for_cache not set in {self.__class__.__name__}. Cannot determine offline path.")
+            # Fallback to model_path if it exists, otherwise None
+            return getattr(self, 'model_path', None) 
+
+        if not hasattr(self, 'model_path') or not self.model_path:
+            print(f"Warning: model_path not set in {self.__class__.__name__}. Cannot determine fallback for offline path.")
+            return None
+
+        snapshot_hash = self._get_snapshot_hash_from_refs(self.model_repo_id_for_cache)
+        hf_home = os.environ.get('HF_HOME')
+
+        if snapshot_hash and hf_home:
+            specific_snapshot_path = os.path.join(
+                hf_home, 'hub', self.model_repo_id_for_cache, 'snapshots', snapshot_hash
+            )
+            if os.path.isdir(specific_snapshot_path):
+                return specific_snapshot_path
+                
+        # If snapshot logic fails or path is not a dir, fallback to the default model path
+        return self.model_path
+        
     def unload_loras(self):
         """
         Unload all LoRAs from the transformer model.
