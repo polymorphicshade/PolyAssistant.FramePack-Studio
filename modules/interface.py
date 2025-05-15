@@ -133,7 +133,7 @@ def create_interface(
                 with gr.Row():
                     with gr.Column(scale=2):
                         model_type = gr.Radio(
-                            choices=["Original", "F1", "Video"],
+                            choices=["Original", "F1"],
                             value="Original",
                             label="Model",
                             info="Select which model to use for generation"
