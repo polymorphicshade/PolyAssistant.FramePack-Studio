@@ -379,8 +379,10 @@ def worker(
             )
         else:
              # Use the helper function for caching and encoding negative prompt
+            # Ensure n_prompt is a string
+            n_prompt_str = str(n_prompt) if n_prompt is not None else ""
             llama_vec_n, llama_attention_mask_n, clip_l_pooler_n = get_cached_or_encode_prompt(
-                n_prompt, text_encoder, text_encoder_2, tokenizer, tokenizer_2, gpu
+                n_prompt_str, text_encoder, text_encoder_2, tokenizer, tokenizer_2, gpu
             )
 
         # Processing input image or video
@@ -389,7 +391,10 @@ def worker(
             # For Video model, input_image is actually a video path
             # We'll handle the video processing in the VideoModelGenerator
             # Just set default values for now
-            height, width = find_nearest_bucket(resolutionH, resolutionW, resolution=(resolutionH+resolutionW)/2)
+            # Ensure resolutionH and resolutionW are integers
+            resH = int(resolutionH) if isinstance(resolutionH, (int, float)) else 640
+            resW = int(resolutionW) if isinstance(resolutionW, (int, float)) else 640
+            height, width = find_nearest_bucket(resH, resW, resolution=(resH+resW)/2)
             input_image_np = None  # Will be set by the VideoModelGenerator
             
             if settings.get("save_metadata"):
@@ -838,11 +843,11 @@ def worker(
             # Concatenate the input video pixels with the history pixels
             # The input video should come first, followed by the generated content
             # This matches the original implementation in video-example.py
-            history_pixels = torch.cat([input_video_pixels, history_pixels], dim=2)
+            combined_pixels = torch.cat([input_video_pixels, history_pixels], dim=2)
             
             # Create the final video with both input and generated content
             output_filename = os.path.join(output_dir, f'{job_id}_final_with_input.mp4')
-            save_bcthw_as_mp4(history_pixels, output_filename, fps=30, crf=settings.get("mp4_crf"))
+            save_bcthw_as_mp4(combined_pixels, output_filename, fps=30, crf=settings.get("mp4_crf"))
             print(f'Final video with input: {output_filename}')
             stream_to_use.output_queue.push(('file', output_filename))
 

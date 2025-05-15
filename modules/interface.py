@@ -158,6 +158,11 @@ def create_interface(
                                 height=420,
                                 show_label=True
                             )
+                            combine_with_source = gr.Checkbox(
+                                label="Combine with source video",
+                                value=True,
+                                info="If checked, the source video will be combined with the generated video"
+                            )
                         
                         # Show/hide video or image input based on model selection
                         def update_input_visibility(model_choice):
