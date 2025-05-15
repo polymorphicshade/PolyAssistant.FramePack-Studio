@@ -1,4 +1,5 @@
 import torch
+import os # for offline loading path
 from diffusers_helper.models.hunyuan_video_packed import HunyuanVideoTransformer3DModelPacked
 from diffusers_helper.memory import DynamicSwapInstaller
 from .base_generator import BaseModelGenerator
@@ -15,22 +16,29 @@ class F1ModelGenerator(BaseModelGenerator):
         super().__init__(**kwargs)
         self.model_name = "F1"
         self.model_path = 'lllyasviel/FramePack_F1_I2V_HY_20250503'
+        self.model_repo_id_for_cache = "models--lllyasviel--FramePack_F1_I2V_HY_20250503" 
     
     def get_model_name(self):
         """
         Get the name of the model.
         """
         return self.model_name
-    
+
     def load_model(self):
         """
         Load the F1 transformer model.
+        If offline mode is True, attempts to load from a local snapshot.
         """
         print(f"Loading {self.model_name} Transformer...")
         
+        path_to_load = self.model_path # Initialize with the default path
+
+        if self.offline:
+            path_to_load = self._get_offline_load_path() # Calls the method in BaseModelGenerator
+
         # Create the transformer model
         self.transformer = HunyuanVideoTransformer3DModelPacked.from_pretrained(
-            self.model_path, 
+            path_to_load, 
             torch_dtype=torch.bfloat16
         ).cpu()
         
@@ -43,9 +51,9 @@ class F1ModelGenerator(BaseModelGenerator):
         if not self.high_vram:
             DynamicSwapInstaller.install_model(self.transformer, device=self.gpu)
         
-        print(f"{self.model_name} Transformer Loaded.")
+        print(f"{self.model_name} Transformer Loaded from {path_to_load}.")
         return self.transformer
-    
+
     def prepare_history_latents(self, height, width):
         """
         Prepare the history latents tensor for the F1 model.

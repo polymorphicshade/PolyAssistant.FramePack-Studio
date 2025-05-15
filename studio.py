@@ -79,9 +79,17 @@ parser.add_argument("--server", type=str, default='0.0.0.0')
 parser.add_argument("--port", type=int, required=False)
 parser.add_argument("--inbrowser", action='store_true')
 parser.add_argument("--lora", type=str, default=None, help="Lora path (comma separated for multiple)")
+parser.add_argument("--offline", action='store_true', help="Run in offline mode")
 args = parser.parse_args()
 
 print(args)
+
+if args.offline:
+    print("Offline mode enabled.")
+    os.environ['HF_HUB_OFFLINE'] = '1'
+else:
+    if 'HF_HUB_OFFLINE' in os.environ:
+        del os.environ['HF_HUB_OFFLINE']
 
 free_mem_gb = get_cuda_free_memory_gb(gpu)
 high_vram = free_mem_gb > 60
@@ -278,7 +286,7 @@ def worker(
     resolutionH=640,
     lora_loaded_names=[]
 ):
-    global high_vram, current_generator
+    global high_vram, current_generator, args
     
     # Ensure any existing LoRAs are unloaded from the current generator
     if current_generator is not None:
@@ -328,6 +336,7 @@ def worker(
             feature_extractor=feature_extractor,
             high_vram=high_vram,
             prompt_embedding_cache=prompt_embedding_cache,
+            offline=args.offline,
             settings=settings
         )
         

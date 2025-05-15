@@ -1,4 +1,5 @@
 import torch
+import os # required for os.path
 from abc import ABC, abstractmethod
 from diffusers_helper import lora_utils
 
@@ -18,7 +19,8 @@ class BaseModelGenerator(ABC):
                  feature_extractor, 
                  high_vram=False,
                  prompt_embedding_cache=None,
-                 settings=None):
+                 settings=None,
+                 offline=False): # NEW: offline flag
         """
         Initialize the base model generator.
         
@@ -33,6 +35,7 @@ class BaseModelGenerator(ABC):
             high_vram: Whether high VRAM mode is enabled
             prompt_embedding_cache: Cache for prompt embeddings
             settings: Application settings
+            offline: Whether to run in offline mode for model loading
         """
         self.text_encoder = text_encoder
         self.text_encoder_2 = text_encoder_2
@@ -44,10 +47,12 @@ class BaseModelGenerator(ABC):
         self.high_vram = high_vram
         self.prompt_embedding_cache = prompt_embedding_cache or {}
         self.settings = settings
+        self.offline = offline 
         self.transformer = None
         self.gpu = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.cpu = torch.device("cpu")
-    
+
+            
     @abstractmethod
     def load_model(self):
         """
@@ -63,7 +68,64 @@ class BaseModelGenerator(ABC):
         This method should be implemented by each specific model generator.
         """
         pass
-    
+
+    @staticmethod
+    def _get_snapshot_hash_from_refs(model_repo_id_for_cache: str) -> str | None:
+        """
+        Reads the commit hash from the refs/main file for a given model in the HF cache.
+        Args:
+            model_repo_id_for_cache (str): The model ID formatted for cache directory names
+                                           (e.g., "models--lllyasviel--FramePackI2V_HY").
+        Returns:
+            str: The commit hash if found, otherwise None.
+        """
+        hf_home_dir = os.environ.get('HF_HOME')
+        if not hf_home_dir:
+            print("Warning: HF_HOME environment variable not set. Cannot determine snapshot hash.")
+            return None
+            
+        refs_main_path = os.path.join(hf_home_dir, 'hub', model_repo_id_for_cache, 'refs', 'main')
+        if os.path.exists(refs_main_path):
+            try:
+                with open(refs_main_path, 'r') as f:
+                    print(f"Offline mode: Reading snapshot hash from: {refs_main_path}")
+                    return f.read().strip()
+            except Exception as e:
+                print(f"Warning: Could not read snapshot hash from {refs_main_path}: {e}")
+                return None
+        else:
+            print(f"Warning: refs/main file not found at {refs_main_path}. Cannot determine snapshot hash.")
+            return None
+
+    def _get_offline_load_path(self) -> str:
+        """
+        Returns the local snapshot path for offline loading if available.
+        Falls back to the default self.model_path if local snapshot can't be found.
+        Relies on self.model_repo_id_for_cache and self.model_path being set by subclasses.
+        """
+        # Ensure necessary attributes are set by the subclass
+        if not hasattr(self, 'model_repo_id_for_cache') or not self.model_repo_id_for_cache:
+            print(f"Warning: model_repo_id_for_cache not set in {self.__class__.__name__}. Cannot determine offline path.")
+            # Fallback to model_path if it exists, otherwise None
+            return getattr(self, 'model_path', None) 
+
+        if not hasattr(self, 'model_path') or not self.model_path:
+            print(f"Warning: model_path not set in {self.__class__.__name__}. Cannot determine fallback for offline path.")
+            return None
+
+        snapshot_hash = self._get_snapshot_hash_from_refs(self.model_repo_id_for_cache)
+        hf_home = os.environ.get('HF_HOME')
+
+        if snapshot_hash and hf_home:
+            specific_snapshot_path = os.path.join(
+                hf_home, 'hub', self.model_repo_id_for_cache, 'snapshots', snapshot_hash
+            )
+            if os.path.isdir(specific_snapshot_path):
+                return specific_snapshot_path
+                
+        # If snapshot logic fails or path is not a dir, fallback to the default model path
+        return self.model_path
+        
     def unload_loras(self):
         """
         Unload all LoRAs from the transformer model.
