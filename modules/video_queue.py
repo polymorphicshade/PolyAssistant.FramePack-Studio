@@ -235,11 +235,13 @@ class VideoJobQueue:
                     
                     # Start the worker function with the job parameters
                     from diffusers_helper.thread_utils import async_run
+                    print(f"Starting worker function for job {job_id}")
                     async_run(
                         self.worker_function,
                         **job.params,
                         job_stream=job.stream
                     )
+                    print(f"Worker function started for job {job_id}")
                     
                     # Process the results from the stream
                     output_filename = None

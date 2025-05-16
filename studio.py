@@ -599,6 +599,12 @@ def worker(
         # --- Callback for progress ---
         def callback(d):
             nonlocal last_step_time, step_durations
+            
+            # Check for cancellation signal
+            if stream_to_use.input_queue.top() == 'end':
+                print("Cancellation signal detected in callback")
+                return 'cancel'  # Return a signal that will be checked in the sampler
+                
             now_time = time.time()
             # Record duration between diffusion steps (skip first where duration may include setup)
             if last_step_time is not None:
