@@ -19,6 +19,7 @@ class Settings:
             "metadata_dir": str(project_root / "outputs"),
             "lora_dir": str(project_root / "loras"),
             "gradio_temp_dir": str(project_root / "temp"),
+            "input_files_dir": str(project_root / "input_files"),  # New setting for input files
             "auto_save_settings": True,
             "gradio_theme": "base",
             "mp4_crf": 16,

@@ -285,6 +285,9 @@ def worker(
     job_stream=None,
     output_dir=None,
     metadata_dir=None,
+    input_files_dir=None,  # Add input_files_dir parameter
+    input_image_path=None,  # Add input_image_path parameter
+    end_frame_image_path=None,  # Add end_frame_image_path parameter
     resolutionW=640,  # Add resolution parameter with default value
     resolutionH=640,
     lora_loaded_names=[]
@@ -505,12 +508,17 @@ def worker(
             stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Video encoding ...'))))
             
             # Encode the video using the VideoModelGenerator
+            # Get input_files_dir from settings
+            input_files_dir = settings.get("input_files_dir")
+            
+            # Encode the video using the VideoModelGenerator
             start_latent, input_image_np, video_latents, fps, height, width, input_video_pixels = current_generator.video_encode(
                 video_path=input_image,
                 resolution=resolutionW,
                 no_resize=False,
                 vae_batch_size=16,
-                device=gpu
+                device=gpu,
+                input_files_dir=input_files_dir
             )
             
             # CLIP Vision encoding for the first frame
@@ -1122,6 +1130,37 @@ def process(
             print(f"No input image provided. Using a blank black image (latent_type: {latent_type}).")
 
     
+    # Handle input files - copy to input_files_dir to prevent them from being deleted by temp cleanup
+    input_files_dir = settings.get("input_files_dir")
+    os.makedirs(input_files_dir, exist_ok=True)
+    
+    # Process input image (if it's a file path)
+    input_image_path = None
+    if isinstance(input_image, str) and os.path.exists(input_image):
+        # It's a file path, copy it to input_files_dir
+        filename = os.path.basename(input_image)
+        input_image_path = os.path.join(input_files_dir, f"{generate_timestamp()}_{filename}")
+        try:
+            shutil.copy2(input_image, input_image_path)
+            print(f"Copied input image to {input_image_path}")
+            # For Video model, we'll use the path
+            if model_type == "Video":
+                input_image = input_image_path
+        except Exception as e:
+            print(f"Error copying input image: {e}")
+    
+    # Process end frame image (if it's a file path)
+    end_frame_image_path = None
+    if isinstance(end_frame_image, str) and os.path.exists(end_frame_image):
+        # It's a file path, copy it to input_files_dir
+        filename = os.path.basename(end_frame_image)
+        end_frame_image_path = os.path.join(input_files_dir, f"{generate_timestamp()}_{filename}")
+        try:
+            shutil.copy2(end_frame_image, end_frame_image_path)
+            print(f"Copied end frame image to {end_frame_image_path}")
+        except Exception as e:
+            print(f"Error copying end frame image: {e}")
+    
     # Create job parameters
     job_params = {
         'model_type': model_type,
@@ -1146,6 +1185,9 @@ def process(
         'has_input_image': has_input_image,
         'output_dir': settings.get("output_dir"),
         'metadata_dir': settings.get("metadata_dir"),
+        'input_files_dir': input_files_dir,  # Add input_files_dir to job parameters
+        'input_image_path': input_image_path,  # Add the path to the copied input image
+        'end_frame_image_path': end_frame_image_path,  # Add the path to the copied end frame image
         'resolutionW': resolutionW, # Add resolution parameter
         'resolutionH': resolutionH,
         'lora_loaded_names': lora_loaded_names

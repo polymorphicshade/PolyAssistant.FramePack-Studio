@@ -79,7 +79,7 @@ class VideoModelGenerator(BaseModelGenerator):
         return self.transformer
     
     @torch.no_grad()
-    def video_encode(self, video_path, resolution, no_resize=False, vae_batch_size=16, device=None):
+    def video_encode(self, video_path, resolution, no_resize=False, vae_batch_size=16, device=None, input_files_dir=None):
         """
         Encode a video into latent representations using the VAE.
         
@@ -89,6 +89,7 @@ class VideoModelGenerator(BaseModelGenerator):
             no_resize: Whether to use the original video resolution.
             vae_batch_size: Number of frames to process per batch.
             device: Device for computation (e.g., "cuda").
+            input_files_dir: Directory for input files that won't be cleaned up.
         
         Returns:
             A tuple containing:
@@ -106,6 +107,29 @@ class VideoModelGenerator(BaseModelGenerator):
         # Normalize video path for Windows compatibility
         video_path = str(pathlib.Path(video_path).resolve())
         print(f"Processing video: {video_path}")
+        
+        # Check if the video is in the temp directory and if we have an input_files_dir
+        if input_files_dir and "temp" in video_path:
+            # Check if there's a copy of this video in the input_files_dir
+            filename = os.path.basename(video_path)
+            input_file_path = os.path.join(input_files_dir, filename)
+            
+            # If the file exists in input_files_dir, use that instead
+            if os.path.exists(input_file_path):
+                print(f"Using video from input_files_dir: {input_file_path}")
+                video_path = input_file_path
+            else:
+                # If not, copy it to input_files_dir to prevent it from being deleted
+                try:
+                    from diffusers_helper.utils import generate_timestamp
+                    safe_filename = f"{generate_timestamp()}_{filename}"
+                    input_file_path = os.path.join(input_files_dir, safe_filename)
+                    import shutil
+                    shutil.copy2(video_path, input_file_path)
+                    print(f"Copied video to input_files_dir: {input_file_path}")
+                    video_path = input_file_path
+                except Exception as e:
+                    print(f"Error copying video to input_files_dir: {e}")
 
         # Check CUDA availability and fallback to CPU if needed
         if device == "cuda" and not torch.cuda.is_available():

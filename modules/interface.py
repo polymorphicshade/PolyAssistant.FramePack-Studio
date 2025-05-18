@@ -326,8 +326,8 @@ def create_interface(
                         # Create a container for the queue status
                         with gr.Row():
                             queue_status = gr.DataFrame(
-                                headers=["Job ID", "Type", "Status", "Created", "Started", "Completed", "Elapsed"], # Removed Preview header
-                                datatype=["str", "str", "str", "str", "str", "str", "str"], # Removed image datatype
+                                headers=["Job ID", "Type", "Status", "Created", "Started", "Completed", "Elapsed", "Preview"], 
+                                datatype=["str", "str", "str", "str", "str", "str", "str", "html"], 
                                 label="Job Queue"
                             )
                         with gr.Row():
@@ -844,7 +844,9 @@ def format_queue_status(jobs):
         # Get generation type from job data
         generation_type = getattr(job, 'generation_type', 'Original')
 
-        # Removed thumbnail processing
+        # Get thumbnail from job data and format it as HTML for display
+        thumbnail = getattr(job, 'thumbnail', None)
+        thumbnail_html = f'<img src="{thumbnail}" width="64" height="64" style="object-fit: contain;">' if thumbnail else ""
 
         rows.append([
             job.id[:6] + '...',
@@ -853,8 +855,8 @@ def format_queue_status(jobs):
             created,
             started,
             completed,
-            elapsed_time
-            # Removed thumbnail from row data
+            elapsed_time,
+            thumbnail_html  # Add formatted thumbnail HTML to row data
         ])
     return rows
 
