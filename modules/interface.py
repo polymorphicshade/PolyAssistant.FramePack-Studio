@@ -576,11 +576,11 @@ def create_interface(
             else:
                 return result + [update_queue_status_fn(), gr.update()]
 
-        # Custom end process function that ensures the queue is updated
+        # Custom end process function that ensures the queue is updated and changes button text
         def end_process_with_update():
             queue_status_data = end_process_fn()
-            # Make sure to return the queue status data
-            return queue_status_data
+            # Change the cancel button text to "Cancelling..."
+            return queue_status_data, gr.update(value="Cancelling...", interactive=False)
 
         # --- Inputs Lists ---
         # --- Inputs for all models ---
@@ -628,7 +628,7 @@ def create_interface(
         # Connect the end button to cancel the current job and update the queue
         end_button.click(
             fn=end_process_with_update,
-            outputs=[queue_status]
+            outputs=[queue_status, end_button]
         )
 
         # --- Connect Monitoring ---
