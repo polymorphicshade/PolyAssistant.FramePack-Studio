@@ -79,14 +79,14 @@ def create_interface(
         left: 0;
         width: 100vw;
         z-index: 1000;
-        background: rgb(11, 15, 25);
+        background: #333;
         color: #fff;
         padding: 10px 20px;
         display: flex;
         align-items: center;
         gap: 16px;
         box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        border-bottom: 1px solid #4f46e5;
+        
     }
     
     /* Button styling */
@@ -117,11 +117,12 @@ def create_interface(
     block = gr.Blocks(css=css, title="FramePack Studio", theme=current_theme).queue()
 
     with block:
-
         with gr.Row(elem_id="fixed-toolbar"):
-            gr.Markdown("<h1 style='margin:0;color:white;'>FramePack Studio</h1>")
-            # with gr.Column(scale=1):
-            #     queue_stats_display = gr.Markdown("<p style='margin:0;color:white;'>Queue: 0 | Completed: 0</p>")
+            gr.Markdown("<h1 style='display:inline;margin:0;color:white;'>FramePack Studio</h1>")
+            with gr.Column(scale=1):
+                queue_stats_display = gr.Markdown("<p style='margin:0;color:white;'>Queue: 0 | Running: 0 | Completed: 0</p>")
+            with gr.Column(scale=0):
+                version_display = gr.Markdown("<p style='margin:0;color:white;'>v0.2.3</p>")
             with gr.Column(scale=0):
                 refresh_stats_btn = gr.Button("⟳", elem_id="refresh-stats-btn")
 
@@ -591,22 +592,44 @@ def create_interface(
 
 
         # --- Connect Queue Refresh ---
+        # Function to update queue stats
+        def update_stats():
+            # Get queue status data
+            queue_status_data = update_queue_status_fn()
+            
+            # Get queue statistics for the toolbar display
+            jobs = job_queue.get_all_jobs()
+            
+            # Count jobs by status
+            pending_count = 0
+            running_count = 0
+            completed_count = 0
+            
+            for job in jobs:
+                if hasattr(job, 'status'):
+                    status = str(job.status)
+                    if status == "JobStatus.PENDING":
+                        pending_count += 1
+                    elif status == "JobStatus.RUNNING":
+                        running_count += 1
+                    elif status == "JobStatus.COMPLETED":
+                        completed_count += 1
+            
+            # Format the queue stats display text
+            queue_stats_text = f"<p style='margin:0;color:white;'>Queue: {pending_count} | Running: {running_count} | Completed: {completed_count}</p>"
+            
+            return queue_status_data, queue_stats_text
+        
         refresh_stats_btn.click(
-            fn=lambda: update_queue_status_fn(), # Use update_queue_status_fn passed in
+            fn=update_stats,
             inputs=None,
-            outputs=[queue_status]  # Removed queue_stats_display from outputs
+            outputs=[queue_status, queue_stats_display]
         )
 
-        # Set up auto-refresh for queue status (using a timer)
-        refresh_timer = gr.Number(value=0, visible=False)
-        def refresh_timer_fn():
-            """Updates the timer value periodically to trigger queue refresh"""
-            return int(time.time())
-        # This timer seems unused, maybe intended for block.load()? Keeping definition for now.
-        # refresh_timer.change(
-        #     fn=update_queue_status_fn, # Use the function passed in
-        #     outputs=[queue_status] # Update shared queue status display
-        # )
+        # Set up auto-refresh for queue status
+        # Instead of using a timer with 'every' parameter, we'll use the queue refresh button
+        # and rely on manual refreshes. The user can click the refresh button in the toolbar
+        # to update the stats.
 
         # --- Connect LoRA UI ---
         # Function to update slider visibility based on selection
@@ -734,8 +757,7 @@ def create_interface(
 
         # Add CSS for footer
 
-    return block
-
+        return block
 
 # --- Top-level Helper Functions (Used by Gradio callbacks, must be defined outside create_interface) ---
 

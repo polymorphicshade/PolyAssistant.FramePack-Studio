@@ -1069,6 +1069,21 @@ def update_queue_status():
         # Make sure the running job is showing status = RUNNING
         job_queue.current_job.status = JobStatus.RUNNING
     
+    # Update the toolbar stats
+    pending_count = 0
+    running_count = 0
+    completed_count = 0
+    
+    for job in jobs:
+        if hasattr(job, 'status'):
+            status = str(job.status)
+            if status == "JobStatus.PENDING":
+                pending_count += 1
+            elif status == "JobStatus.RUNNING":
+                running_count += 1
+            elif status == "JobStatus.COMPLETED":
+                completed_count += 1
+    
     return format_queue_status(jobs)
 
 
