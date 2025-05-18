@@ -131,7 +131,7 @@ def create_interface(
                 with gr.Row():
                     with gr.Column(scale=2):
                         model_type = gr.Radio(
-                            choices=["Original", "Original with Endframe", "F1", "Video"],
+                            choices=["Original", "Original with Endframe", "F1"],
                             value="Original",
                             label="Generation Type"
                         )
