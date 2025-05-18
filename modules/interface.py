@@ -131,15 +131,14 @@ def create_interface(
                 with gr.Row():
                     with gr.Column(scale=2):
                         model_type = gr.Radio(
-                            choices=["Original", "F1"],
+                            choices=["Original", "Original with Endframe", "F1"],
                             value="Original",
-                            label="Model",
-                            info="Select which model to use for generation"
+                            label="Generation Type"
                         )
-                        with gr.Tabs():
-                            with gr.TabItem("Start Frame"):
-                                # Default visibility: True because "Original" model is not "Video"
-                                with gr.Group(visible=True) as image_input_group: 
+                        # Default visibility: True because "Original" model is not "Video"
+                        with gr.Group(visible=True) as image_input_group:
+                            with gr.Row():
+                                with gr.Column(scale=1):
                                     input_image = gr.Image(
                                         sources='upload',
                                         type="numpy",
@@ -151,11 +150,9 @@ def create_interface(
                                         show_label=True, # Keep label for clarity
                                         container=True
                                     )
-                    
-                            # NEW: End Frame TabItem
-                            with gr.TabItem("End Frame (Original Model)"): 
-                                # Initial visibility: True because model_type.value ("Original" by default) IS "Original"
-                                with gr.Group(visible=(model_type.value == "Original")) as end_frame_group_original:
+                                
+                                # End Frame Column - only visible for "Original with Endframe" model
+                                with gr.Column(scale=1, visible=(model_type.value == "Original with Endframe")) as end_frame_group_original:
                                     end_frame_image_original = gr.Image(
                                         sources='upload',
                                         type="numpy",
@@ -167,14 +164,17 @@ def create_interface(
                                         show_label=True,
                                         container=True
                                     )
-                                    end_frame_strength_original = gr.Slider(
-                                        label="End Frame Influence",
-                                        minimum=0.05,
-                                        maximum=1.0,
-                                        value=1.0,
-                                        step=0.05,
-                                        info="Controls how strongly the end frame guides the generation (Original model only). 1.0 is full influence."
-                                    )
+                            
+                            # End Frame Influence slider - only visible for "Original with Endframe" model
+                            with gr.Group(visible=(model_type.value == "Original with Endframe")) as end_frame_slider_group:
+                                end_frame_strength_original = gr.Slider(
+                                    label="End Frame Influence",
+                                    minimum=0.05,
+                                    maximum=1.0,
+                                    value=1.0,
+                                    step=0.05,
+                                    info="Controls how strongly the end frame guides the generation. 1.0 is full influence."
+                                )
                     
                         with gr.Group(visible=False) as video_input_group:
                             input_video = gr.Video(
@@ -192,27 +192,29 @@ def create_interface(
                         # Show/hide input groups based on model selection
                         def update_input_visibility(model_choice_value):
                             is_video_model = (model_choice_value == "Video")
-                            is_original_model = (model_choice_value == "Original")
+                            is_endframe_model = (model_choice_value == "Original with Endframe")
                             
-                            # Visibility for image_input_group (content of "Start Frame" tab)
-                            image_input_grp_visible = not is_video_model # Visible for "Original" and "F1"
+                            # Visibility for image_input_group (contains start frame)
+                            image_input_grp_visible = not is_video_model # Visible for "Original", "Original with Endframe", and "F1"
 
                             # Visibility for video_input_group
                             video_input_grp_visible = is_video_model
 
-                            # Visibility for end_frame_group_original (content of "End Frame" tab)
-                            end_frame_grp_visible = is_original_model # Visible only for "Original" model
+                            # Visibility for end frame column and slider
+                            end_frame_grp_visible = is_endframe_model # Visible only for "Original with Endframe" model
+                            end_frame_slider_visible = is_endframe_model # Visible only for "Original with Endframe" model
 
                             return (
                                 gr.update(visible=image_input_grp_visible),    # For image_input_group
                                 gr.update(visible=video_input_grp_visible),    # For video_input_group
-                                gr.update(visible=end_frame_grp_visible)       # For end_frame_group_original
+                                gr.update(visible=end_frame_grp_visible),      # For end_frame_group_original
+                                gr.update(visible=end_frame_slider_visible)    # For end_frame_slider_group
                             )
 
                         model_type.change(
                             fn=update_input_visibility,
                             inputs=[model_type],
-                            outputs=[image_input_group, video_input_group, end_frame_group_original] # Added end_frame_group_original
+                            outputs=[image_input_group, video_input_group, end_frame_group_original, end_frame_slider_group]
                         )
                         
                         with gr.Accordion("Latent Image Options", open=False):
@@ -530,11 +532,11 @@ def create_interface(
             # Use the appropriate input based on model type
             input_data = input_video if model_type == "Video" else input_image
             
-            # NEW: Define actual end_frame params to pass to backend
+            # Define actual end_frame params to pass to backend
             actual_end_frame_image_for_backend = None
             actual_end_frame_strength_for_backend = 1.0  # Default strength
 
-            if model_type == "Original":
+            if model_type == "Original" or model_type == "Original with Endframe":
                 actual_end_frame_image_for_backend = end_frame_image_original # Use the unpacked value
                 actual_end_frame_strength_for_backend = end_frame_strength_original # Use the unpacked value
 

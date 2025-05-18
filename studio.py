@@ -617,7 +617,7 @@ def worker(
             if model_type == "F1":
                 history_latents = current_generator.initialize_with_start_latent(history_latents, start_latent)
                 total_generated_latent_frames = 1  # Start with 1 for F1 model since it includes the first frame
-            elif model_type == "Original":
+            elif model_type == "Original" or model_type == "Original with Endframe":
                 total_generated_latent_frames = 0
 
         history_pixels = None
@@ -798,8 +798,8 @@ def worker(
                   f'time position: {current_time_position:.2f}s (original: {original_time_position:.2f}s), '
                   f'using prompt: {current_prompt[:60]}...')
 
-            # Apply end_frame_latent to history_latents for Original model
-            if model_type == "Original" and i_section_loop == 0 and end_frame_latent is not None:
+            # Apply end_frame_latent to history_latents for Original and Original with Endframe models
+            if (model_type == "Original" or model_type == "Original with Endframe") and i_section_loop == 0 and end_frame_latent is not None:
                 print(f"Applying end_frame_latent to history_latents with strength: {end_frame_strength}")
                 actual_end_frame_latent_for_history = end_frame_latent.clone()
                 if end_frame_strength != 1.0: # Only multiply if not full strength
