@@ -1,6 +1,7 @@
 import threading
 import time
 import uuid
+import json
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, Any, Optional, List
@@ -117,6 +118,116 @@ class VideoJobQueue:
         """Set the worker function to use for processing jobs"""
         self.worker_function = worker_function
     
+    def serialize_job(self, job):
+        """Serialize a job to a JSON-compatible format"""
+        try:
+            # Create a simplified representation of the job
+            serialized = {
+                "id": job.id,
+                "status": job.status.value,
+                "created_at": job.created_at,
+                "started_at": job.started_at,
+                "completed_at": job.completed_at,
+                "error": job.error,
+                "result": job.result,
+                "queue_position": job.queue_position,
+                "generation_type": job.generation_type,
+            }
+            
+            # Add simplified params (excluding complex objects)
+            serialized_params = {}
+            for k, v in job.params.items():
+                if k not in ["input_image", "end_frame_image", "stream"]:
+                    # Try to include only JSON-serializable values
+                    try:
+                        # Test if value is JSON serializable
+                        json.dumps({k: v})
+                        serialized_params[k] = v
+                    except (TypeError, OverflowError):
+                        # Skip non-serializable values
+                        pass
+            
+            # Handle LoRA information specifically
+            # Only include selected LoRAs for the generation
+            if "selected_loras" in job.params and job.params["selected_loras"]:
+                selected_loras = job.params["selected_loras"]
+                # Ensure it's a list
+                if not isinstance(selected_loras, list):
+                    selected_loras = [selected_loras] if selected_loras is not None else []
+                
+                # Get LoRA values if available
+                lora_values = job.params.get("lora_values", [])
+                if not isinstance(lora_values, list):
+                    lora_values = [lora_values] if lora_values is not None else []
+                
+                # Get loaded LoRA names
+                lora_loaded_names = job.params.get("lora_loaded_names", [])
+                if not isinstance(lora_loaded_names, list):
+                    lora_loaded_names = [lora_loaded_names] if lora_loaded_names is not None else []
+                
+                # Create LoRA data dictionary
+                lora_data = {}
+                for lora_name in selected_loras:
+                    try:
+                        # Find the index of the LoRA in loaded names
+                        idx = lora_loaded_names.index(lora_name) if lora_loaded_names else -1
+                        # Get the weight value
+                        weight = lora_values[idx] if lora_values and idx >= 0 and idx < len(lora_values) else 1.0
+                        # Handle weight as list
+                        if isinstance(weight, list):
+                            weight_value = weight[0] if weight and len(weight) > 0 else 1.0
+                        else:
+                            weight_value = weight
+                        # Store as float
+                        lora_data[lora_name] = float(weight_value)
+                    except (ValueError, IndexError):
+                        # Default weight if not found
+                        lora_data[lora_name] = 1.0
+                    except Exception as e:
+                        print(f"Error processing LoRA {lora_name}: {e}")
+                        lora_data[lora_name] = 1.0
+                
+                # Add to serialized params
+                serialized_params["loras"] = lora_data
+            
+            serialized["params"] = serialized_params
+            
+            # Don't include the thumbnail as it can be very large and cause issues
+            # if job.thumbnail:
+            #     serialized["thumbnail"] = job.thumbnail
+                
+            return serialized
+        except Exception as e:
+            print(f"Error serializing job {job.id}: {e}")
+            # Return minimal information that should always be serializable
+            return {
+                "id": job.id,
+                "status": job.status.value,
+                "error": f"Error serializing: {str(e)}"
+            }
+    
+    def save_queue_to_json(self):
+        """Save the current queue to queue.json"""
+        try:
+            # Make a copy of job IDs to avoid holding the lock while serializing
+            with self.lock:
+                job_ids = list(self.jobs.keys())
+            
+            # Serialize jobs outside the lock
+            serialized_jobs = {}
+            for job_id in job_ids:
+                job = self.get_job(job_id)
+                if job:
+                    serialized_jobs[job_id] = self.serialize_job(job)
+            
+            # Save to file
+            with open("queue.json", "w") as f:
+                json.dump(serialized_jobs, f, indent=2)
+                
+            print(f"Saved {len(serialized_jobs)} jobs to queue.json")
+        except Exception as e:
+            print(f"Error saving queue to JSON: {e}")
+    
     def add_job(self, params):
         """Add a job to the queue and return its ID"""
         job_id = str(uuid.uuid4())
@@ -133,6 +244,12 @@ class VideoJobQueue:
             print(f"Adding job {job_id} to queue, current job is {self.current_job.id if self.current_job else 'None'}")
             self.jobs[job_id] = job
             self.queue.put(job_id)
+        
+        # Save the queue to JSON after adding a new job (outside the lock)
+        try:
+            self.save_queue_to_json()
+        except Exception as e:
+            print(f"Error saving queue to JSON after adding job: {e}")
         
         return job_id
     

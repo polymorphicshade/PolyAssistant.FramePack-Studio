@@ -500,6 +500,10 @@ def worker(
                 with open(os.path.join(metadata_dir, f'{job_id}.json'), 'w') as f:
                     json.dump(metadata_dict, f, indent=2)
             else:
+                # Always save metadata even if no LoRAs are used
+                with open(os.path.join(metadata_dir, f'{job_id}.json'), 'w') as f:
+                    json.dump(metadata_dict, f, indent=2)
+                
                 Image.fromarray(input_image_np).save(os.path.join(metadata_dir, f'{job_id}.png'))
 
         # Process video input for Video model
