@@ -436,6 +436,7 @@ def create_interface(
                         )
                         cleanup_temp_folder = gr.Checkbox(
                             label="Clean up temp folder after generation",
+                            visible=False,
                             value=settings.get("cleanup_temp_folder", True),
                             info="If checked, temporary files will be cleaned up after each generation."
                         )
