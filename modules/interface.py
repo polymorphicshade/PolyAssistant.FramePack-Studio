@@ -536,7 +536,7 @@ def create_interface(
             actual_end_frame_image_for_backend = None
             actual_end_frame_strength_for_backend = 1.0  # Default strength
 
-            if model_type == "Original" or model_type == "Original with Endframe":
+            if model_type == "Original with Endframe":
                 actual_end_frame_image_for_backend = end_frame_image_original # Use the unpacked value
                 actual_end_frame_strength_for_backend = end_frame_strength_original # Use the unpacked value
 

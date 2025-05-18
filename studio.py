@@ -560,10 +560,10 @@ def worker(
             image_encoder_output = hf_clip_vision_encode(input_image_np, feature_extractor, image_encoder)
             image_encoder_last_hidden_state = image_encoder_output.last_hidden_state
 
-        # NEW: VAE encode end_frame_image if provided (Original Model only for now)
+        # VAE encode end_frame_image if provided
         end_frame_latent = None
-        if model_type == "Original" and end_frame_image is not None:
-            print("Processing end frame for Original model...")
+        if model_type == "Original with Endframe" and end_frame_image is not None:
+            print(f"Processing end frame for {model_type} model...")
             if not isinstance(end_frame_image, np.ndarray):
                 print(f"Warning: end_frame_image is not a numpy array (type: {type(end_frame_image)}). Attempting conversion or skipping.")
                 try:
@@ -798,8 +798,8 @@ def worker(
                   f'time position: {current_time_position:.2f}s (original: {original_time_position:.2f}s), '
                   f'using prompt: {current_prompt[:60]}...')
 
-            # Apply end_frame_latent to history_latents for Original and Original with Endframe models
-            if (model_type == "Original" or model_type == "Original with Endframe") and i_section_loop == 0 and end_frame_latent is not None:
+            # Apply end_frame_latent to history_latents for Original with Endframe model
+            if model_type == "Original with Endframe" and i_section_loop == 0 and end_frame_latent is not None:
                 print(f"Applying end_frame_latent to history_latents with strength: {end_frame_strength}")
                 actual_end_frame_latent_for_history = end_frame_latent.clone()
                 if end_frame_strength != 1.0: # Only multiply if not full strength
