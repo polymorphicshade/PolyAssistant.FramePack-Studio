@@ -2,6 +2,7 @@ from diffusers_helper.hf_login import login
 
 import json
 import os
+import shutil
 from pathlib import PurePath
 import time
 import argparse
@@ -1027,6 +1028,29 @@ def worker(
                         print(f"Failed to delete {full_path}: {e}")
         except Exception as e:
             print(f"Error during video cleanup: {e}")
+    
+    # Clean up temp folder if enabled
+    if settings.get("cleanup_temp_folder"):
+        try:
+            temp_dir = settings.get("gradio_temp_dir")
+            if temp_dir and os.path.exists(temp_dir):
+                print(f"Cleaning up temp folder: {temp_dir}")
+                items = os.listdir(temp_dir)
+                removed_count = 0
+                for item in items:
+                    item_path = os.path.join(temp_dir, item)
+                    try:
+                        if os.path.isfile(item_path) or os.path.islink(item_path):
+                            os.remove(item_path)
+                            removed_count += 1
+                        elif os.path.isdir(item_path):
+                            shutil.rmtree(item_path)
+                            removed_count += 1
+                    except Exception as e:
+                        print(f"Error removing {item_path}: {e}")
+                print(f"Cleaned up {removed_count} temporary files/folders.")
+        except Exception as e:
+            print(f"Error during temp folder cleanup: {e}")
 
     # Final verification of LoRA state
     if current_generator and current_generator.transformer:

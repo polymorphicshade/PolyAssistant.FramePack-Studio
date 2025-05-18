@@ -22,7 +22,8 @@ class Settings:
             "auto_save_settings": True,
             "gradio_theme": "base",
             "mp4_crf": 16,
-            "clean_up_videos": True
+            "clean_up_videos": True,
+            "cleanup_temp_folder": True
         }
         self.settings = self.load_settings()
 

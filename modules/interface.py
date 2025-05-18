@@ -434,6 +434,11 @@ def create_interface(
                             value=settings.get("clean_up_videos", True),
                             info="If checked, only the final video will be kept after generation."
                         )
+                        cleanup_temp_folder = gr.Checkbox(
+                            label="Clean up temp folder after generation",
+                            value=settings.get("cleanup_temp_folder", True),
+                            info="If checked, temporary files will be cleaned up after each generation."
+                        )
                         output_dir = gr.Textbox(
                             label="Output Directory",
                             value=settings.get("output_dir"),
@@ -467,13 +472,14 @@ def create_interface(
                         status = gr.HTML("")
                         cleanup_output = gr.Textbox(label="Cleanup Status", interactive=False)
 
-                        def save_settings(save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, selected_theme):
+                        def save_settings(save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, cleanup_temp_folder, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, selected_theme):
                             try:
                                 settings.save_settings(
                                     save_metadata=save_metadata,
                                     gpu_memory_preservation=gpu_memory_preservation,
                                     mp4_crf=mp4_crf,
                                     clean_up_videos=clean_up_videos,
+                                    cleanup_temp_folder=cleanup_temp_folder,
                                     output_dir=output_dir,
                                     metadata_dir=metadata_dir,
                                     lora_dir=lora_dir,
@@ -487,7 +493,7 @@ def create_interface(
 
                         save_btn.click(
                             fn=save_settings,
-                            inputs=[save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, theme_dropdown],
+                            inputs=[save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, cleanup_temp_folder, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, theme_dropdown],
                             outputs=[status]
                         )
 
