@@ -525,12 +525,35 @@ def worker(
             input_video_pixels = input_video_pixels.cpu()
             video_latents = video_latents.cpu()
             
-            # Initialize history_latents with the video latents
-            # This is crucial for the video model to use the input video as a starting point
-            history_latents = video_latents.cpu()
+            # For Video model, we need to ensure the generation starts from the end of the input video
+            # First, store the video latents
+            video_latents_cpu = video_latents.cpu()
             
-            # Store the first frame of the video latents as start_latent
-            start_latent = video_latents[:, :, :1].cpu()
+            # Store the last frame of the video latents as start_latent for the model
+            start_latent = video_latents_cpu[:, :, -1:].cpu()
+            print(f"Using last frame of input video as start_latent. Shape: {start_latent.shape}")
+            
+            # Initialize history_latents with the entire video latents
+            # This provides full context for the model to generate a coherent continuation
+            # We'll use the last frame as the starting point for generation
+            history_latents = current_generator.prepare_history_latents(height, width)
+            
+            # Copy the video latents into the history_latents tensor
+            # This ensures the model has access to the full video context
+            video_frames = video_latents_cpu.shape[2]
+            if video_frames > 0:
+                # Calculate how many frames we can copy (limited by history_latents size)
+                max_frames = min(video_frames, history_latents.shape[2] - 1)  # Leave room for start_latent
+                if max_frames > 0:
+                    # Copy the last max_frames frames from the video latents
+                    history_latents[:, :, 1:max_frames+1, :, :] = video_latents_cpu[:, :, -max_frames:, :, :]
+                    print(f"Copied {max_frames} frames from video latents to history_latents")
+                
+                # Always put the last frame at position 0 (this is what the model will extend from)
+                history_latents[:, :, 0:1, :, :] = start_latent
+                print(f"Placed last frame of video at position 0 in history_latents")
+            
+            print(f"Initialized history_latents with video context. Shape: {history_latents.shape}")
             
             # Initialize total_generated_latent_frames for Video model
             # For Video model, we start with 0 since we'll be adding to the end of the video
@@ -912,10 +935,37 @@ def worker(
         # For Video model, concatenate the input video with the generated content
         if model_type == "Video":
             print("Concatenating input video with generated content...")
-            # Concatenate the input video pixels with the history pixels
+            # Since the generation happens in reverse order, we need to reverse the history_pixels
+            # before concatenating with the input video
+            print(f"Reversing generated content. Shape before: {history_pixels.shape}")
+            # Reverse the frames along the time dimension (dim=2)
+            reversed_history_pixels = torch.flip(history_pixels, dims=[2])
+            print(f"Shape after reversal: {reversed_history_pixels.shape}")
+            
+            # Get the last frame of the input video and the first frame of the reversed generated video
+            last_input_frame = input_video_pixels[:, :, -1:, :, :]
+            first_gen_frame = reversed_history_pixels[:, :, 0:1, :, :]
+            print(f"Last input frame shape: {last_input_frame.shape}")
+            print(f"First generated frame shape: {first_gen_frame.shape}")
+            
+            # Calculate the difference between the frames
+            frame_diff = first_gen_frame - last_input_frame
+            print(f"Frame difference magnitude: {torch.abs(frame_diff).mean().item()}")
+            
+            # Blend the first few frames of the generated video to create a smoother transition
+            blend_frames = 5  # Number of frames to blend
+            if reversed_history_pixels.shape[2] > blend_frames:
+                print(f"Blending first {blend_frames} frames for smoother transition")
+                for i in range(blend_frames):
+                    # Calculate blend factor (1.0 at frame 0, decreasing to 0.0)
+                    blend_factor = 1.0 - (i / blend_frames)
+                    # Apply correction with decreasing strength
+                    reversed_history_pixels[:, :, i:i+1, :, :] = reversed_history_pixels[:, :, i:i+1, :, :] - frame_diff * blend_factor
+            
+            # Concatenate the input video pixels with the reversed history pixels
             # The input video should come first, followed by the generated content
-            # This matches the original implementation in video-example.py
-            combined_pixels = torch.cat([input_video_pixels, history_pixels], dim=2)
+            # This makes the video extend from where the input video ends
+            combined_pixels = torch.cat([input_video_pixels, reversed_history_pixels], dim=2)
             
             # Create the final video with both input and generated content
             output_filename = os.path.join(output_dir, f'{job_id}_final_with_input.mp4')

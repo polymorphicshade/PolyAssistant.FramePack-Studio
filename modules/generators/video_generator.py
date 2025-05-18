@@ -271,6 +271,18 @@ class VideoModelGenerator(BaseModelGenerator):
         
         return clean_latent_indices, latent_indices, clean_latent_2x_indices, clean_latent_4x_indices
     
+    # Store the full video latents for context
+    full_video_latents = None
+    
+    def set_full_video_latents(self, video_latents):
+        """
+        Set the full video latents for context.
+        
+        Args:
+            video_latents: The full video latents
+        """
+        self.full_video_latents = video_latents
+    
     def prepare_clean_latents(self, start_latent, history_latents):
         """
         Prepare the clean latents for the Video model.
@@ -285,58 +297,89 @@ class VideoModelGenerator(BaseModelGenerator):
         # Get the actual size of the history_latents tensor
         history_frames = history_latents.shape[2]
         
-        # Calculate the number of frames to use for each component
-        # Ensure we don't try to use more frames than are available
-        post_frames = min(1, history_frames)
-        frames_2x = min(2, max(0, history_frames - post_frames))
-        frames_4x = min(16, max(0, history_frames - post_frames - frames_2x))
-        
         # Prepare the clean latents
         clean_latents_pre = start_latent.to(history_latents)
         
-        # Handle the case where history_latents doesn't have enough frames
+        # For clean_latents_post, use the last frame from history_latents if available
         if history_frames > 0:
-            if post_frames + frames_2x + frames_4x > 0:
-                # Split the history_latents tensor into chunks
-                splits = []
-                if post_frames > 0:
-                    splits.append(post_frames)
-                if frames_2x > 0:
-                    splits.append(frames_2x)
-                if frames_4x > 0:
-                    splits.append(frames_4x)
-                
-                # Split the tensor
-                split_tensors = history_latents[:, :, :sum(splits), :, :].split(splits, dim=2)
-                
-                # Assign the split tensors to the appropriate variables
-                split_idx = 0
-                if post_frames > 0:
-                    clean_latents_post = split_tensors[split_idx]
-                    split_idx += 1
-                else:
-                    clean_latents_post = torch.zeros_like(clean_latents_pre)
-                
-                if frames_2x > 0:
-                    clean_latents_2x = split_tensors[split_idx]
-                    split_idx += 1
-                else:
-                    clean_latents_2x = torch.zeros_like(clean_latents_pre)
-                
-                if frames_4x > 0:
-                    clean_latents_4x = split_tensors[split_idx]
-                else:
-                    clean_latents_4x = torch.zeros_like(clean_latents_pre)
-            else:
-                # Not enough frames, use zeros
-                clean_latents_post = torch.zeros_like(clean_latents_pre)
-                clean_latents_2x = torch.zeros_like(clean_latents_pre)
-                clean_latents_4x = torch.zeros_like(clean_latents_pre)
+            clean_latents_post = history_latents[:, :, -1:, :, :]
         else:
-            # No frames in history_latents, use zeros
             clean_latents_post = torch.zeros_like(clean_latents_pre)
-            clean_latents_2x = torch.zeros_like(clean_latents_pre)
-            clean_latents_4x = torch.zeros_like(clean_latents_pre)
+        
+        # For clean_latents_2x, prioritize using frames from history_latents for better coherence
+        # between sections, but fall back to full_video_latents if needed
+        if history_frames > 1:
+            # Use frames from history_latents for better coherence between sections
+            frames_2x = min(2, history_frames)
+            clean_latents_2x = history_latents[:, :, -frames_2x:, :, :].to(history_latents)
+            print(f"Using {frames_2x} frames from history_latents for clean_latents_2x")
+        elif self.full_video_latents is not None and self.full_video_latents.shape[2] > 1:
+            # Fall back to full_video_latents if history_latents doesn't have enough frames
+            video_frames = self.full_video_latents.shape[2]
+            if video_frames >= 2:
+                clean_latents_2x = self.full_video_latents[:, :, -2:, :, :].to(history_latents)
+                print(f"Using 2 frames from full_video_latents for clean_latents_2x")
+            else:
+                clean_latents_2x = torch.zeros((1, 16, 2, history_latents.shape[3], history_latents.shape[4]), dtype=history_latents.dtype, device=history_latents.device)
+                if video_frames == 1:
+                    clean_latents_2x[:, :, 0:1, :, :] = self.full_video_latents
+                print(f"Using {video_frames} frames from full_video_latents for clean_latents_2x")
+        else:
+            # If neither history_latents nor full_video_latents have enough frames, use zeros
+            clean_latents_2x = torch.zeros((1, 16, 2, history_latents.shape[3], history_latents.shape[4]), dtype=history_latents.dtype, device=history_latents.device)
+            print("Using zeros for clean_latents_2x")
+        
+        # For clean_latents_4x, combine frames from history_latents and full_video_latents
+        # to provide better context for coherence
+        if history_frames > 0:
+            # Determine how many frames to use from history_latents
+            history_frames_4x = min(8, history_frames)  # Use up to 8 frames from history_latents
+            history_frames_part = history_latents[:, :, -history_frames_4x:, :, :].to(history_latents)
+            print(f"Using {history_frames_4x} frames from history_latents for clean_latents_4x")
+            
+            # Determine how many frames to use from full_video_latents
+            remaining_frames = 16 - history_frames_4x
+            if remaining_frames > 0 and self.full_video_latents is not None and self.full_video_latents.shape[2] > 0:
+                video_frames = min(remaining_frames, self.full_video_latents.shape[2])
+                video_frames_part = self.full_video_latents[:, :, -video_frames:, :, :].to(history_latents)
+                print(f"Using {video_frames} frames from full_video_latents for clean_latents_4x")
+                
+                # If we still need more frames, pad with zeros
+                if history_frames_4x + video_frames < 16:
+                    padding_size = 16 - (history_frames_4x + video_frames)
+                    padding = torch.zeros((1, 16, padding_size, history_latents.shape[3], history_latents.shape[4]), dtype=history_latents.dtype, device=history_latents.device)
+                    clean_latents_4x = torch.cat([padding, video_frames_part, history_frames_part], dim=2)
+                    print(f"Added {padding_size} padding frames for clean_latents_4x")
+                else:
+                    clean_latents_4x = torch.cat([video_frames_part, history_frames_part], dim=2)
+            else:
+                # If we don't have full_video_latents, pad with zeros
+                padding_size = 16 - history_frames_4x
+                if padding_size > 0:
+                    padding = torch.zeros((1, 16, padding_size, history_latents.shape[3], history_latents.shape[4]), dtype=history_latents.dtype, device=history_latents.device)
+                    clean_latents_4x = torch.cat([padding, history_frames_part], dim=2)
+                    print(f"Added {padding_size} padding frames for clean_latents_4x (no video frames)")
+                else:
+                    clean_latents_4x = history_frames_part
+        elif self.full_video_latents is not None and self.full_video_latents.shape[2] > 0:
+            # If no history frames, use frames from full_video_latents
+            video_frames = min(16, self.full_video_latents.shape[2])
+            if video_frames > 0:
+                clean_latents_4x = self.full_video_latents[:, :, -video_frames:, :, :].to(history_latents)
+                # If we have fewer than 16 frames, pad with zeros
+                if video_frames < 16:
+                    padding = torch.zeros((1, 16, 16 - video_frames, history_latents.shape[3], history_latents.shape[4]), dtype=history_latents.dtype, device=history_latents.device)
+                    clean_latents_4x = torch.cat([padding, clean_latents_4x], dim=2)
+                    print(f"Using {video_frames} frames from full_video_latents with {16 - video_frames} padding frames for clean_latents_4x")
+                else:
+                    print(f"Using {video_frames} frames from full_video_latents for clean_latents_4x")
+            else:
+                clean_latents_4x = torch.zeros((1, 16, 16, history_latents.shape[3], history_latents.shape[4]), dtype=history_latents.dtype, device=history_latents.device)
+                print("Using zeros for clean_latents_4x (no video frames)")
+        else:
+            # If neither history_latents nor full_video_latents have frames, use zeros
+            clean_latents_4x = torch.zeros((1, 16, 16, history_latents.shape[3], history_latents.shape[4]), dtype=history_latents.dtype, device=history_latents.device)
+            print("Using zeros for clean_latents_4x (no history or video frames)")
         
         # Concatenate the pre and post latents
         clean_latents = torch.cat([clean_latents_pre, clean_latents_post], dim=2)
