@@ -81,12 +81,81 @@ def create_interface(
         z-index: 1000;
         background: #333;
         color: #fff;
-        padding: 10px 20px;
+        padding: 5px 10px;
         display: flex;
         align-items: center;
-        gap: 16px;
+        gap: 8px;
         box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-        
+    }
+    
+    /* Responsive toolbar title */
+    .toolbar-title {
+        font-size: 1.4rem;
+        margin: 0;
+        color: white;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    
+    /* Toolbar Patreon link */
+    .toolbar-patreon {
+        margin: 0 0 0 20px;
+        color: white;
+        font-size: 0.9rem;
+        white-space: nowrap;
+        display: inline-block;
+    }
+    .toolbar-patreon a {
+        color: white;
+        text-decoration: none;
+    }
+    .toolbar-patreon a:hover {
+        text-decoration: underline;
+    }
+    
+    /* Responsive design for screens */
+    @media (max-width: 1024px) {
+        .toolbar-patreon {
+            display: none;
+        }
+        .footer-patreon {
+            display: block;
+        }
+    }
+    
+    @media (min-width: 1025px) {
+        .footer-patreon {
+            display: none;
+        }
+    }
+    
+    @media (max-width: 768px) {
+        .toolbar-title {
+            font-size: 1.1rem;
+            max-width: 150px;
+        }
+        #fixed-toolbar {
+            padding: 3px 6px;
+            gap: 4px;
+        }
+        .toolbar-text {
+            font-size: 0.75rem;
+        }
+    }
+    
+    @media (max-width: 480px) {
+        .toolbar-title {
+            font-size: 1rem;
+            max-width: 120px;
+        }
+        #fixed-toolbar {
+            padding: 2px 4px;
+            gap: 2px;
+        }
+        .toolbar-text {
+            font-size: 0.7rem;
+        }
     }
     
     /* Button styling */
@@ -108,7 +177,19 @@ def create_interface(
     
     /* Layout adjustments */
     body, .gradio-container {
-        padding-top: 40px !important;
+        padding-top: 36px !important;
+    }
+    
+    @media (max-width: 768px) {
+        body, .gradio-container {
+            padding-top: 32px !important;
+        }
+    }
+    
+    @media (max-width: 480px) {
+        body, .gradio-container {
+            padding-top: 28px !important;
+        }
     }
     """
 
@@ -118,13 +199,19 @@ def create_interface(
 
     with block:
         with gr.Row(elem_id="fixed-toolbar"):
-            gr.Markdown("<h1 style='display:inline;margin:0;color:white;'>FramePack Studio</h1>")
-            with gr.Column(scale=1):
-                queue_stats_display = gr.Markdown("<p style='margin:0;color:white;'>Queue: 0 | Running: 0 | Completed: 0</p>")
-            with gr.Column(scale=0):
-                version_display = gr.Markdown("<p style='margin:0;color:white;'>v0.2.3</p>")
-            with gr.Column(scale=0):
-                refresh_stats_btn = gr.Button("⟳", elem_id="refresh-stats-btn")
+            with gr.Column(scale=0, min_width=400):
+                gr.HTML("""
+                <div style="display: flex; align-items: center;">
+                    <h1 class='toolbar-title'>FramePack Studio</h1>
+                    <p class='toolbar-patreon'><a href='https://patreon.com/Colinu' target='_blank'>Support on Patreon</a></p>
+                </div>
+                """)
+            with gr.Column(scale=1, min_width=180):
+                queue_stats_display = gr.Markdown("<p style='margin:0;color:white;' class='toolbar-text'>Queue: 0 | Running: 0 | Completed: 0</p>")
+            with gr.Column(scale=0, min_width=50):
+                version_display = gr.Markdown("<p style='margin:0;color:white;' class='toolbar-text'>v0.2.3</p>")
+            with gr.Column(scale=0, min_width=40):
+                refresh_stats_btn = gr.Button("⟳", elem_id="refresh-stats-btn", elem_classes="narrow-button")
 
         with gr.Tabs():
             with gr.Tab("Generate", id="generate_tab"):
@@ -672,7 +759,7 @@ def create_interface(
                         completed_count += 1
             
             # Format the queue stats display text
-            queue_stats_text = f"<p style='margin:0;color:white;'>Queue: {pending_count} | Running: {running_count} | Completed: {completed_count}</p>"
+            queue_stats_text = f"<p style='margin:0;color:white;' class='toolbar-text'>Queue: {pending_count} | Running: {running_count} | Completed: {completed_count}</p>"
             
             return queue_status_data, queue_stats_text
         
@@ -800,7 +887,7 @@ def create_interface(
                 gr.HTML("""
                 <div style="text-align: center; padding: 20px; color: #666;">
                     <div style="margin-top: 10px;">
-                        <a href="https://patreon.com/Colinu" target="_blank" style="margin: 0 10px; color: #666; text-decoration: none;">
+                        <a href="https://patreon.com/Colinu" target="_blank" style="margin: 0 10px; color: #666; text-decoration: none;" class="footer-patreon">
                             <i class="fab fa-patreon"></i>Support on Patreon
                         </a>
                         <a href="https://discord.gg/MtuM7gFJ3V" target="_blank" style="margin: 0 10px; color: #666; text-decoration: none;">
