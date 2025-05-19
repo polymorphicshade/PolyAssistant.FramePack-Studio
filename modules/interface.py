@@ -800,7 +800,7 @@ def create_interface(
             if not json_path:
                 # Return updates for all potentially affected components
                 num_orig_sliders = len(lora_sliders)
-                return [gr.update()] * (3 + num_orig_sliders)  # Updated to include total_second_length
+                return [gr.update()] * (4 + num_orig_sliders)  # Updated to include total_second_length and end_frame_strength
 
             try:
                 with open(json_path, 'r') as f:
@@ -834,12 +834,12 @@ def create_interface(
 
                 # Ensure the number of updates matches the number of outputs
                 num_orig_sliders = len(lora_sliders)
-                return updates[:3 + num_orig_sliders] # Return updates for prompt, seed, total_second_length, and sliders
+                return updates[:4 + num_orig_sliders] # Return updates for prompt, seed, total_second_length, end_frame_strength, and sliders
 
             except Exception as e:
                 print(f"Error loading metadata: {e}")
                 num_orig_sliders = len(lora_sliders)
-                return [gr.update()] * (3 + num_orig_sliders)  # Updated to include total_second_length
+                return [gr.update()] * (4 + num_orig_sliders)  # Updated to include total_second_length and end_frame_strength
 
 
         # Connect JSON metadata loader for Original tab
