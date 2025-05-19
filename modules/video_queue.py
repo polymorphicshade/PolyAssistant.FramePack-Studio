@@ -363,9 +363,7 @@ class VideoJobQueue:
                     # Process the results from the stream
                     output_filename = None
                     
-                    # Set a maximum time to wait for the job to complete
-                    max_wait_time = 3600  # 1 hour in seconds
-                    start_time = time.time()
+                    # Track activity time for logging purposes
                     last_activity_time = time.time()
                     
                     while True:
@@ -376,16 +374,8 @@ class VideoJobQueue:
                                 job_completed = True
                                 break
                         
-                        # Check if we've been waiting too long without any activity
+                        # Get current time for activity checks
                         current_time = time.time()
-                        if current_time - start_time > max_wait_time:
-                            print(f"Job {job_id} timed out after {max_wait_time} seconds")
-                            with self.lock:
-                                job.status = JobStatus.FAILED
-                                job.error = "Job timed out"
-                                job.completed_at = time.time()
-                            job_completed = True
-                            break
                         
                         # Check for inactivity (no output for a while)
                         if current_time - last_activity_time > 60:  # 1 minute of inactivity
