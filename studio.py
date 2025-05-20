@@ -787,8 +787,8 @@ def worker(
             prev_prompt = current_prompt
             next_prompt = current_prompt
 
-            # Only try to blend if we have prompt change indices and multiple sections
-            if prompt_change_indices and len(prompt_sections) > 1:
+            # Only try to blend if blend_sections > 0 and we have prompt change indices and multiple sections
+            if blend_sections > 0 and prompt_change_indices and len(prompt_sections) > 1:
                 for i, (change_idx, prompt) in enumerate(prompt_change_indices):
                     if section_idx < change_idx:
                         prev_prompt = prompt_change_indices[i - 1][1] if i > 0 else prompt
