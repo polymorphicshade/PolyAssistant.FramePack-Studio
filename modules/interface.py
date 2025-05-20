@@ -209,7 +209,7 @@ def create_interface(
             with gr.Column(scale=1, min_width=180):
                 queue_stats_display = gr.Markdown("<p style='margin:0;color:white;' class='toolbar-text'>Queue: 0 | Running: 0 | Completed: 0</p>")
             with gr.Column(scale=0, min_width=50):
-                version_display = gr.Markdown("<p style='margin:0;color:white;' class='toolbar-text'>v0.3</p>")
+                version_display = gr.Markdown("<p style='margin:0;color:white;' class='toolbar-text'>v0.3.1</p>")
             with gr.Column(scale=0, min_width=40):
                 refresh_stats_btn = gr.Button("⟳", elem_id="refresh-stats-btn", elem_classes="narrow-button")
 
@@ -230,7 +230,6 @@ def create_interface(
                                         sources='upload',
                                         type="numpy",
                                         label="Start Frame (optional)",
-                                        height=420,
                                         elem_classes="contain-image",
                                         image_mode="RGB",
                                         show_download_button=False,
@@ -244,7 +243,6 @@ def create_interface(
                                         sources='upload',
                                         type="numpy",
                                         label="End Frame (Optional)", 
-                                        height=420, 
                                         elem_classes="contain-image",
                                         image_mode="RGB",
                                         show_download_button=False,
