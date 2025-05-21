@@ -2,7 +2,7 @@
 
 FramePack Studio is an enhanced version of the FramePack demo script, designed to create intricate video scenes with improved prompt adherence. This is very much a work in progress, expect some bugs and broken features. 
 ![screencapture-127-0-0-1-7860-2025-05-04-20_13_58](https://github.com/user-attachments/assets/8fcb90af-8c3f-47ca-8f23-61d9b59438ae)
-
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/colinurbs/FramePack-Studio)
 
 ## Current Features
 
