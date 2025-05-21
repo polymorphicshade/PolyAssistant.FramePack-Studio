@@ -74,6 +74,9 @@ class VideoModelGenerator(BaseModelGenerator):
         # Set up dynamic swap if not in high VRAM mode
         if not self.high_vram:
             DynamicSwapInstaller.install_model(self.transformer, device=self.gpu)
+        else:
+            # In high VRAM mode, move the entire model to GPU
+            self.transformer.to(device=self.gpu)
         
         print(f"{self.model_name} Transformer Loaded from {path_to_load}.")
         return self.transformer
