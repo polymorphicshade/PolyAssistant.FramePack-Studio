@@ -12,7 +12,9 @@ import numpy as np
 import torch
 import datetime
 
+# Set environment variables
 os.environ['HF_HOME'] = os.path.abspath(os.path.realpath(os.path.join(os.path.dirname(__file__), './hf_download')))
+os.environ['TOKENIZERS_PARALLELISM'] = 'false'  # Prevent tokenizers parallelism warning
 
 import gradio as gr
 from PIL import Image

@@ -15,6 +15,9 @@ import subprocess
 import itertools
 import re
 from collections import defaultdict
+import imageio
+import imageio.plugins.ffmpeg
+import ffmpeg
 from diffusers_helper.utils import generate_timestamp
 
 from modules.video_queue import JobStatus, Job
@@ -653,23 +656,32 @@ def create_interface(
                     output_dir = 'outputs'
                     # -------------------------- connect with settings --------------------------
                    
-                    # ---------------------------- what about linux? ----------------------------
-                    fontfile = "C\\\\:/Windows/Fonts/arial.ttf"
-                    # ---------------------------- what about linux? ----------------------------
+                    # Handle font path for different operating systems
+                    import platform
+                    if platform.system() == "Windows":
+                        fontfile = "C\\\\:/Windows/Fonts/arial.ttf"
+                    else:  # Linux or macOS
+                        fontfile = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+                        # Fallback options if the above doesn't exist
+                        if not os.path.exists(fontfile):
+                            possible_fonts = [
+                                "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+                                "/usr/share/fonts/TTF/Arial.ttf",
+                                "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+                                "/System/Library/Fonts/Helvetica.ttc"  # macOS
+                            ]
+                            for font in possible_fonts:
+                                if os.path.exists(font):
+                                    fontfile = font
+                                    break
+                    print(f"Using font file: {fontfile}")
                     
                     timestamp_generation = generate_timestamp()
-                    output_path = output_dir + "//" + timestamp_generation + "_grid_XY.mp4"
+                    output_path = os.path.join(output_dir, f"{timestamp_generation}_grid_XY.mp4")
                     has_y = any('Y_axis_on_plot' in v for v in output_generator_vars)
                     # has_z = any('Z_axis_on_plot' in v for v in output_generator_vars) # not for now, please....
 
-                    # maybe needed bucket size
-                    # out_bucket_resH, out_bucket_resW = [128, 128]
-                    # if input_image is not None:
-                    #     H, W, _ = input_image.shape
-                    #     out_bucket_resH, out_bucket_resW = find_nearest_bucket(H, W, resolution=resolutionW)
-                    # else:
-                    #     out_bucket_resH, out_bucket_resW = find_nearest_bucket(resolutionH, resolutionW, (resolutionW+resolutionH)/2)
-
+                    # Organize videos into a grid structure
                     x_labels = []
                     y_labels = []
                     grid = {}
@@ -681,47 +693,118 @@ def create_interface(
                         if y not in y_labels:
                             y_labels.append(y)
                         grid[(y, x)] = item['result']
-                    inputs = []
-                    filter_complex = ''
-                    input_id = 0
-                    row_filters = []
-                    for y_index, y in enumerate(y_labels):
-                        col_filters = []
-                        for x_index, x in enumerate(x_labels):
-                            path = grid.get((y, x))
-                            if not path or not os.path.exists(path):
-                                raise ValueError(f"Missing or invalid video for X={x}, Y={y}")
-                            inputs.append(f"-i \"{path}\"")
-                            label_filters = []
-                            if y_index == 0:
-                                label_filters.append(
-                                    f"drawtext=fontfile={fontfile}:text='{x}':x=(w-text_w)/2:y=2:fontsize=14:fontcolor=white:box=1:boxcolor=black@0.5"
-                                )
-                            if x_index == 0 and has_y:
-                                label_filters.append(
-                                    f"drawtext=fontfile={fontfile}:text='{y}':x=2:y=(h-text_h)/2:fontsize=14:fontcolor=white:box=1:boxcolor=black@0.5"
-                                )
-                            if label_filters:
-                                filter_complex += f"[{input_id}:v]{','.join(label_filters)}[v{input_id}];"
-                                col_filters.append(f"[v{input_id}]")
-                            else:
-                                col_filters.append(f"[{input_id}:v]")
-                            input_id += 1
-                        if len(col_filters) == 1:
-                            row_filters.append(col_filters[0])
-                        else:
-                            row_label = f"row_{y_index}"
-                            filter_complex += f"{''.join(col_filters)}hstack=inputs={len(col_filters)}[{row_label}];"
-                            row_filters.append(f"[{row_label}]")
-                    if len(row_filters) == 1:
-                        final_map = row_filters[0]
-                    else:
-                        filter_complex += f"{''.join(row_filters)}vstack=inputs={len(row_filters)}[out]"
-                        final_map = "[out]"
-                    ffmpeg_command = f"ffmpeg {' '.join(inputs)} -filter_complex \"{filter_complex}\" -map {final_map} -y \"{output_path}\""
-                    # print("Running FFmpeg with labels:")
-                    # print(ffmpeg_command)
-                    subprocess.run(ffmpeg_command, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                    
+                    print("Creating XY plot grid video...")
+                    print(f"Output will be saved to: {output_path}")
+                    
+                    try:
+                        # First, load all videos and get their properties
+                        video_readers = {}
+                        video_frames = {}
+                        video_fps = {}
+                        max_height = 0
+                        max_width = 0
+                        
+                        for y in y_labels:
+                            for x in x_labels:
+                                path = grid.get((y, x))
+                                if not path or not os.path.exists(path):
+                                    raise ValueError(f"Missing or invalid video for X={x}, Y={y}")
+                                
+                                # Use imageio to read the video
+                                reader = imageio.get_reader(path)
+                                video_readers[(y, x)] = reader
+                                
+                                # Get video properties
+                                meta_data = reader.get_meta_data()
+                                video_fps[(y, x)] = meta_data.get('fps', 30)
+                                
+                                # Read all frames
+                                frames = []
+                                for frame in reader:
+                                    frames.append(frame)
+                                video_frames[(y, x)] = frames
+                                
+                                # Update max dimensions
+                                if frames:
+                                    h, w = frames[0].shape[:2]
+                                    max_height = max(max_height, h)
+                                    max_width = max(max_width, w)
+                        
+                        # Determine grid dimensions
+                        grid_width = len(x_labels) * max_width
+                        grid_height = len(y_labels) * max_height
+                        
+                        # Find the video with the most frames to determine output length
+                        max_frames = max(len(frames) for frames in video_frames.values())
+                        
+                        # Create a writer for the output video
+                        target_fps = 30  # Standard frame rate for output
+                        writer = imageio.get_writer(output_path, fps=target_fps)
+                        
+                        # Process each frame
+                        import PIL.Image
+                        import PIL.ImageDraw
+                        import PIL.ImageFont
+                        
+                        try:
+                            # Try to load a font for labels
+                            font = PIL.ImageFont.truetype(fontfile, 14)
+                        except:
+                            # Fallback to default font
+                            font = PIL.ImageFont.load_default()
+                        
+                        for frame_idx in range(max_frames):
+                            # Create a blank grid image
+                            grid_image = np.zeros((grid_height, grid_width, 3), dtype=np.uint8)
+                            
+                            # Place each video frame in the grid
+                            for y_idx, y in enumerate(y_labels):
+                                for x_idx, x in enumerate(x_labels):
+                                    frames = video_frames.get((y, x), [])
+                                    if frame_idx < len(frames):
+                                        frame = frames[frame_idx]
+                                        h, w = frame.shape[:2]
+                                        
+                                        # Calculate position in grid
+                                        y_pos = y_idx * max_height
+                                        x_pos = x_idx * max_width
+                                        
+                                        # Place frame in grid
+                                        grid_image[y_pos:y_pos+h, x_pos:x_pos+w] = frame
+                            
+                            # Convert to PIL Image for adding text
+                            pil_image = PIL.Image.fromarray(grid_image)
+                            draw = PIL.ImageDraw.Draw(pil_image)
+                            
+                            # Add labels
+                            for x_idx, x in enumerate(x_labels):
+                                if y_labels:  # Add X labels at the top
+                                    x_pos = x_idx * max_width + max_width // 2
+                                    draw.text((x_pos, 2), str(x), fill=(255, 255, 255), font=font, 
+                                             stroke_width=1, stroke_fill=(0, 0, 0))
+                            
+                            for y_idx, y in enumerate(y_labels):
+                                if has_y:  # Add Y labels on the left
+                                    y_pos = y_idx * max_height + max_height // 2
+                                    draw.text((2, y_pos), str(y), fill=(255, 255, 255), font=font,
+                                             stroke_width=1, stroke_fill=(0, 0, 0))
+                            
+                            # Convert back to numpy and write to output
+                            grid_frame = np.array(pil_image)
+                            writer.append_data(grid_frame)
+                        
+                        # Close all readers and the writer
+                        for reader in video_readers.values():
+                            reader.close()
+                        writer.close()
+                        
+                        print(f"XY plot grid video successfully created at: {output_path}")
+                    except Exception as e:
+                        print(f"Exception creating grid video: {str(e)}")
+                        import traceback
+                        traceback.print_exc()
+                        return f"Exception creating grid video: {str(e)}", gr.update()
                     return "", gr.update(value=output_path, visible=True)
                 
                 with gr.Row():

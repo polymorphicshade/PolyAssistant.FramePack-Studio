@@ -16,3 +16,6 @@ safetensors
 peft
 decord
 tqdm
+imageio==2.31.1
+imageio-ffmpeg==0.4.8
+ffmpeg-python==0.2.0
