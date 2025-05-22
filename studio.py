@@ -12,7 +12,9 @@ import numpy as np
 import torch
 import datetime
 
+# Set environment variables
 os.environ['HF_HOME'] = os.path.abspath(os.path.realpath(os.path.join(os.path.dirname(__file__), './hf_download')))
+os.environ['TOKENIZERS_PARALLELISM'] = 'false'  # Prevent tokenizers parallelism warning
 
 import gradio as gr
 from PIL import Image
@@ -471,41 +473,42 @@ def worker(
                     "end_frame_strength": end_frame_strength if end_frame_image is not None else None,
                     "end_frame_used": True if end_frame_image is not None else False,                    
                 }
-            # Add LoRA information to metadata if LoRAs are used
-            def ensure_list(x):
-                if isinstance(x, list):
-                    return x
-                elif x is None:
-                    return []
+            # Add LoRA information to metadata if LoRAs are used and metadata saving is enabled
+            if settings.get("save_metadata"):
+                def ensure_list(x):
+                    if isinstance(x, list):
+                        return x
+                    elif x is None:
+                        return []
+                    else:
+                        return [x]
+
+                selected_loras = ensure_list(selected_loras)
+                lora_values = ensure_list(lora_values)
+
+                if selected_loras and len(selected_loras) > 0:
+                    lora_data = {}
+                    for lora_name in selected_loras:
+                        try:
+                            idx = lora_loaded_names.index(lora_name)
+                            weight = lora_values[idx] if lora_values and idx < len(lora_values) else 1.0
+                            if isinstance(weight, list):
+                                weight_value = weight[0] if weight and len(weight) > 0 else 1.0
+                            else:
+                                weight_value = weight
+                            lora_data[lora_name] = float(weight_value)
+                        except ValueError:
+                            lora_data[lora_name] = 1.0
+                    metadata_dict["loras"] = lora_data
+
+                    with open(os.path.join(metadata_dir, f'{job_id}.json'), 'w') as f:
+                        json.dump(metadata_dict, f, indent=2)
                 else:
-                    return [x]
-
-            selected_loras = ensure_list(selected_loras)
-            lora_values = ensure_list(lora_values)
-
-            if selected_loras and len(selected_loras) > 0:
-                lora_data = {}
-                for lora_name in selected_loras:
-                    try:
-                        idx = lora_loaded_names.index(lora_name)
-                        weight = lora_values[idx] if lora_values and idx < len(lora_values) else 1.0
-                        if isinstance(weight, list):
-                            weight_value = weight[0] if weight and len(weight) > 0 else 1.0
-                        else:
-                            weight_value = weight
-                        lora_data[lora_name] = float(weight_value)
-                    except ValueError:
-                        lora_data[lora_name] = 1.0
-                metadata_dict["loras"] = lora_data
-
-                with open(os.path.join(metadata_dir, f'{job_id}.json'), 'w') as f:
-                    json.dump(metadata_dict, f, indent=2)
-            else:
-                # Always save metadata even if no LoRAs are used
-                with open(os.path.join(metadata_dir, f'{job_id}.json'), 'w') as f:
-                    json.dump(metadata_dict, f, indent=2)
-                
-                Image.fromarray(input_image_np).save(os.path.join(metadata_dir, f'{job_id}.png'))
+                    # Always save metadata even if no LoRAs are used
+                    with open(os.path.join(metadata_dir, f'{job_id}.json'), 'w') as f:
+                        json.dump(metadata_dict, f, indent=2)
+                    
+                    Image.fromarray(input_image_np).save(os.path.join(metadata_dir, f'{job_id}.png'))
 
         # Process video input for Video model
         if model_type == "Video":
@@ -787,8 +790,8 @@ def worker(
             prev_prompt = current_prompt
             next_prompt = current_prompt
 
-            # Only try to blend if we have prompt change indices and multiple sections
-            if prompt_change_indices and len(prompt_sections) > 1:
+            # Only try to blend if blend_sections > 0 and we have prompt change indices and multiple sections
+            if blend_sections > 0 and prompt_change_indices and len(prompt_sections) > 1:
                 for i, (change_idx, prompt) in enumerate(prompt_change_indices):
                     if section_idx < change_idx:
                         prev_prompt = prompt_change_indices[i - 1][1] if i > 0 else prompt
