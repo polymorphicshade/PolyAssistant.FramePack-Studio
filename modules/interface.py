@@ -24,6 +24,88 @@ from modules.video_queue import JobStatus, Job
 from modules.prompt_handler import get_section_boundaries, get_quick_prompts, parse_timestamped_prompt
 from diffusers_helper.gradio.progress_bar import make_progress_bar_css, make_progress_bar_html
 from diffusers_helper.bucket_tools import find_nearest_bucket
+from modules.xy_plot_wrapper import xy_plot_process_wrapper
+
+# XY Plot axis options and helper functions
+xy_plot_axis_options = {
+    # "type": [
+    #     "dropdown(checkboxGroup), textbox or number", 
+    #     "empty if textbox, dtype if number, [] if dropdown", 
+    #     "standard values", 
+    #     "True if multi axis - like prompt replace, False is only on one axis - like steps"
+    # ],
+    "Nothing": ["nothing", "", "", True],
+    "Model type": ["dropdown", ["Original", "Original with Endframe", "F1", "F1 with Endframe"], ["Original", "F1"], False],
+    "End frame influence": ["number", "float", "0.05-0.95[3]", False],
+    "Latent type": ["dropdown", ["Black", "White", "Noise", "Green Screen"], ["Black", "Noise"], False],
+    "Prompt add": ["textbox", "", "", True],
+    "Prompt replace": ["textbox", "", "", True],
+    "Blend sections": ["number", "int", "3-7 [3]", False],
+    "Steps": ["number", "int", "15-30 [3]", False],
+    "Seed": ["number", "int", "1000-10000 [3]", False],
+    "Use teacache": ["dropdown", [True, False], [True, False], False],
+    "TeaCache steps": ["number", "int", "5-25 [3]", False],
+    "TeaCache rel_l1_thresh": ["number", "float", "0.01-0.3 [3]", False],
+    # "CFG": ["number", "float", "", False],
+    "Distilled CFG Scale": ["number", "float", "5-15 [3]", False],
+    # "RS": ["number", "float", "", False],
+    # "Use weighted embeddings": ["dropdown", [True, False], [True, False], False],
+}
+
+text_to_base_keys = {
+    "Model type": "model_type",
+    "End frame influence": "end_frame_strength_original",
+    "Latent type": "latent_type",
+    "Prompt add": "prompt",
+    "Prompt replace": "prompt",
+    "Blend sections": "blend_sections",
+    "Steps": "steps",
+    "Seed": "seed",
+    "Use teacache": "use_teacache",
+    "TeaCache steps":"teacache_num_steps",
+    "TeaCache rel_l1_thresh":"teacache_rel_l1_thresh",
+    "Latent window size": "latent_window_size",
+    # "CFG": "",
+    "Distilled CFG Scale": "gs",
+    # "RS": "",
+    # "Use weighted embeddings": "",
+}
+
+def xy_plot_parse_input(text):
+    text = text.strip()
+    if ',' in text:
+        return [x.strip() for x in text.split(",")]
+    match = re.match(r'^\s*(-?\d*\.?\d*)\s*-\s*(-?\d*\.?\d*)\s*\[\s*(\d+)\s*\]$', text)
+    if match:
+        start, end, count = map(float, match.groups())
+        result = np.linspace(start, end, int(count))
+        if np.allclose(result, np.round(result)):
+            result = np.round(result).astype(int)
+        return result.tolist()
+    return []
+
+def xy_plot_convert_loras_text(arrayT):
+    lora_pattern = r"<lora:([^:>]+):([-+]?\d*\.?\d+)>"
+    matches = re.findall(lora_pattern, arrayT["prompt"])
+    arrayT["prompt"] = re.sub(lora_pattern, '', arrayT["prompt"]).strip()
+    usedLoras = []
+    weightLoras = [1 for _ in range(len(arrayT["lora_loaded_names"]))]
+    for n, w in matches:
+        if n in arrayT["lora_loaded_names"] and n not in usedLoras:
+            usedLoras.append(n)
+            weightLoras[arrayT["lora_loaded_names"].index(n)] = float(w)
+        # print(n, w, v["lora_loaded_names"], arrayT["selected_loras"])
+    arrayT["selected_loras"] = usedLoras
+    arrayT["lora_values"] = weightLoras
+    return arrayT
+
+def xy_plot_axis_change(updated_value_type):
+    if xy_plot_axis_options[updated_value_type][0] == "textbox" or xy_plot_axis_options[updated_value_type][0] == "number":
+        return gr.update(visible=True, value=xy_plot_axis_options[updated_value_type][2]), gr.update(visible=False, value=[], choices=[])
+    elif xy_plot_axis_options[updated_value_type][0] == "dropdown":
+        return gr.update(visible=False), gr.update(visible=True, value=xy_plot_axis_options[updated_value_type][2], choices=xy_plot_axis_options[updated_value_type][1])
+    else:
+        return gr.update(visible=False), gr.update(visible=False, value=[], choices=[])
 
 def create_interface(
     process_fn,
@@ -227,7 +309,7 @@ def create_interface(
                 with gr.Row():
                     with gr.Column(scale=2):
                         model_type = gr.Radio(
-                            choices=["Original", "Original with Endframe", "F1"],
+                            choices=["Original", "Original with Endframe", "F1", "Video"],
                             value="Original",
                             label="Generation Type"
                         )
@@ -283,32 +365,71 @@ def create_interface(
                                 info="If checked, the source video will be combined with the generated video"
                             )
                     
+                        # Create a group for XY Plot controls, initially hidden
+                        with gr.Group(visible=False) as xy_plot_controls_group:
+                            with gr.Accordion("Plot Parameters", open=True):
+                                with gr.Row():
+                                    xy_plot_axis_x_switch = gr.Dropdown(label="X axis type for plotting", choices=list(xy_plot_axis_options.keys()))
+                                    xy_plot_axis_x_value_text = gr.Textbox(label="X axis comma separated text", visible=False)
+                                    xy_plot_axis_x_value_dropdown = gr.CheckboxGroup(label="X axis values", visible=False)
+                                    xy_plot_axis_x_switch.change(fn=xy_plot_axis_change, inputs=[xy_plot_axis_x_switch], outputs=[xy_plot_axis_x_value_text, xy_plot_axis_x_value_dropdown])
+                                with gr.Row():
+                                    xy_plot_axis_y_switch = gr.Dropdown(label="Y axis type for plotting", choices=list(xy_plot_axis_options.keys()))
+                                    xy_plot_axis_y_value_text = gr.Textbox(label="Y axis comma separated text", visible=False)
+                                    xy_plot_axis_y_value_dropdown = gr.CheckboxGroup(label="Y axis values", visible=False)
+                                    xy_plot_axis_y_switch.change(fn=xy_plot_axis_change, inputs=[xy_plot_axis_y_switch], outputs=[xy_plot_axis_y_value_text, xy_plot_axis_y_value_dropdown])
+                                with gr.Row(visible=False): # not implemented Z axis
+                                    xy_plot_axis_z_switch = gr.Dropdown(label="Z axis type for plotting", choices=list(xy_plot_axis_options.keys()))
+                                    xy_plot_axis_z_value_text = gr.Textbox(label="Z axis comma separated text", visible=False)
+                                    xy_plot_axis_z_value_dropdown = gr.CheckboxGroup(label="Z axis values", visible=False)
+                                    xy_plot_axis_z_switch.change(fn=xy_plot_axis_change, inputs=[xy_plot_axis_z_switch], outputs=[xy_plot_axis_z_value_text, xy_plot_axis_z_value_dropdown])
+
                         # Show/hide input groups based on model selection
                         def update_input_visibility(model_choice_value):
                             is_video_model = (model_choice_value == "Video")
-                            is_endframe_model = (model_choice_value == "Original with Endframe")
+                            is_endframe_model = (model_choice_value == "Original with Endframe" or model_choice_value == "F1 with Endframe")
+                            is_xy_plot_model = (model_choice_value == "XY Plot")
                             
                             # Visibility for image_input_group (contains start frame)
-                            image_input_grp_visible = not is_video_model # Visible for "Original", "Original with Endframe", and "F1"
+                            image_input_grp_visible = not is_video_model and not is_xy_plot_model # Visible for "Original", "Original with Endframe", "F1", and "F1 with Endframe"
 
                             # Visibility for video_input_group
                             video_input_grp_visible = is_video_model
 
                             # Visibility for end frame column and slider
-                            end_frame_grp_visible = is_endframe_model # Visible only for "Original with Endframe" model
-                            end_frame_slider_visible = is_endframe_model # Visible only for "Original with Endframe" model
+                            end_frame_grp_visible = is_endframe_model # Visible for "Original with Endframe" and "F1 with Endframe" models
+                            end_frame_slider_visible = is_endframe_model # Visible for "Original with Endframe" and "F1 with Endframe" models
+                            
+                            # Visibility for XY Plot controls
+                            xy_plot_controls_visible = is_xy_plot_model
 
                             return (
                                 gr.update(visible=image_input_grp_visible),    # For image_input_group
                                 gr.update(visible=video_input_grp_visible),    # For video_input_group
                                 gr.update(visible=end_frame_grp_visible),      # For end_frame_group_original
-                                gr.update(visible=end_frame_slider_visible)    # For end_frame_slider_group
+                                gr.update(visible=end_frame_slider_visible),   # For end_frame_slider_group
+                                gr.update(visible=xy_plot_controls_visible)    # For xy_plot_controls_group
                             )
 
+                        # Function to handle XY Plot processing in the Generate tab
+                        def generate_tab_xy_plot_process():
+                            return xy_plot_process_wrapper(settings, xy_plot_process,
+                                model_type.value, input_image.value, end_frame_image_original.value,
+                                end_frame_strength_original.value, latent_type.value,
+                                prompt.value, blend_sections.value, steps.value, total_second_length.value,
+                                resolutionW.value, resolutionH.value, seed.value, randomize_seed.value, use_teacache.value,
+                                teacache_num_steps.value, teacache_rel_l1_thresh.value, latent_window_size.value,
+                                cfg.value, gs.value, rs.value,
+                                xy_plot_axis_x_switch.value, xy_plot_axis_x_value_text.value, xy_plot_axis_x_value_dropdown.value,
+                                xy_plot_axis_y_switch.value, xy_plot_axis_y_value_text.value, xy_plot_axis_y_value_dropdown.value,
+                                xy_plot_axis_z_switch.value, xy_plot_axis_z_value_text.value, xy_plot_axis_z_value_dropdown.value
+                            )
+
+                        # Connect model type change to update visibility of controls
                         model_type.change(
                             fn=update_input_visibility,
                             inputs=[model_type],
-                            outputs=[image_input_group, video_input_group, end_frame_group_original, end_frame_slider_group]
+                            outputs=[image_input_group, video_input_group, end_frame_group_original, end_frame_slider_group, xy_plot_controls_group]
                         )
                         
                         with gr.Accordion("Latent Image Options", open=False):
@@ -415,48 +536,6 @@ def create_interface(
                             start_button = gr.Button(value="Add to Queue", elem_id="toolbar-add-to-queue-btn")
 
             with gr.Tab("XY Plot"):
-                xy_plot_axis_options = {
-                    # "type": [
-                    #     "dropdown(checkboxGroup), textbox or number", 
-                    #     "empty if textbox, dtype if number, [] if dropdown", 
-                    #     "standard values", 
-                    #     "True if multi axis - like prompt replace, False is only on one axis - like steps"
-                    # ],
-                    "Nothing": ["nothing", "", "", True],
-                    "Model type": ["dropdown", ["Original", "F1"], ["Original", "F1"], False],
-                    "End frame influence": ["number", "float", "0.05-0.95[3]", False],
-                    "Latent type": ["dropdown", ["Black", "White", "Noise", "Green Screen"], ["Black", "Noise"], False],
-                    "Prompt add": ["textbox", "", "", True],
-                    "Prompt replace": ["textbox", "", "", True],
-                    "Blend sections": ["number", "int", "3-7 [3]", False],
-                    "Steps": ["number", "int", "15-30 [3]", False],
-                    "Seed": ["number", "int", "1000-10000 [3]", False],
-                    "Use teacache": ["dropdown", [True, False], [True, False], False],
-                    "TeaCache steps": ["number", "int", "5-25 [3]", False],
-                    "TeaCache rel_l1_thresh": ["number", "float", "0.01-0.3 [3]", False],
-                    # "CFG": ["number", "float", "", False],
-                    "Distilled CFG Scale": ["number", "float", "5-15 [3]", False],
-                    # "RS": ["number", "float", "", False],
-                    # "Use weighted embeddings": ["dropdown", [True, False], [True, False], False],
-                }
-                text_to_base_keys = {
-                    "Model type": "model_type",
-                    "End frame influence": "end_frame_strength_original",
-                    "Latent type": "latent_type",
-                    "Prompt add": "prompt",
-                    "Prompt replace": "prompt",
-                    "Blend sections": "blend_sections",
-                    "Steps": "steps",
-                    "Seed": "seed",
-                    "Use teacache": "use_teacache",
-                    "TeaCache steps":"teacache_num_steps",
-                    "TeaCache rel_l1_thresh":"teacache_rel_l1_thresh",
-                    "Latent window size": "latent_window_size",
-                    # "CFG": "",
-                    "Distilled CFG Scale": "gs",
-                    # "RS": "",
-                    # "Use weighted embeddings": "",
-                }
 
                 def xy_plot_parse_input(text):
                     text = text.strip()
@@ -484,20 +563,14 @@ def create_interface(
                     arrayT["selected_loras"] = usedLoras
                     arrayT["lora_values"] = weightLoras
                     return arrayT
-                def xy_plot_axis_change(updated_value_type):
-                    if xy_plot_axis_options[updated_value_type][0] == "textbox" or xy_plot_axis_options[updated_value_type][0] == "number":
-                        return gr.update(visible=True, value=xy_plot_axis_options[updated_value_type][2]), gr.update(visible=False, value=[], choices=[])
-                    elif xy_plot_axis_options[updated_value_type][0] == "dropdown":
-                        return gr.update(visible=False), gr.update(visible=True, value=xy_plot_axis_options[updated_value_type][2], choices=xy_plot_axis_options[updated_value_type][1])
-                    else:
-                        return gr.update(visible=False), gr.update(visible=False, value=[], choices=[])
+                    # Using the global xy_plot_axis_change function
                 def xy_plot_process(
                         model_type, input_image, end_frame_image_original, 
                         end_frame_strength_original, latent_type, 
                         prompt, blend_sections, steps, total_second_length, 
                         resolutionW, resolutionH, seed, randomize_seed, use_teacache, 
                         teacache_num_steps, teacache_rel_l1_thresh, latent_window_size, 
-                        cfg, gs, rs, gpu_memory_preservation, mp4_crf, 
+                        cfg, gs, rs, gpu_memory_preservation_value, mp4_crf_value, 
                         axis_x_switch, axis_x_value_text, axis_x_value_dropdown, 
                         axis_y_switch, axis_y_value_text, axis_y_value_dropdown, 
                         axis_z_switch, axis_z_value_text, axis_z_value_dropdown
@@ -531,8 +604,17 @@ def create_interface(
                         if axis_y_switch == axis_z_switch: 
                             return "Axis type on Y and Z axis are same, you can't do that generation.<br>Multi axis supported only for \"Prompt add\" and \"Prompt replace\".", gr.update()
 
+                    # Automatically adjust model type if end frame is provided
+                    adjusted_model_type = model_type
+                    if end_frame_image_original is not None:
+                        if model_type == "Original":
+                            adjusted_model_type = "Original with Endframe"
+                        elif model_type == "F1":
+                            adjusted_model_type = "F1 with Endframe"
+                        print(f"Model type automatically adjusted from '{model_type}' to '{adjusted_model_type}' due to end frame presence")
+
                     base_generator_vars = {
-                        "model_type": model_type,
+                        "model_type": adjusted_model_type,
                         "input_image": input_image,
                         "input_video": None,
                         "end_frame_image_original": end_frame_image_original,
@@ -546,11 +628,11 @@ def create_interface(
                         "cfg": cfg,
                         "gs": gs,
                         "rs": rs,
-                        "gpu_memory_preservation": gpu_memory_preservation,
+                        "gpu_memory_preservation": gpu_memory_preservation_value,
                         "use_teacache": use_teacache,
                         "teacache_num_steps": teacache_num_steps,
                         "teacache_rel_l1_thresh": teacache_rel_l1_thresh,
-                        "mp4_crf": mp4_crf,
+                        "mp4_crf": mp4_crf_value,
                         "randomize_seed_checked": False,
                         "save_metadata_checked": True,
                         "blend_sections": blend_sections,
@@ -630,23 +712,35 @@ def create_interface(
                                     v["resolutionW"], v["resolutionH"], v["lora_loaded_names"], v["lora_values"]
                                 )
                         output_generator_vars[i]["job_id"] = xy_plot_new_job[1]
-                    # blah...
+                    # Monitor jobs and update preview window
                     while True:
                         xy_plot_ended_jobs = 0
-                        # outVrS = []
-                        for i, gen in enumerate(output_generator_vars):
-                            job = job_queue.get_job(gen["job_id"])
-                            if job.result != None and job.status == JobStatus.COMPLETED:
-                                output_generator_vars[i]["result"] = job.result
-                                xy_plot_ended_jobs += 1
-                            # outVrS.append([gen["job_id"], job.result, job.status])
-                        # print("Waiting")
-                        # for ktv in outVrS:
-                            # print(ktv)
+                    # Check each job's status and update preview
+                    for i, gen in enumerate(output_generator_vars):
+                        job = job_queue.get_job(gen["job_id"])
+                        if job.result != None and job.status == JobStatus.COMPLETED:
+                            output_generator_vars[i]["result"] = job.result
+                            xy_plot_ended_jobs += 1
+                        
+                        # Update preview window with the current job's progress
+                        if job.status == JobStatus.RUNNING and job.progress_data and 'preview' in job.progress_data:
+                            # Update the preview image in the generate tab
+                            preview = job.progress_data.get('preview')
+                            desc = job.progress_data.get('desc', '')
+                            html = job.progress_data.get('html', '')
+                            
+                            # Push updates to the UI - directly to the main stream to ensure it shows in the Generate tab
+                            from __main__ import stream as main_stream
+                            print(f"Pushing preview update to main stream for job {gen['job_id']}")
+                            main_stream.output_queue.push(('progress', (preview, desc, html)))
+                        
+                        # Check if all jobs are completed
                         if xy_plot_ended_jobs == len(output_generator_vars):
                             print("All jobs for XY plot done")
                             break
-                        time.sleep(5)
+                        
+                        # Wait before checking again
+                        time.sleep(1)
                     # print("----- GENERATED VIDS VARS START -----")
                     # for v in output_generator_vars:
                     #     print(v)
@@ -809,7 +903,7 @@ def create_interface(
                 
                 with gr.Row():
                     xy_plot_model_type = gr.Radio(
-                        ["Original", "F1"], 
+                        ["Original", "Original with Endframe", "F1"], 
                         label="Model Type", 
                         value="F1",
                         info="Select which model to use for generation"
@@ -825,7 +919,7 @@ def create_interface(
                                 image_mode="RGB",
                                 elem_classes="contain-image"
                             )
-                        with gr.Column(scale=1):
+                        with gr.Column(scale=1, visible=False) as xy_plot_end_frame_group:
                             xy_plot_end_frame_image_original = gr.Image(
                                 sources='upload',
                                 type="numpy",
@@ -837,7 +931,7 @@ def create_interface(
                                 show_label=True,
                                 container=True
                             )
-                    with gr.Group():
+                with gr.Group(visible=False) as xy_plot_end_frame_slider_group:
                         xy_plot_end_frame_strength_original = gr.Slider(
                             label="End Frame Influence",
                             minimum=0.05,
@@ -846,6 +940,18 @@ def create_interface(
                             step=0.05,
                             info="Controls how strongly the end frame guides the generation. 1.0 is full influence."
                         )
+                
+                # Function to update end frame visibility based on model type
+                def xy_plot_update_endframe_visibility(model_choice):
+                    is_endframe_model = (model_choice == "Original with Endframe")
+                    return gr.update(visible=is_endframe_model), gr.update(visible=is_endframe_model)
+                
+                # Connect model type change to update visibility of end frame controls
+                xy_plot_model_type.change(
+                    fn=xy_plot_update_endframe_visibility,
+                    inputs=[xy_plot_model_type],
+                    outputs=[xy_plot_end_frame_group, xy_plot_end_frame_slider_group]
+                )
                 with gr.Accordion("Latent Image Options", open=False):
                     xy_plot_latent_type = gr.Dropdown(
                         ["Black", "White", "Noise", "Green Screen"], 
@@ -904,17 +1010,9 @@ def create_interface(
                     xy_plot_cfg = gr.Slider(label="CFG Scale", minimum=1.0, maximum=32.0, value=1.0, step=0.01, visible=False)  # Should not change
                     xy_plot_gs = gr.Slider(label="Distilled CFG Scale", minimum=1.0, maximum=32.0, value=10.0, step=0.01)
                     xy_plot_rs = gr.Slider(label="CFG Re-Scale", minimum=0.0, maximum=1.0, value=0.0, step=0.01, visible=False)  # Should not change
-                    xy_plot_gpu_memory_preservation = gr.Slider(label="GPU Inference Preserved Memory (GB) (larger means slower)", minimum=1, maximum=128, value=6, step=0.1, info="Set this number to a larger value if you encounter OOM. Larger value causes slower speed.")
-                with gr.Accordion("Output Parameters", open=False):
-                    xy_plot_mp4_crf = gr.Slider(label="MP4 Compression", minimum=0, maximum=100, value=16, step=1, info="Lower means better quality. 0 is uncompressed. Change to 16 if you get black outputs. ")
+                # Removed xy_plot_mp4_crf slider - using global mp4_crf instead
                 with gr.Accordion("Plot Parameters", open=True):
-                    def xy_plot_axis_change(updated_value_type):
-                        if xy_plot_axis_options[updated_value_type][0] == "textbox" or xy_plot_axis_options[updated_value_type][0] == "number":
-                            return gr.update(visible=True, value=xy_plot_axis_options[updated_value_type][2]), gr.update(visible=False, value=[], choices=[])
-                        elif xy_plot_axis_options[updated_value_type][0] == "dropdown":
-                            return gr.update(visible=False), gr.update(visible=True, value=xy_plot_axis_options[updated_value_type][2], choices=xy_plot_axis_options[updated_value_type][1])
-                        else:
-                            return gr.update(visible=False), gr.update(visible=False, value=[], choices=[])
+                    # Using the global xy_plot_axis_change function
                     with gr.Row():
                         xy_plot_axis_x_switch = gr.Dropdown(label="X axis type for plotting", choices=list(xy_plot_axis_options.keys()))
                         xy_plot_axis_x_value_text = gr.Textbox(label="X axis comma separated text", visible=False)
@@ -935,13 +1033,14 @@ def create_interface(
                 # xy_plot_result_video = gr.Video(label="Finished Frames", autoplay=True, show_share_button=False, height=256, loop=True)
                 xy_plot_status = gr.HTML("")
                 xy_plot_output = gr.Video(autoplay=True, loop=True, sources=[], height=256, visible=False) # or Gallery, but return need value=[paths] instead of value=video
-                xy_plot_process_btn.click(fn=xy_plot_process, inputs=[xy_plot_model_type, xy_plot_input_image, xy_plot_end_frame_image_original,
+                
+                xy_plot_process_btn.click(fn=lambda *args: xy_plot_process_wrapper(settings, xy_plot_process, *args), inputs=[xy_plot_model_type, xy_plot_input_image, xy_plot_end_frame_image_original,
                                                                 xy_plot_end_frame_strength_original, xy_plot_latent_type, 
                                                                 xy_plot_prompt, xy_plot_blend_sections, xy_plot_steps, xy_plot_total_second_length, 
                                                                 xy_plot_resolutionW, xy_plot_resolutionH, xy_plot_seed, xy_plot_randomize_seed, 
                                                                 xy_plot_use_teacache, xy_plot_teacache_num_steps, xy_plot_teacache_rel_l1_thresh, 
                                                                 xy_plot_latent_window_size, xy_plot_cfg, xy_plot_gs, xy_plot_rs, 
-                                                                xy_plot_gpu_memory_preservation, xy_plot_mp4_crf, 
+                                                                 
                                                                 xy_plot_axis_x_switch, xy_plot_axis_x_value_text, xy_plot_axis_x_value_dropdown, 
                                                                 xy_plot_axis_y_switch, xy_plot_axis_y_value_text, xy_plot_axis_y_value_dropdown, 
                                                                 xy_plot_axis_z_switch, xy_plot_axis_z_value_text, xy_plot_axis_z_value_dropdown
@@ -1170,7 +1269,7 @@ def create_interface(
             actual_end_frame_image_for_backend = None
             actual_end_frame_strength_for_backend = 1.0  # Default strength
 
-            if model_type == "Original with Endframe":
+            if model_type == "Original with Endframe" or model_type == "F1 with Endframe":
                 actual_end_frame_image_for_backend = end_frame_image_original # Use the unpacked value
                 actual_end_frame_strength_for_backend = end_frame_strength_original # Use the unpacked value
 
@@ -1246,9 +1345,23 @@ def create_interface(
 
 
         # --- Connect Buttons ---
+        def handle_start_button(selected_model, *args):
+            if selected_model == "XY Plot":
+                # For XY Plot, call the xy_plot_process function
+                status, video = generate_tab_xy_plot_process()
+                if status:
+                    # If there was an error, display it
+                    return gr.update(value=None), gr.update(), gr.update(), gr.update(value=status), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+                else:
+                    # If successful, display the result video
+                    return gr.update(value=video), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+            else:
+                # For other model types, use the regular process function
+                return process_with_queue_update(selected_model, *args)
+                
         start_button.click(
             # Pass the selected model type from the radio buttons
-            fn=lambda selected_model, *args: process_with_queue_update(selected_model, *args),
+            fn=handle_start_button,
             inputs=[model_type] + ips,
             outputs=[result_video, current_job_id, preview_image, progress_desc, progress_bar, start_button, end_button, queue_status, seed]
         )
