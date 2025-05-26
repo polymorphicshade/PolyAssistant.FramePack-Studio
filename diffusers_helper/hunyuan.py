@@ -3,6 +3,9 @@ import torch
 from diffusers.pipelines.hunyuan_video.pipeline_hunyuan_video import DEFAULT_PROMPT_TEMPLATE
 from diffusers_helper.utils import crop_or_pad_yield_mask
 
+# Debug message to print the contents of DEFAULT_PROMPT_TEMPLATE
+print("DEBUG - DEFAULT_PROMPT_TEMPLATE contents:", DEFAULT_PROMPT_TEMPLATE)
+
 
 @torch.no_grad()
 def encode_prompt_conds(prompt, text_encoder, text_encoder_2, tokenizer, tokenizer_2, max_length=256):
@@ -11,9 +14,52 @@ def encode_prompt_conds(prompt, text_encoder, text_encoder_2, tokenizer, tokeniz
     prompt = [prompt]
 
     # LLAMA
-
-    prompt_llama = [DEFAULT_PROMPT_TEMPLATE["template"].format(p) for p in prompt]
-    crop_start = DEFAULT_PROMPT_TEMPLATE["crop_start"]
+    
+    # Check if there's a custom system prompt template in settings
+    custom_template = None
+    try:
+        from modules.settings import Settings
+        settings = Settings()
+        custom_template_str = settings.get("system_prompt_template")
+        if custom_template_str:
+            try:
+                # Convert the string representation to a dictionary
+                # Try different parsing methods
+                if custom_template_str.strip().startswith('{'):
+                    # Try JSON parsing first
+                    try:
+                        import json
+                        custom_template = json.loads(custom_template_str)
+                        print(f"Using custom system prompt template from settings (JSON): {custom_template}")
+                    except json.JSONDecodeError as e:
+                        print(f"Error parsing custom system prompt template as JSON: {e}")
+                        # Try ast.literal_eval as fallback
+                        try:
+                            import ast
+                            custom_template = ast.literal_eval(custom_template_str)
+                            print(f"Using custom system prompt template from settings (ast): {custom_template}")
+                        except Exception as e:
+                            print(f"Error parsing custom system prompt template with ast: {e}")
+                            print(f"Falling back to default template")
+                            custom_template = None
+                else:
+                    print(f"Custom system prompt template is not a valid JSON or dictionary string")
+                    print(f"Falling back to default template")
+                    custom_template = None
+            except Exception as e:
+                print(f"Error parsing custom system prompt template: {e}")
+                print(f"Falling back to default template")
+                custom_template = None
+    except Exception as e:
+        print(f"Error loading settings: {e}")
+        print(f"Falling back to default template")
+        custom_template = None
+    
+    # Use custom template if available, otherwise use default
+    template = custom_template if custom_template else DEFAULT_PROMPT_TEMPLATE
+    
+    prompt_llama = [template["template"].format(p) for p in prompt]
+    crop_start = template["crop_start"]
 
     llama_inputs = tokenizer(
         prompt_llama,

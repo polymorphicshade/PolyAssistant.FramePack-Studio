@@ -3,6 +3,8 @@ import time
 import uuid
 import json
 import os
+import zipfile
+import shutil
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, Any, Optional, List
@@ -426,11 +428,64 @@ class VideoJobQueue:
             if job:
                 job.progress_data = progress_data
     
-    def load_queue_from_json(self, file_path=None):
-        """Load queue from a JSON file
+    def export_queue_to_zip(self, output_path=None):
+        """Export the current queue to a zip file containing queue.json and queue_images directory
         
         Args:
-            file_path: Path to the JSON file. If None, uses 'queue.json' in the current directory.
+            output_path: Path to save the zip file. If None, uses 'queue_export.zip' in the current directory.
+            
+        Returns:
+            str: Path to the created zip file
+        """
+        try:
+            # Use default path if none provided
+            if output_path is None:
+                output_path = "queue_export.zip"
+            
+            # Make sure queue.json is up to date
+            self.save_queue_to_json()
+            
+            # Create a zip file
+            with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                # Add queue.json to the zip file
+                if os.path.exists("queue.json"):
+                    zipf.write("queue.json")
+                    print(f"Added queue.json to {output_path}")
+                else:
+                    print("Warning: queue.json not found, creating an empty one")
+                    with open("queue.json", "w") as f:
+                        json.dump({}, f)
+                    zipf.write("queue.json")
+                
+                # Add queue_images directory to the zip file if it exists
+                queue_images_dir = "queue_images"
+                if os.path.exists(queue_images_dir) and os.path.isdir(queue_images_dir):
+                    for root, _, files in os.walk(queue_images_dir):
+                        for file in files:
+                            file_path = os.path.join(root, file)
+                            # Add file to zip with path relative to queue_images_dir
+                            arcname = os.path.join(os.path.basename(queue_images_dir), file)
+                            zipf.write(file_path, arcname)
+                            print(f"Added {file_path} to {output_path}")
+                else:
+                    print(f"Warning: {queue_images_dir} directory not found or empty")
+                    # Create the directory if it doesn't exist
+                    os.makedirs(queue_images_dir, exist_ok=True)
+            
+            print(f"Queue exported to {output_path}")
+            return output_path
+            
+        except Exception as e:
+            import traceback
+            print(f"Error exporting queue to zip: {e}")
+            traceback.print_exc()
+            return None
+    
+    def load_queue_from_json(self, file_path=None):
+        """Load queue from a JSON file or zip file
+        
+        Args:
+            file_path: Path to the JSON or ZIP file. If None, uses 'queue.json' in the current directory.
             
         Returns:
             int: Number of jobs loaded
@@ -444,6 +499,10 @@ class VideoJobQueue:
             if not os.path.exists(file_path):
                 print(f"Queue file not found: {file_path}")
                 return 0
+            
+            # Check if it's a zip file
+            if file_path.lower().endswith('.zip'):
+                return self._load_queue_from_zip(file_path)
             
             # Load the JSON data
             with open(file_path, 'r') as f:
@@ -574,6 +633,65 @@ class VideoJobQueue:
             import traceback
             print(f"Error loading queue from JSON: {e}")
             traceback.print_exc()
+            return 0
+    
+    def _load_queue_from_zip(self, zip_path):
+        """Load queue from a zip file
+        
+        Args:
+            zip_path: Path to the zip file
+            
+        Returns:
+            int: Number of jobs loaded
+        """
+        try:
+            # Create a temporary directory to extract the zip file
+            temp_dir = "temp_queue_import"
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+            os.makedirs(temp_dir, exist_ok=True)
+            
+            # Extract the zip file
+            with zipfile.ZipFile(zip_path, 'r') as zipf:
+                zipf.extractall(temp_dir)
+            
+            # Check if queue.json exists in the extracted files
+            queue_json_path = os.path.join(temp_dir, "queue.json")
+            if not os.path.exists(queue_json_path):
+                print(f"queue.json not found in {zip_path}")
+                shutil.rmtree(temp_dir)
+                return 0
+            
+            # Check if queue_images directory exists in the extracted files
+            queue_images_dir = os.path.join(temp_dir, "queue_images")
+            if os.path.exists(queue_images_dir) and os.path.isdir(queue_images_dir):
+                # Copy the queue_images directory to the current directory
+                target_queue_images_dir = "queue_images"
+                os.makedirs(target_queue_images_dir, exist_ok=True)
+                
+                # Copy all files from the extracted queue_images directory to the target directory
+                for file in os.listdir(queue_images_dir):
+                    src_path = os.path.join(queue_images_dir, file)
+                    dst_path = os.path.join(target_queue_images_dir, file)
+                    if os.path.isfile(src_path):
+                        shutil.copy2(src_path, dst_path)
+                        print(f"Copied {src_path} to {dst_path}")
+            
+            # Load the queue from the extracted queue.json
+            loaded_count = self.load_queue_from_json(queue_json_path)
+            
+            # Clean up the temporary directory
+            shutil.rmtree(temp_dir)
+            
+            return loaded_count
+            
+        except Exception as e:
+            import traceback
+            print(f"Error loading queue from zip: {e}")
+            traceback.print_exc()
+            # Clean up the temporary directory if it exists
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
             return 0
     
     def _worker_loop(self):

@@ -1061,9 +1061,10 @@ def create_interface(
                             refresh_button = gr.Button("Refresh Queue")
                             clear_queue_button = gr.Button("Clear Queue", variant="stop")
                             load_queue_button = gr.Button("Load Queue")
+                            queue_export_button = gr.Button("Queue Export")
                             import_queue_file = gr.File(
-                                label="Import Queue from JSON",
-                                file_types=[".json"],
+                                label="Import Queue",
+                                file_types=[".json", ".zip"],
                                 type="filepath",
                                 visible=True
                             )
@@ -1139,12 +1140,72 @@ def create_interface(
                                 outputs=[queue_status]
                             )
                             
+                            # Function to export queue to a zip file
+                            def export_queue_to_zip():
+                                try:
+                                    # Use the export_queue_to_zip method from VideoJobQueue
+                                    zip_path = job_queue.export_queue_to_zip()
+                                    if zip_path and os.path.exists(zip_path):
+                                        print(f"Queue exported to {zip_path}")
+                                        return update_queue_status_fn()
+                                    else:
+                                        print("Failed to export queue to zip")
+                                        return update_queue_status_fn()
+                                except Exception as e:
+                                    import traceback
+                                    print(f"Error exporting queue to zip: {e}")
+                                    traceback.print_exc()
+                                    # Return empty list on error to avoid UI hanging
+                                    return []
+                            
+                            # Connect the queue export button
+                            queue_export_button.click(
+                                fn=export_queue_to_zip,
+                                inputs=[],
+                                outputs=[queue_status]
+                            )
+                            
                             # Connect the import queue file selector
                             import_queue_file.change(
                                 fn=import_queue_from_file,
                                 inputs=[import_queue_file],
                                 outputs=[queue_status]
                             )
+                        # Add documentation accordion
+                        with gr.Accordion("Queue Documentation", open=True):
+                            gr.Markdown("""
+                            ## Queue Tab Documentation
+                            
+                            The Queue tab allows you to manage your generation jobs. Here's what each button does:
+                            
+                            ### Queue Controls
+                            
+                            - **Refresh Queue**: Updates the queue status display with the current state of all jobs.
+                            
+                            - **Clear Queue**: Cancels all pending jobs in the queue. This will not affect jobs that are currently running.
+                            
+                            - **Load Queue**: Loads the queue from the default `queue.json` file in the application directory. This is useful if you've restarted the application and want to restore your previous queue state.
+                            
+                            - **Queue Export**: Packages the current queue configuration (`queue.json`) and all associated images (from the `queue_images` directory) into a single zip file named `queue_export.zip`. This makes it easy to back up your queue or transfer it to another installation.
+                            
+                            - **Import Queue**: Allows you to import a queue from either:
+                              - A JSON file containing queue configuration
+                              - A ZIP file containing both queue configuration and associated images (created using Queue Export)
+                            
+                            ### Queue Table
+                            
+                            The table displays all jobs in the queue with the following information:
+                            
+                            - **Job ID**: Unique identifier for each job
+                            - **Type**: The generation model type used for the job
+                            - **Status**: Current status of the job (pending, running, completed, failed, cancelled)
+                            - **Created**: When the job was added to the queue
+                            - **Started**: When the job began processing
+                            - **Completed**: When the job finished processing
+                            - **Elapsed**: How long the job took to process
+                            - **Preview**: Thumbnail preview of the job's input image or latent type
+                            """)
+                            
                         # Create a container for thumbnails (kept for potential future use, though not displayed in DataFrame)
                         with gr.Row():
                             thumbnail_container = gr.Column()
@@ -1247,6 +1308,14 @@ def create_interface(
                             value=settings.get("cleanup_temp_folder", True),
                             info="If checked, temporary files will be cleaned up after each generation."
                         )
+                        
+                        with gr.Accordion("System Prompt", open=False):
+                            system_prompt_template = gr.Textbox(
+                                label="System Prompt Template",
+                                value=settings.get("system_prompt_template", "{\"template\": \"<|start_header_id|>system<|end_header_id|>\\n\\nDescribe the video by detailing the following aspects: 1. The main content and theme of the video.2. The color, shape, size, texture, quantity, text, and spatial relationships of the objects.3. Actions, events, behaviors temporal relationships, physical movement changes of the objects.4. background environment, light, style and atmosphere.5. camera angles, movements, and transitions used in the video:<|eot_id|><|start_header_id|>user<|end_header_id|>\\n\\n{}<|eot_id|>\", \"crop_start\": 95}"),
+                                lines=10,
+                                info="System prompt template used for video generation. Must be a valid JSON or Python dictionary string with 'template' and 'crop_start' keys. Example: {\"template\": \"your template here\", \"crop_start\": 95}"
+                            )
                         output_dir = gr.Textbox(
                             label="Output Directory",
                             value=settings.get("output_dir"),
@@ -1280,7 +1349,7 @@ def create_interface(
                         status = gr.HTML("")
                         cleanup_output = gr.Textbox(label="Cleanup Status", interactive=False)
 
-                        def save_settings(save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, cleanup_temp_folder, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, selected_theme):
+                        def save_settings(save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, cleanup_temp_folder, system_prompt_template_value, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, selected_theme):
                             try:
                                 settings.save_settings(
                                     save_metadata=save_metadata,
@@ -1288,6 +1357,7 @@ def create_interface(
                                     mp4_crf=mp4_crf,
                                     clean_up_videos=clean_up_videos,
                                     cleanup_temp_folder=cleanup_temp_folder,
+                                    system_prompt_template=system_prompt_template_value,
                                     output_dir=output_dir,
                                     metadata_dir=metadata_dir,
                                     lora_dir=lora_dir,
@@ -1301,7 +1371,7 @@ def create_interface(
 
                         save_btn.click(
                             fn=save_settings,
-                            inputs=[save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, cleanup_temp_folder, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, theme_dropdown],
+                            inputs=[save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, cleanup_temp_folder, system_prompt_template, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, theme_dropdown],
                             outputs=[status]
                         )
 
