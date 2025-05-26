@@ -24,26 +24,27 @@ def encode_prompt_conds(prompt, text_encoder, text_encoder_2, tokenizer, tokeniz
         if custom_template_str:
             try:
                 # Convert the string representation to a dictionary
-                # Try different parsing methods
-                if custom_template_str.strip().startswith('{'):
-                    # Try JSON parsing first
-                    try:
-                        import json
-                        custom_template = json.loads(custom_template_str)
-                        print(f"Using custom system prompt template from settings (JSON): {custom_template}")
-                    except json.JSONDecodeError as e:
-                        print(f"Error parsing custom system prompt template as JSON: {e}")
-                        # Try ast.literal_eval as fallback
-                        try:
-                            import ast
-                            custom_template = ast.literal_eval(custom_template_str)
-                            print(f"Using custom system prompt template from settings (ast): {custom_template}")
-                        except Exception as e:
-                            print(f"Error parsing custom system prompt template with ast: {e}")
-                            print(f"Falling back to default template")
-                            custom_template = None
+                # Extract template and crop_start directly from the string using regex
+                import re
+                
+                # Try to extract the template value
+                template_match = re.search(r"['\"]template['\"]\s*:\s*['\"](.+?)['\"](?=\s*,|\s*})", custom_template_str, re.DOTALL)
+                crop_start_match = re.search(r"['\"]crop_start['\"]\s*:\s*(\d+)", custom_template_str)
+                
+                if template_match and crop_start_match:
+                    template_value = template_match.group(1)
+                    crop_start_value = int(crop_start_match.group(1))
+                    
+                    # Unescape any escaped characters in the template
+                    template_value = template_value.replace("\\n", "\n").replace("\\\"", "\"").replace("\\'", "'")
+                    
+                    custom_template = {
+                        "template": template_value,
+                        "crop_start": crop_start_value
+                    }
+                    print(f"Using custom system prompt template from settings: {custom_template}")
                 else:
-                    print(f"Custom system prompt template is not a valid JSON or dictionary string")
+                    print(f"Could not extract template or crop_start from system prompt template string")
                     print(f"Falling back to default template")
                     custom_template = None
             except Exception as e:

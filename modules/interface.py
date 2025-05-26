@@ -1351,13 +1351,17 @@ def create_interface(
 
                         def save_settings(save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, cleanup_temp_folder, system_prompt_template_value, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, selected_theme):
                             try:
+                                # Save the system prompt template as is, without trying to parse it
+                                # The hunyuan.py file will handle parsing it when needed
+                                processed_template = system_prompt_template_value
+                                
                                 settings.save_settings(
                                     save_metadata=save_metadata,
                                     gpu_memory_preservation=gpu_memory_preservation,
                                     mp4_crf=mp4_crf,
                                     clean_up_videos=clean_up_videos,
                                     cleanup_temp_folder=cleanup_temp_folder,
-                                    system_prompt_template=system_prompt_template_value,
+                                    system_prompt_template=processed_template,
                                     output_dir=output_dir,
                                     metadata_dir=metadata_dir,
                                     lora_dir=lora_dir,
