@@ -112,7 +112,7 @@ def create_metadata(job_params, job_id, settings):
         "resolutionW": job_params.get('resolutionW', 640),
         "resolutionH": job_params.get('resolutionH', 640),
         "model_type": model_type,
-        "has_input_image": job_params.get('has_input_image', False),
+        "has_input_image": job_params.get('has_input_image', True),  # Default to True unless explicitly set to False
         "input_image_path": job_params.get('input_image_path', None),
         
         # Video-related parameters

@@ -532,7 +532,7 @@ def create_interface(
 
                         with gr.Row():
                             current_job_id = gr.Textbox(label="Current Job ID", visible=True, interactive=True)
-                            end_button = gr.Button(value="Cancel Current Job", interactive=True)
+                            end_button = gr.Button(value="Cancel Current Job", interactive=True, visible=False)
                             start_button = gr.Button(value="Add to Queue", elem_id="toolbar-add-to-queue-btn")
 
             with gr.Tab("XY Plot"):
