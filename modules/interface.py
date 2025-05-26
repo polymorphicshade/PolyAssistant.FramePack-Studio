@@ -1058,9 +1058,40 @@ def create_interface(
                             )
                         with gr.Row():
                             refresh_button = gr.Button("Refresh Queue")
+                            clear_queue_button = gr.Button("Clear Queue", variant="stop")
                             # Connect the refresh button (Moved inside 'with block')
                             refresh_button.click(
                                 fn=update_queue_status_fn, # Use the function passed in
+                                inputs=[],
+                                outputs=[queue_status]
+                            )
+                            
+                            # Function to clear all jobs in the queue
+                            def clear_all_jobs():
+                                print("DEBUG: clear_all_jobs function called")
+                                try:
+                                    # Use the clear_queue method from VideoJobQueue
+                                    print("DEBUG: About to call job_queue.clear_queue()")
+                                    cancelled_count = job_queue.clear_queue()
+                                    print(f"DEBUG: Cleared {cancelled_count} jobs from the queue")
+                                    
+                                    # Force an update to the queue status display
+                                    # This ensures the UI is updated with the current queue state
+                                    print("DEBUG: Forcing update of queue status display")
+                                    
+                                    # Return an empty DataFrame to clear the queue display immediately
+                                    # This is more compatible with how Gradio handles DataFrame updates
+                                    return []
+                                except Exception as e:
+                                    import traceback
+                                    print(f"DEBUG ERROR: Exception in clear_all_jobs: {e}")
+                                    traceback.print_exc()
+                                    # Return empty list on error to avoid UI hanging
+                                    return []
+                            
+                            # Connect the clear queue button
+                            clear_queue_button.click(
+                                fn=clear_all_jobs,
                                 inputs=[],
                                 outputs=[queue_status]
                             )
