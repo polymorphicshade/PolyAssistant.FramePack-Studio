@@ -44,6 +44,7 @@ from modules.video_queue import VideoJobQueue, JobStatus
 from modules.prompt_handler import parse_timestamped_prompt
 from modules.interface import create_interface, format_queue_status
 from modules.settings import Settings
+from modules.pipelines.metadata_utils import create_metadata
 
 # ADDED: Debug function to verify LoRA state
 def verify_lora_state(transformer, label=""):
@@ -415,31 +416,29 @@ def worker(
             height, width = find_nearest_bucket(resH, resW, resolution=(resH+resW)/2)
             input_image_np = None  # Will be set by the VideoModelGenerator
             
-            if settings.get("save_metadata"):
-                metadata_dict = {
-                    "prompt": prompt_text, # Use the original string
-                    "seed": seed,
-                    "total_second_length": total_second_length,
-                    "steps": steps,
-                    "cfg": cfg,
-                    "gs": gs,
-                    "rs": rs,
-                    "latent_type": latent_type,
-                    "blend_sections": blend_sections,
-                    "latent_window_size": latent_window_size,
-                    "timestamp": time.time(),
-                    "resolutionW": resolutionW,
-                    "resolutionH": resolutionH,
-                    "model_type": model_type,
-                    "video_path": input_image  # Save the video path
-                }
-                
-                # Create a placeholder image for the video
-                placeholder_img = Image.new('RGB', (width, height), (0, 0, 128))  # Blue for video
-                placeholder_img.save(os.path.join(metadata_dir, f'{job_id}.png'))
-                
-                with open(os.path.join(metadata_dir, f'{job_id}.json'), 'w') as f:
-                    json.dump(metadata_dict, f, indent=2)
+            # Create metadata using the centralized metadata utility
+            job_params = {
+                "prompt_text": prompt_text,
+                "seed": seed,
+                "total_second_length": total_second_length,
+                "steps": steps,
+                "cfg": cfg,
+                "gs": gs,
+                "rs": rs,
+                "latent_type": latent_type,
+                "blend_sections": blend_sections,
+                "latent_window_size": latent_window_size,
+                "resolutionW": resolutionW,
+                "resolutionH": resolutionH,
+                "model_type": model_type,
+                "video_path": input_image,  # Save the video path
+                "width": width,
+                "height": height,
+                "use_teacache": use_teacache,
+                "teacache_num_steps": teacache_num_steps,
+                "teacache_rel_l1_thresh": teacache_rel_l1_thresh
+            }
+            create_metadata(job_params, job_id, settings)
         else:
             # Regular image processing
             stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Image processing ...'))))
@@ -448,67 +447,40 @@ def worker(
             height, width = find_nearest_bucket(H, W, resolution=resolutionW if has_input_image else (resolutionH+resolutionW)/2)
             input_image_np = resize_and_center_crop(input_image, target_width=width, target_height=height)
 
-            if settings.get("save_metadata"):
-                metadata = PngInfo()
-                # prompt_text should be a string here now
-                metadata.add_text("prompt", prompt_text)
-                metadata.add_text("seed", str(seed))
-                Image.fromarray(input_image_np).save(os.path.join(metadata_dir, f'{job_id}.png'), pnginfo=metadata)
-
-                metadata_dict = {
-                    "prompt": prompt_text, # Use the original string
-                    "seed": seed,
-                    "total_second_length": total_second_length,
-                    "steps": steps,
-                    "cfg": cfg,
-                    "gs": gs,
-                    "rs": rs,
-                    "latent_type" : latent_type,
-                    "blend_sections": blend_sections,
-                    "latent_window_size": latent_window_size,
-                    "timestamp": time.time(),
-                    "resolutionW": resolutionW,  # Add resolution to metadata
-                    "resolutionH": resolutionH,
-                    "model_type": model_type,  # Add model type to metadata
-                    "end_frame_strength": end_frame_strength if end_frame_image is not None else None,
-                    "end_frame_used": True if end_frame_image is not None else False,                    
-                }
-            # Add LoRA information to metadata if LoRAs are used and metadata saving is enabled
-            if settings.get("save_metadata"):
-                def ensure_list(x):
-                    if isinstance(x, list):
-                        return x
-                    elif x is None:
-                        return []
-                    else:
-                        return [x]
-
-                selected_loras = ensure_list(selected_loras)
-                lora_values = ensure_list(lora_values)
-
-                if selected_loras and len(selected_loras) > 0:
-                    lora_data = {}
-                    for lora_name in selected_loras:
-                        try:
-                            idx = lora_loaded_names.index(lora_name)
-                            weight = lora_values[idx] if lora_values and idx < len(lora_values) else 1.0
-                            if isinstance(weight, list):
-                                weight_value = weight[0] if weight and len(weight) > 0 else 1.0
-                            else:
-                                weight_value = weight
-                            lora_data[lora_name] = float(weight_value)
-                        except ValueError:
-                            lora_data[lora_name] = 1.0
-                    metadata_dict["loras"] = lora_data
-
-                    with open(os.path.join(metadata_dir, f'{job_id}.json'), 'w') as f:
-                        json.dump(metadata_dict, f, indent=2)
-                else:
-                    # Always save metadata even if no LoRAs are used
-                    with open(os.path.join(metadata_dir, f'{job_id}.json'), 'w') as f:
-                        json.dump(metadata_dict, f, indent=2)
-                    
-                    Image.fromarray(input_image_np).save(os.path.join(metadata_dir, f'{job_id}.png'))
+            # Create metadata using the centralized metadata utility
+            job_params = {
+                "prompt_text": prompt_text,
+                "seed": seed,
+                "total_second_length": total_second_length,
+                "steps": steps,
+                "cfg": cfg,
+                "gs": gs,
+                "rs": rs,
+                "latent_type": latent_type,
+                "blend_sections": blend_sections,
+                "latent_window_size": latent_window_size,
+                "resolutionW": resolutionW,
+                "resolutionH": resolutionH,
+                "model_type": model_type,
+                "end_frame_strength": end_frame_strength if end_frame_image is not None else None,
+                "end_frame_used": True if end_frame_image is not None else False,
+                "width": width,
+                "height": height,
+                "input_image_np": input_image_np,
+                "use_teacache": use_teacache,
+                "teacache_num_steps": teacache_num_steps,
+                "teacache_rel_l1_thresh": teacache_rel_l1_thresh
+            }
+            metadata_dict = create_metadata(job_params, job_id, settings)
+            # Update metadata with LoRA information
+            if settings.get("save_metadata") and metadata_dict:
+                # Add LoRA information to the existing metadata
+                job_params["lora_loaded_names"] = lora_loaded_names
+                job_params["lora_values"] = lora_values
+                
+                # Save the updated metadata
+                with open(os.path.join(metadata_dir, f'{job_id}.json'), 'w') as f:
+                    json.dump(metadata_dict, f, indent=2)
 
         # Process video input for Video model
         if model_type == "Video":
@@ -1225,6 +1197,9 @@ def process(
         'resolutionH': resolutionH,
         'lora_loaded_names': lora_loaded_names
     }
+    
+    # Print teacache parameters for debugging
+    print(f"Teacache parameters: use_teacache={use_teacache}, teacache_num_steps={teacache_num_steps}, teacache_rel_l1_thresh={teacache_rel_l1_thresh}")
     
     # Add LoRA values if provided - extract them from the tuple
     if lora_values:
