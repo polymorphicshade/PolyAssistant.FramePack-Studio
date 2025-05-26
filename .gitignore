@@ -3,6 +3,7 @@ outputs/
 repo/
 loras/
 input_files/
+queue_images/
 queue.json
 settings.json
 # Byte-compiled / optimized / DLL files

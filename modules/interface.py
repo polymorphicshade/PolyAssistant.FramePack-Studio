@@ -532,7 +532,7 @@ def create_interface(
 
                         with gr.Row():
                             current_job_id = gr.Textbox(label="Current Job ID", visible=True, interactive=True)
-                            start_button = gr.Button(value="Add to Queue", elem_id="toolbar-add-to-queue-btn")
+                            start_button = gr.Button(value="Add to Queue", variant="primary", elem_id="toolbar-add-to-queue-btn")
                             end_button = gr.Button(value="Cancel Current Job", interactive=True, visible=False)
                             
 
@@ -1060,6 +1060,13 @@ def create_interface(
                         with gr.Row():
                             refresh_button = gr.Button("Refresh Queue")
                             clear_queue_button = gr.Button("Clear Queue", variant="stop")
+                            load_queue_button = gr.Button("Load Queue")
+                            import_queue_file = gr.File(
+                                label="Import Queue from JSON",
+                                file_types=[".json"],
+                                type="filepath",
+                                visible=True
+                            )
                             # Connect the refresh button (Moved inside 'with block')
                             refresh_button.click(
                                 fn=update_queue_status_fn, # Use the function passed in
@@ -1087,6 +1094,55 @@ def create_interface(
                             clear_queue_button.click(
                                 fn=clear_all_jobs,
                                 inputs=[],
+                                outputs=[queue_status]
+                            )
+                            
+                            # Function to load queue from queue.json
+                            def load_queue_from_json():
+                                try:
+                                    # Use the load_queue_from_json method from VideoJobQueue
+                                    loaded_count = job_queue.load_queue_from_json()
+                                    print(f"Loaded {loaded_count} jobs from queue.json")
+                                    
+                                    # Refresh the queue display with the current state
+                                    return update_queue_status_fn()
+                                except Exception as e:
+                                    import traceback
+                                    print(f"Error loading queue from JSON: {e}")
+                                    traceback.print_exc()
+                                    # Return empty list on error to avoid UI hanging
+                                    return []
+                            
+                            # Function to import queue from a custom JSON file
+                            def import_queue_from_file(file_path):
+                                if not file_path:
+                                    return update_queue_status_fn()
+                                    
+                                try:
+                                    # Use the load_queue_from_json method from VideoJobQueue with the provided file path
+                                    loaded_count = job_queue.load_queue_from_json(file_path)
+                                    print(f"Loaded {loaded_count} jobs from {file_path}")
+                                    
+                                    # Refresh the queue display with the current state
+                                    return update_queue_status_fn()
+                                except Exception as e:
+                                    import traceback
+                                    print(f"Error importing queue from file: {e}")
+                                    traceback.print_exc()
+                                    # Return empty list on error to avoid UI hanging
+                                    return []
+                            
+                            # Connect the load queue button
+                            load_queue_button.click(
+                                fn=load_queue_from_json,
+                                inputs=[],
+                                outputs=[queue_status]
+                            )
+                            
+                            # Connect the import queue file selector
+                            import_queue_file.change(
+                                fn=import_queue_from_file,
+                                inputs=[import_queue_file],
                                 outputs=[queue_status]
                             )
                         # Create a container for thumbnails (kept for potential future use, though not displayed in DataFrame)
@@ -1404,6 +1460,23 @@ def create_interface(
             fn=monitor_fn,
             inputs=[current_job_id],
             outputs=[result_video, current_job_id, preview_image, progress_desc, progress_bar, start_button, end_button]
+        )
+        
+        # Auto-check for current job on page load
+        def check_for_current_job():
+            # This function will be called when the interface loads
+            # It will check if there's a current job in the queue and update the UI
+            with job_queue.lock:
+                current_job = job_queue.current_job
+                if current_job:
+                    return current_job.id
+                return None
+                
+        # Connect the auto-check function to the interface load event
+        block.load(
+            fn=check_for_current_job,
+            inputs=[],
+            outputs=[current_job_id]
         )
 
         cleanup_btn.click(

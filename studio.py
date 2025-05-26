@@ -473,14 +473,17 @@ def worker(
             }
             metadata_dict = create_metadata(job_params, job_id, settings)
             # Update metadata with LoRA information
-            if settings.get("save_metadata") and metadata_dict:
+            if settings.get("save_metadata") and metadata_dict and metadata_dir:
                 # Add LoRA information to the existing metadata
                 job_params["lora_loaded_names"] = lora_loaded_names
                 job_params["lora_values"] = lora_values
                 
                 # Save the updated metadata
-                with open(os.path.join(metadata_dir, f'{job_id}.json'), 'w') as f:
-                    json.dump(metadata_dict, f, indent=2)
+                try:
+                    with open(os.path.join(metadata_dir, f'{job_id}.json'), 'w') as f:
+                        json.dump(metadata_dict, f, indent=2)
+                except Exception as e:
+                    print(f"Error saving metadata: {e}")
 
         # Process video input for Video model
         if model_type == "Video":
@@ -1274,16 +1277,27 @@ def update_queue_status():
     return format_queue_status(jobs)
 
 
-def monitor_job(job_id):
+def monitor_job(job_id=None):
     """
     Monitor a specific job and update the UI with the latest video segment as soon as it's available.
+    If no job_id is provided, check if there's a current job in the queue.
     """
+    # If no job_id is provided, check if there's a current job in the queue
     if not job_id:
-        yield None, None, None, '', 'No job ID provided', gr.update(interactive=True), gr.update(interactive=True, visible=False)
-        return
+        with job_queue.lock:
+            current_job = job_queue.current_job
+            if current_job:
+                job_id = current_job.id
+                print(f"No job_id provided, using current job: {job_id}")
+            else:
+                yield None, None, None, '', 'No job ID provided', gr.update(interactive=True), gr.update(interactive=True, visible=False)
+                return
 
     last_video = None  # Track the last video file shown
     last_job_status = None  # Track the previous job status to detect status changes
+    last_progress_update_time = time.time()  # Track when we last updated the progress
+    last_preview = None  # Track the last preview image shown
+    force_update = True  # Force an update on first iteration
 
     while True:
         job = job_queue.get_job(job_id)
@@ -1307,15 +1321,34 @@ def monitor_job(job_id):
             # This ensures we don't reset the button text during cancellation
             if last_job_status != JobStatus.RUNNING:
                 button_update = gr.update(interactive=True, value="Cancel Current Job", visible=True)
+                # Force a progress update when transitioning to RUNNING state
+                force_update = True
             else:
                 button_update = gr.update(interactive=True, visible=True)  # Keep current text
                 
-            if job.progress_data and 'preview' in job.progress_data:
+            # Check if we have progress data and if it's time to update
+            current_time = time.time()
+            update_needed = force_update or (current_time - last_progress_update_time > 0.05)  # More frequent updates
+            
+            # Always check for progress data, even if we don't have a preview yet
+            if job.progress_data and update_needed:
                 preview = job.progress_data.get('preview')
                 desc = job.progress_data.get('desc', '')
                 html = job.progress_data.get('html', '')
-                yield last_video, job_id, gr.update(visible=True, value=preview), desc, html, gr.update(interactive=True), button_update
-            else:
+                
+                # Only update the preview if it has changed or we're forcing an update
+                if preview is not None and (preview is not last_preview or force_update):
+                    last_preview = preview
+                    last_progress_update_time = current_time
+                    force_update = False
+                    yield last_video, job_id, gr.update(visible=True, value=preview), desc, html, gr.update(interactive=True), button_update
+                elif html:  # Even without a preview, update the progress bar if we have HTML
+                    last_progress_update_time = current_time
+                    force_update = False
+                    yield last_video, job_id, gr.update(visible=True), desc, html, gr.update(interactive=True), button_update
+            elif current_time - last_progress_update_time > 2.0:  # Force an update every 2 seconds even without new data
+                last_progress_update_time = current_time
+                force_update = False
                 yield last_video, job_id, gr.update(visible=True), '', 'Processing...', gr.update(interactive=True), button_update
 
         elif job.status == JobStatus.COMPLETED:
@@ -1337,7 +1370,7 @@ def monitor_job(job_id):
         last_job_status = job.status
         
         # Wait a bit before checking again
-        time.sleep(0.5)
+        time.sleep(0.05)  # Reduced wait time for more responsive updates
 
 
 # Set Gradio temporary directory from settings

@@ -2,6 +2,7 @@ import threading
 import time
 import uuid
 import json
+import os
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, Any, Optional, List
@@ -12,6 +13,9 @@ from PIL import Image
 import numpy as np
 
 from diffusers_helper.thread_utils import AsyncStream
+from modules.pipelines.metadata_utils import create_metadata
+from modules.settings import Settings
+from diffusers_helper.gradio.progress_bar import make_progress_bar_html
 
 
 # Simple LIFO queue implementation to avoid dependency on queue.LifoQueue
@@ -207,18 +211,66 @@ class VideoJobQueue:
             }
     
     def save_queue_to_json(self):
-        """Save the current queue to queue.json"""
+        """Save the current queue to queue.json using the central metadata utility"""
         try:
             # Make a copy of job IDs to avoid holding the lock while serializing
             with self.lock:
                 job_ids = list(self.jobs.keys())
             
-            # Serialize jobs outside the lock
+            # Create a settings instance
+            settings = Settings()
+            
+            # Create a directory to store queue images if it doesn't exist
+            queue_images_dir = "queue_images"
+            os.makedirs(queue_images_dir, exist_ok=True)
+            
+            # Serialize jobs outside the lock using metadata_utils
             serialized_jobs = {}
             for job_id in job_ids:
                 job = self.get_job(job_id)
                 if job:
-                    serialized_jobs[job_id] = self.serialize_job(job)
+                    # Try to use metadata_utils.create_metadata if possible
+                    try:
+                        # Create metadata using the central utility
+                        metadata = create_metadata(job.params, job.id, settings.settings)
+                        
+                        # Add job status and other fields not included in metadata
+                        metadata.update({
+                            "id": job.id,
+                            "status": job.status.value,
+                            "created_at": job.created_at,
+                            "started_at": job.started_at,
+                            "completed_at": job.completed_at,
+                            "error": job.error,
+                            "result": job.result,
+                            "queue_position": job.queue_position,
+                        })
+                        
+                        # Save input image to disk if it exists
+                        if 'input_image' in job.params and isinstance(job.params['input_image'], np.ndarray):
+                            input_image_path = os.path.join(queue_images_dir, f"{job_id}_input.png")
+                            try:
+                                Image.fromarray(job.params['input_image']).save(input_image_path)
+                                metadata["saved_input_image_path"] = input_image_path
+                                print(f"Saved input image for job {job_id} to {input_image_path}")
+                            except Exception as e:
+                                print(f"Error saving input image for job {job_id}: {e}")
+                        
+                        # Save end frame image to disk if it exists
+                        if 'end_frame_image' in job.params and isinstance(job.params['end_frame_image'], np.ndarray):
+                            end_frame_image_path = os.path.join(queue_images_dir, f"{job_id}_end_frame.png")
+                            try:
+                                Image.fromarray(job.params['end_frame_image']).save(end_frame_image_path)
+                                metadata["saved_end_frame_image_path"] = end_frame_image_path
+                                print(f"Saved end frame image for job {job_id} to {end_frame_image_path}")
+                            except Exception as e:
+                                print(f"Error saving end frame image for job {job_id}: {e}")
+                        
+                        serialized_jobs[job_id] = metadata
+                    except Exception as e:
+                        print(f"Error using metadata_utils for job {job_id}: {e}")
+                        # Fall back to the old serialization method
+                        serialized_jobs[job_id] = self.serialize_job(job)
             
             # Save to file
             with open("queue.json", "w") as f:
@@ -273,7 +325,7 @@ class VideoJobQueue:
             if job.status == JobStatus.PENDING:
                 job.status = JobStatus.CANCELLED
                 job.completed_at = time.time()  # Mark completion time
-                return True
+                result = True
             elif job.status == JobStatus.RUNNING:
                 # Send cancel signal to the job's stream
                 if hasattr(job, 'stream') and job.stream:
@@ -282,9 +334,18 @@ class VideoJobQueue:
                 # Mark job as cancelled (this will be confirmed when the worker processes the end signal)
                 job.status = JobStatus.CANCELLED
                 job.completed_at = time.time()  # Mark completion time
-                return True
+                result = True
             else:
-                return False
+                result = False
+        
+        # Save the queue to JSON after cancelling a job (outside the lock)
+        if result:
+            try:
+                self.save_queue_to_json()
+            except Exception as e:
+                print(f"Error saving queue to JSON after cancelling job: {e}")
+        
+        return result
     
     def clear_queue(self):
         """Cancel all pending jobs in the queue"""
@@ -365,6 +426,156 @@ class VideoJobQueue:
             if job:
                 job.progress_data = progress_data
     
+    def load_queue_from_json(self, file_path=None):
+        """Load queue from a JSON file
+        
+        Args:
+            file_path: Path to the JSON file. If None, uses 'queue.json' in the current directory.
+            
+        Returns:
+            int: Number of jobs loaded
+        """
+        try:
+            # Use default path if none provided
+            if file_path is None:
+                file_path = "queue.json"
+            
+            # Check if file exists
+            if not os.path.exists(file_path):
+                print(f"Queue file not found: {file_path}")
+                return 0
+            
+            # Load the JSON data
+            with open(file_path, 'r') as f:
+                serialized_jobs = json.load(f)
+            
+            # Count of jobs loaded
+            loaded_count = 0
+            
+            # Process each job
+            with self.lock:
+                for job_id, job_data in serialized_jobs.items():
+                    # Skip if job already exists
+                    if job_id in self.jobs:
+                        print(f"Job {job_id} already exists, skipping")
+                        continue
+                    
+                    # Skip completed, failed, or cancelled jobs
+                    status = job_data.get('status')
+                    if status in ['completed', 'failed', 'cancelled']:
+                        print(f"Skipping job {job_id} with status {status}")
+                        continue
+                    
+                    # If the job was running when saved, we'll need to set it as the current job
+                    was_running = (status == 'running')
+                    
+                    # Extract relevant fields to construct params
+                    params = {
+                        # Basic parameters
+                        'model_type': job_data.get('model_type', 'Original'),
+                        'prompt_text': job_data.get('prompt', ''),
+                        'n_prompt': job_data.get('negative_prompt', ''),
+                        'seed': job_data.get('seed', 0),
+                        'steps': job_data.get('steps', 25),
+                        'cfg': job_data.get('cfg', 1.0),
+                        'gs': job_data.get('gs', 10.0),
+                        'rs': job_data.get('rs', 0.0),
+                        'latent_type': job_data.get('latent_type', 'Black'),
+                        'total_second_length': job_data.get('total_second_length', 6),
+                        'blend_sections': job_data.get('blend_sections', 4),
+                        'latent_window_size': job_data.get('latent_window_size', 9),
+                        'resolutionW': job_data.get('resolutionW', 640),
+                        'resolutionH': job_data.get('resolutionH', 640),
+                        
+                        # Initialize image parameters
+                        'input_image': None,
+                        'end_frame_image': None,
+                        'end_frame_strength': job_data.get('end_frame_strength', 1.0),
+                        'use_teacache': job_data.get('use_teacache', True),
+                        'teacache_num_steps': job_data.get('teacache_num_steps', 25),
+                        'teacache_rel_l1_thresh': job_data.get('teacache_rel_l1_thresh', 0.15),
+                        'has_input_image': job_data.get('has_input_image', True),
+                    }
+                    
+                    # Load input image from disk if saved path exists
+                    if "saved_input_image_path" in job_data and os.path.exists(job_data["saved_input_image_path"]):
+                        try:
+                            input_image_path = job_data["saved_input_image_path"]
+                            print(f"Loading input image from {input_image_path}")
+                            input_image = np.array(Image.open(input_image_path))
+                            params['input_image'] = input_image
+                            params['has_input_image'] = True
+                        except Exception as e:
+                            print(f"Error loading input image for job {job_id}: {e}")
+                    
+                    # Load end frame image from disk if saved path exists
+                    if "saved_end_frame_image_path" in job_data and os.path.exists(job_data["saved_end_frame_image_path"]):
+                        try:
+                            end_frame_image_path = job_data["saved_end_frame_image_path"]
+                            print(f"Loading end frame image from {end_frame_image_path}")
+                            end_frame_image = np.array(Image.open(end_frame_image_path))
+                            params['end_frame_image'] = end_frame_image
+                        except Exception as e:
+                            print(f"Error loading end frame image for job {job_id}: {e}")
+                    
+                    # Add LoRA information if present
+                    if 'loras' in job_data:
+                        lora_data = job_data.get('loras', {})
+                        selected_loras = list(lora_data.keys())
+                        lora_values = list(lora_data.values())
+                        params['selected_loras'] = selected_loras
+                        params['lora_values'] = lora_values
+                    
+                    # Get settings for output_dir and metadata_dir
+                    settings = Settings()
+                    output_dir = settings.get("output_dir")
+                    metadata_dir = settings.get("metadata_dir")
+                    input_files_dir = settings.get("input_files_dir")
+                    
+                    # Add these directories to the params
+                    params['output_dir'] = output_dir
+                    params['metadata_dir'] = metadata_dir
+                    params['input_files_dir'] = input_files_dir
+                    
+                    # Create a new job
+                    job = Job(
+                        id=job_id,
+                        params=params,
+                        status=JobStatus(job_data.get('status', 'pending')),
+                        created_at=job_data.get('created_at', time.time()),
+                        progress_data={},
+                        stream=AsyncStream()
+                    )
+                    
+                    # Add job to the queue
+                    self.jobs[job_id] = job
+                    
+                    # Only add pending jobs to the processing queue
+                    if job.status == JobStatus.PENDING:
+                        self.queue.put(job_id)
+                        loaded_count += 1
+                    # If the job was running, set it as the current job
+                    elif was_running and self.current_job is None:
+                        print(f"Setting job {job_id} as current job (was running when saved)")
+                        self.current_job = job
+                        # Create a new stream for the resumed job
+                        job.stream = AsyncStream()
+                        # Initialize progress_data if it doesn't exist
+                        if not hasattr(job, 'progress_data') or job.progress_data is None:
+                            job.progress_data = {}
+                        # Mark it as running again
+                        job.status = JobStatus.RUNNING
+                        loaded_count += 1
+            
+            print(f"Loaded {loaded_count} pending jobs from {file_path}")
+            return loaded_count
+            
+        except Exception as e:
+            import traceback
+            print(f"Error loading queue from JSON: {e}")
+            traceback.print_exc()
+            return 0
+    
     def _worker_loop(self):
         """Worker thread that processes jobs from the queue"""
         while True:
@@ -394,6 +605,31 @@ class VideoJobQueue:
                         self.queue.task_done()
                         time.sleep(0.1)  # Small delay to prevent busy waiting
                         continue
+                    
+                    # Check if there's a previously running job that was interrupted
+                    previously_running_job = None
+                    for j in self.jobs.values():
+                        if j.status == JobStatus.RUNNING and j.id != job_id:
+                            previously_running_job = j
+                            break
+                    
+                    # If there's a previously running job, process it first
+                    if previously_running_job:
+                        print(f"Found previously running job {previously_running_job.id}, processing it first")
+                        # Put the current job back in the queue
+                        self.queue.put(job_id)
+                        self.queue.task_done()
+                        # Process the previously running job
+                        job = previously_running_job
+                        job_id = previously_running_job.id
+                        
+                        # Create a new stream for the resumed job and initialize progress_data
+                        job.stream = AsyncStream()
+                        job.progress_data = {}
+                        
+                        # Push an initial progress update to the stream
+                        from diffusers_helper.gradio.progress_bar import make_progress_bar_html
+                        job.stream.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Resuming job...'))))
                     
                     print(f"Starting job {job_id}, current job was {self.current_job.id if self.current_job else 'None'}")
                     job.status = JobStatus.RUNNING
@@ -501,6 +737,12 @@ class VideoJobQueue:
                         self.is_processing = False
                         self.current_job = None
                         self.queue.task_done()
+                    
+                    # Save the queue to JSON after job completion (outside the lock)
+                    try:
+                        self.save_queue_to_json()
+                    except Exception as e:
+                        print(f"Error saving queue to JSON after job completion: {e}")
                 
             except Exception as e:
                 import traceback
