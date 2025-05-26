@@ -265,55 +265,39 @@ class VideoJobQueue:
     
     def cancel_job(self, job_id):
         """Cancel a pending job"""
-        print(f"DEBUG: cancel_job called for job {job_id}")
         with self.lock:
             job = self.jobs.get(job_id)
             if not job:
-                print(f"DEBUG: Job {job_id} not found in jobs dictionary")
                 return False
                 
-            print(f"DEBUG: Job {job_id} status is {job.status}")
             if job.status == JobStatus.PENDING:
-                print(f"DEBUG: Cancelling pending job {job_id}")
                 job.status = JobStatus.CANCELLED
                 job.completed_at = time.time()  # Mark completion time
-                print(f"DEBUG: Job {job_id} marked as CANCELLED")
                 return True
             elif job.status == JobStatus.RUNNING:
-                print(f"DEBUG: Cancelling running job {job_id}")
                 # Send cancel signal to the job's stream
                 if hasattr(job, 'stream') and job.stream:
-                    print(f"DEBUG: Sending end signal to job {job_id} stream")
                     job.stream.input_queue.push('end')
-                else:
-                    print(f"DEBUG: Job {job_id} has no stream to send end signal to")
                     
                 # Mark job as cancelled (this will be confirmed when the worker processes the end signal)
                 job.status = JobStatus.CANCELLED
                 job.completed_at = time.time()  # Mark completion time
-                print(f"DEBUG: Job {job_id} marked as CANCELLED")
                 return True
             else:
-                print(f"DEBUG: Cannot cancel job {job_id} with status {job.status}")
                 return False
     
     def clear_queue(self):
         """Cancel all pending jobs in the queue"""
-        print("DEBUG: VideoJobQueue.clear_queue() called")
         cancelled_count = 0
         try:
             # First, make a copy of all pending job IDs to avoid modifying the dictionary during iteration
             with self.lock:
-                print("DEBUG: Acquired lock in clear_queue")
                 # Get all pending job IDs
                 pending_job_ids = [job_id for job_id, job in self.jobs.items() 
                                 if job.status == JobStatus.PENDING]
-                
-                print(f"DEBUG: Found {len(pending_job_ids)} pending jobs to cancel")
             
             # Cancel each pending job individually
             for job_id in pending_job_ids:
-                print(f"DEBUG: Attempting to cancel job {job_id}")
                 try:
                     with self.lock:
                         job = self.jobs.get(job_id)
@@ -321,11 +305,8 @@ class VideoJobQueue:
                             job.status = JobStatus.CANCELLED
                             job.completed_at = time.time()
                             cancelled_count += 1
-                            print(f"DEBUG: Successfully cancelled job {job_id}")
-                        else:
-                            print(f"DEBUG: Job {job_id} not found or not in PENDING state")
                 except Exception as e:
-                    print(f"DEBUG: Error cancelling job {job_id}: {e}")
+                    print(f"Error cancelling job {job_id}: {e}")
             
             # Now clear the queue
             with self.lock:
@@ -340,22 +321,19 @@ class VideoJobQueue:
                         except queue_module.Empty:
                             break
                 except Exception as e:
-                    print(f"DEBUG: Error clearing queue: {e}")
-                
-                print(f"DEBUG: Cleared {queue_items_cleared} items from the queue")
+                    print(f"Error clearing queue: {e}")
             
             # Save the updated queue state
             try:
-                print("DEBUG: Saving queue state to JSON")
                 self.save_queue_to_json()
             except Exception as e:
-                print(f"DEBUG: Error saving queue state: {e}")
+                print(f"Error saving queue state: {e}")
             
-            print(f"DEBUG: clear_queue completed, cancelled {cancelled_count} jobs")
+            print(f"Cleared {cancelled_count} jobs from the queue")
             return cancelled_count
         except Exception as e:
             import traceback
-            print(f"DEBUG ERROR: Exception in clear_queue: {e}")
+            print(f"Error in clear_queue: {e}")
             traceback.print_exc()
             return 0
     
