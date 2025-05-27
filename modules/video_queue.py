@@ -356,6 +356,11 @@ class VideoJobQueue:
                 # Mark job as cancelled (this will be confirmed when the worker processes the end signal)
                 job.status = JobStatus.CANCELLED
                 job.completed_at = time.time()  # Mark completion time
+                
+                # Let the worker loop handle the transition to the next job
+                # This ensures the current job is fully processed before switching
+                print(f"DEBUG: Job {job_id} marked as cancelled. Worker loop will handle transition to next job.")
+                
                 result = True
             else:
                 result = False
@@ -907,11 +912,63 @@ class VideoJobQueue:
                                 job.error = "Job processing was interrupted"
                             
                             job.completed_at = time.time()
+                    
+                    print(f"Finishing job {job_id} with status {job.status}")
+                    self.is_processing = False
+                    
+                    # Check if there's another job in the queue before setting current_job to None
+                    # This helps prevent UI flashing when a job is cancelled
+                    next_job_id = None
+                    try:
+                        # Peek at the next job without removing it from the queue
+                        if not self.queue.empty():
+                            # We can't peek with the standard Queue, so we'll have to get creative
+                            # Store the queue items temporarily
+                            temp_queue = []
+                            while not self.queue.empty():
+                                item = self.queue.get()
+                                temp_queue.append(item)
+                                if next_job_id is None:
+                                    next_job_id = item
+                            
+                            # Put everything back
+                            for item in temp_queue:
+                                self.queue.put(item)
+                    except Exception as e:
+                        print(f"Error checking for next job: {e}")
+                    
+                    # After a job completes or is cancelled, always set current_job to None first
+                    self.current_job = None
+                    
+                    # Then immediately check if there are pending jobs to start
+                    pending_jobs = [j for j in self.jobs.values() if j.status == JobStatus.PENDING]
+                    
+                    if pending_jobs:
+                        # If there are pending jobs, immediately start the next one
+                        pending_jobs.sort(key=lambda j: j.created_at)
+                        next_job = pending_jobs[0]
+                        print(f"DEBUG: Starting next job {next_job.id} immediately after job {job_id}")
                         
-                        print(f"Finishing job {job_id} with status {job.status}")
-                        self.is_processing = False
-                        self.current_job = None
-                        self.queue.task_done()
+                        # Set the next job as current and mark it as running
+                        self.current_job = next_job
+                        next_job.status = JobStatus.RUNNING
+                        next_job.started_at = time.time()
+                        
+                        # Remove the next job from the queue
+                        temp_queue = []
+                        try:
+                            while not self.queue.empty():
+                                item = self.queue.get()
+                                if item != next_job.id:  # Skip the next job
+                                    temp_queue.append(item)
+                            
+                            # Put everything back except the next job
+                            for item in temp_queue:
+                                self.queue.put(item)
+                        except Exception as e:
+                            print(f"DEBUG: Error removing next job from queue: {e}")
+                    
+                    self.queue.task_done()
                     
                     # Save the queue to JSON after job completion (outside the lock)
                     try:
