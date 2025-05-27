@@ -1059,7 +1059,8 @@ def create_interface(
                             )
                         with gr.Row():
                             refresh_button = gr.Button("Refresh Queue")
-                            clear_queue_button = gr.Button("Clear Queue", variant="stop")
+                            clear_queue_button = gr.Button("Cancel Queue", variant="stop")
+                            clear_complete_button = gr.Button("Clear Complete", variant="secondary")
                             load_queue_button = gr.Button("Load Queue")
                             queue_export_button = gr.Button("Queue Export")
                             import_queue_file = gr.File(
@@ -1094,6 +1095,29 @@ def create_interface(
                             # Connect the clear queue button
                             clear_queue_button.click(
                                 fn=clear_all_jobs,
+                                inputs=[],
+                                outputs=[queue_status]
+                            )
+                            
+                            # Function to clear completed and cancelled jobs
+                            def clear_completed_jobs():
+                                try:
+                                    # Use the clear_completed_jobs method from VideoJobQueue
+                                    removed_count = job_queue.clear_completed_jobs()
+                                    print(f"Removed {removed_count} completed/cancelled jobs from the queue")
+                                    
+                                    # Refresh the queue display with the current state
+                                    return update_queue_status_fn()
+                                except Exception as e:
+                                    import traceback
+                                    print(f"Error in clear_completed_jobs: {e}")
+                                    traceback.print_exc()
+                                    # Return empty list on error to avoid UI hanging
+                                    return []
+                            
+                            # Connect the clear complete button
+                            clear_complete_button.click(
+                                fn=clear_completed_jobs,
                                 inputs=[],
                                 outputs=[queue_status]
                             )
@@ -1182,7 +1206,9 @@ def create_interface(
                             
                             - **Refresh Queue**: Updates the queue status display with the current state of all jobs.
                             
-                            - **Clear Queue**: Cancels all pending jobs in the queue. This will not affect jobs that are currently running.
+                            - **Cancel Queue**: Cancels all pending jobs in the queue. This will not affect jobs that are currently running.
+                            
+                            - **Clear Complete**: Removes all completed and cancelled jobs from the queue, keeping only pending and running jobs.
                             
                             - **Load Queue**: Loads the queue from the default `queue.json` file in the application directory. This is useful if you've restarted the application and want to restore your previous queue state.
                             
@@ -1448,15 +1474,15 @@ def create_interface(
 
                 # Add the new seed value to the results if randomize is checked
                 if new_seed_value is not None:
-                    return [result[0], job_id, result[2], result[3], result[4], result[5], result[6], queue_status_data, new_seed_value]
+                    return [result[0], job_id, result[2], result[3], result[4], result[5], gr.update(value="Add to Queue", interactive=True), queue_status_data, new_seed_value]
                 else:
-                    return [result[0], job_id, result[2], result[3], result[4], result[5], result[6], queue_status_data, gr.update()]
+                    return [result[0], job_id, result[2], result[3], result[4], result[5], gr.update(value="Add to Queue", interactive=True), queue_status_data, gr.update()]
 
             # If no job ID was created, still return the new seed if randomize is checked
             if new_seed_value is not None:
-                return result + [update_queue_status_fn(), new_seed_value]
+                return result + [gr.update(value="Add to Queue", interactive=True), update_queue_status_fn(), new_seed_value]
             else:
-                return result + [update_queue_status_fn(), gr.update()]
+                return result + [gr.update(value="Add to Queue", interactive=True), update_queue_status_fn(), gr.update()]
 
         # Custom end process function that ensures the queue is updated and changes button text
         def end_process_with_update():
@@ -1506,16 +1532,27 @@ def create_interface(
                 status, video = generate_tab_xy_plot_process()
                 if status:
                     # If there was an error, display it
-                    return gr.update(value=None), gr.update(), gr.update(), gr.update(value=status), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+                    return gr.update(value=None), gr.update(), gr.update(), gr.update(value=status), gr.update(), gr.update(value="Add to Queue", interactive=True), gr.update(), gr.update(), gr.update()
                 else:
                     # If successful, display the result video
-                    return gr.update(value=video), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
+                    return gr.update(value=video), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(value="Add to Queue", interactive=True), gr.update(), gr.update(), gr.update()
             else:
                 # For other model types, use the regular process function
+                # First update the button to show "Adding..." and disable it
                 return process_with_queue_update(selected_model, *args)
                 
+        # Function to update button state before processing
+        def update_button_before_processing(selected_model, *args):
+            # First update the button to show "Adding..." and disable it
+            return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(value="Adding...", interactive=False), gr.update(), gr.update(), gr.update()
+        
+        # Connect the start button to first update its state
         start_button.click(
-            # Pass the selected model type from the radio buttons
+            fn=update_button_before_processing,
+            inputs=[model_type] + ips,
+            outputs=[result_video, current_job_id, preview_image, progress_desc, progress_bar, start_button, end_button, queue_status, seed]
+        ).then(
+            # Then process the job
             fn=handle_start_button,
             inputs=[model_type] + ips,
             outputs=[result_video, current_job_id, preview_image, progress_desc, progress_bar, start_button, end_button, queue_status, seed]

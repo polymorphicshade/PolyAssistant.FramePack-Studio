@@ -399,6 +399,40 @@ class VideoJobQueue:
             print(f"Error in clear_queue: {e}")
             traceback.print_exc()
             return 0
+            
+    def clear_completed_jobs(self):
+        """Remove cancelled or completed jobs from the queue"""
+        removed_count = 0
+        try:
+            # First, make a copy of all completed/cancelled job IDs to avoid modifying the dictionary during iteration
+            with self.lock:
+                # Get all completed or cancelled job IDs
+                completed_job_ids = [job_id for job_id, job in self.jobs.items() 
+                                  if job.status in [JobStatus.COMPLETED, JobStatus.CANCELLED]]
+            
+            # Remove each completed/cancelled job individually
+            for job_id in completed_job_ids:
+                try:
+                    with self.lock:
+                        if job_id in self.jobs:
+                            del self.jobs[job_id]
+                            removed_count += 1
+                except Exception as e:
+                    print(f"Error removing job {job_id}: {e}")
+            
+            # Save the updated queue state
+            try:
+                self.save_queue_to_json()
+            except Exception as e:
+                print(f"Error saving queue state: {e}")
+            
+            print(f"Removed {removed_count} completed/cancelled jobs from the queue")
+            return removed_count
+        except Exception as e:
+            import traceback
+            print(f"Error in clear_completed_jobs: {e}")
+            traceback.print_exc()
+            return 0
     
     def get_queue_position(self, job_id):
         """Get position in queue (0 = currently running)"""
