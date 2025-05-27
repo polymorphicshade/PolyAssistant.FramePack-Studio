@@ -94,8 +94,15 @@ def create_metadata(job_params, job_id, settings):
         metadata.add_text("x_param", job_params.get('x_param', ''))
         metadata.add_text("y_param", job_params.get('y_param', ''))
     
-    # Save placeholder image with metadata
-    placeholder_img.save(os.path.join(metadata_dir, f'{job_id}.png'), pnginfo=metadata)
+    # Only save placeholder image with metadata if called from worker.py
+    # This is determined by checking if the call stack includes 'worker.py'
+    import traceback
+    call_stack = traceback.extract_stack()
+    is_called_from_worker = any('worker.py' in frame.filename for frame in call_stack)
+    
+    if is_called_from_worker:
+        # Save placeholder image with metadata
+        placeholder_img.save(os.path.join(metadata_dir, f'{job_id}.png'), pnginfo=metadata)
     
     # Create comprehensive JSON metadata with all possible parameters
     metadata_dict = {
@@ -163,8 +170,10 @@ def create_metadata(job_params, job_id, settings):
     else:
         metadata_dict["loras"] = {}
     
-    # Save JSON metadata
-    with open(os.path.join(metadata_dir, f'{job_id}.json'), 'w') as f:
-        json.dump(metadata_dict, f, indent=2)
+    # Only save JSON metadata if called from worker.py
+    if is_called_from_worker:
+        # Save JSON metadata
+        with open(os.path.join(metadata_dir, f'{job_id}.json'), 'w') as f:
+            json.dump(metadata_dict, f, indent=2)
     
     return metadata_dict

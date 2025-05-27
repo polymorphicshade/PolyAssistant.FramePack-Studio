@@ -67,6 +67,8 @@ class Job:
     latent_type: Optional[str] = None
     thumbnail: Optional[str] = None
     generation_type: Optional[str] = None # Added generation_type
+    input_image_saved: bool = False  # Flag to track if input image has been saved
+    end_frame_image_saved: bool = False  # Flag to track if end frame image has been saved
 
     def __post_init__(self):
         # Store generation type
@@ -248,25 +250,41 @@ class VideoJobQueue:
                             "queue_position": job.queue_position,
                         })
                         
-                        # Save input image to disk if it exists
-                        if 'input_image' in job.params and isinstance(job.params['input_image'], np.ndarray):
-                            input_image_path = os.path.join(queue_images_dir, f"{job_id}_input.png")
-                            try:
-                                Image.fromarray(job.params['input_image']).save(input_image_path)
-                                metadata["saved_input_image_path"] = input_image_path
-                                print(f"Saved input image for job {job_id} to {input_image_path}")
-                            except Exception as e:
-                                print(f"Error saving input image for job {job_id}: {e}")
-                        
-                        # Save end frame image to disk if it exists
-                        if 'end_frame_image' in job.params and isinstance(job.params['end_frame_image'], np.ndarray):
-                            end_frame_image_path = os.path.join(queue_images_dir, f"{job_id}_end_frame.png")
-                            try:
-                                Image.fromarray(job.params['end_frame_image']).save(end_frame_image_path)
-                                metadata["saved_end_frame_image_path"] = end_frame_image_path
-                                print(f"Saved end frame image for job {job_id} to {end_frame_image_path}")
-                            except Exception as e:
-                                print(f"Error saving end frame image for job {job_id}: {e}")
+                        # Only save images if the job is running or completed
+                        if job.status in [JobStatus.RUNNING, JobStatus.COMPLETED]:
+                            # Save input image to disk if it exists and hasn't been saved yet
+                            if 'input_image' in job.params and isinstance(job.params['input_image'], np.ndarray) and not job.input_image_saved:
+                                input_image_path = os.path.join(queue_images_dir, f"{job_id}_input.png")
+                                try:
+                                    Image.fromarray(job.params['input_image']).save(input_image_path)
+                                    metadata["saved_input_image_path"] = input_image_path
+                                    print(f"Saved input image for job {job_id} to {input_image_path}")
+                                    # Mark the image as saved
+                                    job.input_image_saved = True
+                                except Exception as e:
+                                    print(f"Error saving input image for job {job_id}: {e}")
+                            elif 'input_image' in job.params and isinstance(job.params['input_image'], np.ndarray) and job.input_image_saved:
+                                # If the image has already been saved, just add the path to metadata
+                                input_image_path = os.path.join(queue_images_dir, f"{job_id}_input.png")
+                                if os.path.exists(input_image_path):
+                                    metadata["saved_input_image_path"] = input_image_path
+                            
+                            # Save end frame image to disk if it exists and hasn't been saved yet
+                            if 'end_frame_image' in job.params and isinstance(job.params['end_frame_image'], np.ndarray) and not job.end_frame_image_saved:
+                                end_frame_image_path = os.path.join(queue_images_dir, f"{job_id}_end_frame.png")
+                                try:
+                                    Image.fromarray(job.params['end_frame_image']).save(end_frame_image_path)
+                                    metadata["saved_end_frame_image_path"] = end_frame_image_path
+                                    print(f"Saved end frame image for job {job_id} to {end_frame_image_path}")
+                                    # Mark the end frame image as saved
+                                    job.end_frame_image_saved = True
+                                except Exception as e:
+                                    print(f"Error saving end frame image for job {job_id}: {e}")
+                            elif 'end_frame_image' in job.params and isinstance(job.params['end_frame_image'], np.ndarray) and job.end_frame_image_saved:
+                                # If the end frame image has already been saved, just add the path to metadata
+                                end_frame_image_path = os.path.join(queue_images_dir, f"{job_id}_end_frame.png")
+                                if os.path.exists(end_frame_image_path):
+                                    metadata["saved_end_frame_image_path"] = end_frame_image_path
                         
                         serialized_jobs[job_id] = metadata
                     except Exception as e:
@@ -291,7 +309,9 @@ class VideoJobQueue:
             status=JobStatus.PENDING,
             created_at=time.time(),
             progress_data={},
-            stream=AsyncStream()
+            stream=AsyncStream(),
+            input_image_saved=False,  # Initialize as not saved for new jobs
+            end_frame_image_saved=False  # Initialize as not saved for new jobs
         )
         
         with self.lock:
@@ -637,7 +657,10 @@ class VideoJobQueue:
                         status=JobStatus(job_data.get('status', 'pending')),
                         created_at=job_data.get('created_at', time.time()),
                         progress_data={},
-                        stream=AsyncStream()
+                        stream=AsyncStream(),
+                        # Mark images as saved if their paths exist in the job data
+                        input_image_saved="saved_input_image_path" in job_data and os.path.exists(job_data["saved_input_image_path"]),
+                        end_frame_image_saved="saved_end_frame_image_path" in job_data and os.path.exists(job_data["saved_end_frame_image_path"])
                     )
                     
                     # Add job to the queue
