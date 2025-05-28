@@ -94,7 +94,6 @@ def xy_plot_convert_loras_text(arrayT):
         if n in arrayT["lora_loaded_names"] and n not in usedLoras:
             usedLoras.append(n)
             weightLoras[arrayT["lora_loaded_names"].index(n)] = float(w)
-        # print(n, w, v["lora_loaded_names"], arrayT["selected_loras"])
     arrayT["selected_loras"] = usedLoras
     arrayT["lora_values"] = weightLoras
     return arrayT
@@ -508,7 +507,7 @@ def create_interface(
 
                             with gr.Row():
                                 seed = gr.Number(label="Seed", value=31337, precision=0)
-                                randomize_seed = gr.Checkbox(label="Randomize", value=False, info="Generate a new random seed for each job")
+                                randomize_seed = gr.Checkbox(label="Randomize", value=True, info="Generate a new random seed for each job")
 
                         with gr.Accordion("Advanced Parameters", open=False):
                             latent_window_size = gr.Slider(label="Latent Window Size", minimum=1, maximum=33, value=9, step=1, visible=True, info='Change at your own risk, very experimental')  # Should not change
@@ -560,7 +559,6 @@ def create_interface(
                         if n in arrayT["lora_loaded_names"] and n not in usedLoras:
                             usedLoras.append(n)
                             weightLoras[arrayT["lora_loaded_names"].index(n)] = float(w)
-                        # print(n, w, v["lora_loaded_names"], arrayT["selected_loras"])
                     arrayT["selected_loras"] = usedLoras
                     arrayT["lora_values"] = weightLoras
                     return arrayT
@@ -697,10 +695,6 @@ def create_interface(
                                 vars_copy[text_to_base_keys[splitted_axis_name[0]]] = value
                             vars_copy[splitted_axis_name[1]+"_axis_on_plot"] = str(value)
                         output_generator_vars.append(xy_plot_convert_loras_text(vars_copy))
-                    # print("----- BEFORE GENERATED VIDS VARS START -----")
-                    # for v in output_generator_vars:
-                    #     print(v)
-                    # print("------ BEFORE GENERATED VIDS VARS END ------")
 
                     for i, v in enumerate(output_generator_vars):
                         xy_plot_new_job = process_with_queue_update(
@@ -742,10 +736,6 @@ def create_interface(
                         
                         # Wait before checking again
                         time.sleep(1)
-                    # print("----- GENERATED VIDS VARS START -----")
-                    # for v in output_generator_vars:
-                    #     print(v)
-                    # print("------ GENERATED VIDS VARS END ------")
 
                     # -------------------------- connect with settings --------------------------
                     output_dir = 'outputs'
@@ -1336,6 +1326,11 @@ def create_interface(
                         )
                         
                         with gr.Accordion("System Prompt", open=False):
+                            override_system_prompt = gr.Checkbox(
+                                label="Override System Prompt",
+                                value=settings.get("override_system_prompt", False),
+                                info="If checked, the system prompt template below will be used instead of the default one."
+                            )
                             system_prompt_template = gr.Textbox(
                                 label="System Prompt Template",
                                 value=settings.get("system_prompt_template", "{\"template\": \"<|start_header_id|>system<|end_header_id|>\\n\\nDescribe the video by detailing the following aspects: 1. The main content and theme of the video.2. The color, shape, size, texture, quantity, text, and spatial relationships of the objects.3. Actions, events, behaviors temporal relationships, physical movement changes of the objects.4. background environment, light, style and atmosphere.5. camera angles, movements, and transitions used in the video:<|eot_id|><|start_header_id|>user<|end_header_id|>\\n\\n{}<|eot_id|>\", \"crop_start\": 95}"),
@@ -1375,7 +1370,7 @@ def create_interface(
                         status = gr.HTML("")
                         cleanup_output = gr.Textbox(label="Cleanup Status", interactive=False)
 
-                        def save_settings(save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, cleanup_temp_folder, system_prompt_template_value, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, selected_theme):
+                        def save_settings(save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, cleanup_temp_folder, override_system_prompt_value, system_prompt_template_value, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, selected_theme):
                             try:
                                 # Save the system prompt template as is, without trying to parse it
                                 # The hunyuan.py file will handle parsing it when needed
@@ -1387,6 +1382,7 @@ def create_interface(
                                     mp4_crf=mp4_crf,
                                     clean_up_videos=clean_up_videos,
                                     cleanup_temp_folder=cleanup_temp_folder,
+                                    override_system_prompt=override_system_prompt_value,
                                     system_prompt_template=processed_template,
                                     output_dir=output_dir,
                                     metadata_dir=metadata_dir,

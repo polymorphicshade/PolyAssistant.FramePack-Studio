@@ -3,9 +3,6 @@ import torch
 from diffusers.pipelines.hunyuan_video.pipeline_hunyuan_video import DEFAULT_PROMPT_TEMPLATE
 from diffusers_helper.utils import crop_or_pad_yield_mask
 
-# Debug message to print the contents of DEFAULT_PROMPT_TEMPLATE
-print("DEBUG - DEFAULT_PROMPT_TEMPLATE contents:", DEFAULT_PROMPT_TEMPLATE)
-
 
 @torch.no_grad()
 def encode_prompt_conds(prompt, text_encoder, text_encoder_2, tokenizer, tokenizer_2, max_length=256):
@@ -20,8 +17,10 @@ def encode_prompt_conds(prompt, text_encoder, text_encoder_2, tokenizer, tokeniz
     try:
         from modules.settings import Settings
         settings = Settings()
+        override_system_prompt = settings.get("override_system_prompt", False)
         custom_template_str = settings.get("system_prompt_template")
-        if custom_template_str:
+        
+        if override_system_prompt and custom_template_str:
             try:
                 # Convert the string representation to a dictionary
                 # Extract template and crop_start directly from the string using regex
@@ -51,6 +50,12 @@ def encode_prompt_conds(prompt, text_encoder, text_encoder_2, tokenizer, tokeniz
                 print(f"Error parsing custom system prompt template: {e}")
                 print(f"Falling back to default template")
                 custom_template = None
+        else:
+            if not override_system_prompt:
+                print(f"Override system prompt is disabled, using default template")
+            elif not custom_template_str:
+                print(f"No custom system prompt template found in settings")
+            custom_template = None
     except Exception as e:
         print(f"Error loading settings: {e}")
         print(f"Falling back to default template")
