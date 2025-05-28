@@ -1223,7 +1223,7 @@ def process(
     
     queue_status = update_queue_status()
     # Return immediately after adding to queue
-    return None, job_id, None, '', f'Job added to queue. Job ID: {job_id}', gr.update(interactive=True), gr.update(interactive=True)
+    return None, job_id, None, '', f'Job added to queue. Job ID: {job_id}', gr.update(value="Add to Queue", interactive=True), gr.update(interactive=True)
 
 
 

@@ -1467,6 +1467,10 @@ def create_interface(
                 new_seed_value = random.randint(0, 21474)
                 print(f"Generated new seed for next job: {new_seed_value}")
 
+            # Create a button update that will be applied after the job is added to the queue
+            # This ensures the button text is reset after the queue's JSON has been saved
+            button_update = gr.update(value="Add to Queue", interactive=True)
+            
             # If a job ID was created, automatically start monitoring it and update queue
             if result and result[1]:  # Check if job_id exists in results
                 job_id = result[1]
@@ -1474,15 +1478,15 @@ def create_interface(
 
                 # Add the new seed value to the results if randomize is checked
                 if new_seed_value is not None:
-                    return [result[0], job_id, result[2], result[3], result[4], result[5], gr.update(value="Add to Queue", interactive=True), queue_status_data, new_seed_value]
+                    return [result[0], job_id, result[2], result[3], result[4], result[5], button_update, queue_status_data, new_seed_value]
                 else:
-                    return [result[0], job_id, result[2], result[3], result[4], result[5], gr.update(value="Add to Queue", interactive=True), queue_status_data, gr.update()]
+                    return [result[0], job_id, result[2], result[3], result[4], result[5], button_update, queue_status_data, gr.update()]
 
             # If no job ID was created, still return the new seed if randomize is checked
             if new_seed_value is not None:
-                return result + [gr.update(value="Add to Queue", interactive=True), update_queue_status_fn(), new_seed_value]
+                return result + [button_update, update_queue_status_fn(), new_seed_value]
             else:
-                return result + [gr.update(value="Add to Queue", interactive=True), update_queue_status_fn(), gr.update()]
+                return result + [button_update, update_queue_status_fn(), gr.update()]
 
         # Custom end process function that ensures the queue is updated and changes button text
         def end_process_with_update():
