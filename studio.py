@@ -628,12 +628,11 @@ def worker(
         if model_type != "Video":  # Skip for Video model as we already initialized it
             history_latents = current_generator.prepare_history_latents(height, width)
             
-            # Initialize with start latent for all models except Video
+            # For F1 model, initialize with start latent
             if model_type == "F1" or model_type == "F1 with Endframe":
                 history_latents = current_generator.initialize_with_start_latent(history_latents, start_latent)
                 total_generated_latent_frames = 1  # Start with 1 for F1 model since it includes the first frame
             elif model_type == "Original" or model_type == "Original with Endframe":
-                history_latents = current_generator.initialize_with_start_latent(history_latents, start_latent)
                 total_generated_latent_frames = 0
 
         history_pixels = None
@@ -1109,22 +1108,25 @@ def process(
         *lora_values
     ):
     
-    # Determine if we have an input image
+    # Create a blank black image if no 
+    # Create a default image based on the selected latent_type
     has_input_image = True
     if input_image is None:
         has_input_image = False
         print("Setting has_input_image to False because input_image is None")
-        
-        # Create a default image based on the selected latent_type
+    else:
+        print(f"Setting has_input_image to True. Input image type: {type(input_image)}")
         default_height, default_width = resolutionH, resolutionW
         if latent_type == "White":
             # Create a white image
             input_image = np.ones((default_height, default_width, 3), dtype=np.uint8) * 255
             print("No input image provided. Using a blank white image.")
+
         elif latent_type == "Noise":
             # Create a noise image
             input_image = np.random.randint(0, 256, (default_height, default_width, 3), dtype=np.uint8)
             print("No input image provided. Using a random noise image.")
+
         elif latent_type == "Green Screen":
             # Create a green screen image with standard chroma key green (0, 177, 64)
             input_image = np.zeros((default_height, default_width, 3), dtype=np.uint8)
@@ -1132,12 +1134,11 @@ def process(
             input_image[:, :, 2] = 64   # Blue channel
             # Red channel remains 0
             print("No input image provided. Using a standard chroma key green screen.")
+
         else:  # Default to "Black" or any other value
             # Create a black image
             input_image = np.zeros((default_height, default_width, 3), dtype=np.uint8)
             print(f"No input image provided. Using a blank black image (latent_type: {latent_type}).")
-    else:
-        print(f"Setting has_input_image to True. Input image type: {type(input_image)}")
 
     
     # Handle input files - copy to input_files_dir to prevent them from being deleted by temp cleanup

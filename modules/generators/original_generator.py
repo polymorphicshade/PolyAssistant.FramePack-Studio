@@ -123,21 +123,6 @@ class OriginalModelGenerator(BaseModelGenerator):
         
         return clean_latents, clean_latents_2x, clean_latents_4x
     
-    def initialize_with_start_latent(self, history_latents, start_latent):
-        """
-        Initialize the history latents with the start latent for the Original model.
-        
-        Args:
-            history_latents: The history latents
-            start_latent: The start latent
-            
-        Returns:
-            The initialized history latents
-        """
-        # For Original model, we place the start latent at position 0
-        history_latents[:, :, 0:1, :, :] = start_latent.to(history_latents)
-        return history_latents
-    
     def update_history_latents(self, history_latents, generated_latents):
         """
         Update the history latents with the generated latents for the Original model.
