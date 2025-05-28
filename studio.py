@@ -1354,9 +1354,9 @@ def monitor_job(job_id=None):
             # Only reset the cancel button when a job transitions from another state to RUNNING
             # This ensures we don't reset the button text during cancellation
             if last_job_status != JobStatus.RUNNING:
-                button_update = gr.update(interactive=True, value="Cancel Current Job")
+                button_update = gr.update(interactive=True, value="Cancel Current Job", visible=True)
             else:
-                button_update = gr.update(interactive=True)  # Keep current text
+                button_update = gr.update(interactive=True, visible=True)  # Keep current text
                 
             # Check if we have progress data and if it's time to update
             current_time = time.time()
@@ -1385,17 +1385,17 @@ def monitor_job(job_id=None):
 
         elif job.status == JobStatus.COMPLETED:
             # Show the final video and reset the button text
-            yield last_video, job_id, gr.update(visible=True), '', '', gr.update(interactive=True), gr.update(interactive=True, value="Cancel Current Job")
+            yield last_video, job_id, gr.update(visible=True), '', '', gr.update(interactive=True), gr.update(interactive=True, value="Cancel Current Job", visible=False)
             break
 
         elif job.status == JobStatus.FAILED:
             # Show error and reset the button text
-            yield last_video, job_id, gr.update(visible=True), '', f'Error: {job.error}', gr.update(interactive=True), gr.update(interactive=True, value="Cancel Current Job")
+            yield last_video, job_id, gr.update(visible=True), '', f'Error: {job.error}', gr.update(interactive=True), gr.update(interactive=True, value="Cancel Current Job", visible=False)
             break
 
         elif job.status == JobStatus.CANCELLED:
             # Show cancelled message and reset the button text
-            yield last_video, job_id, gr.update(visible=True), '', 'Job cancelled', gr.update(interactive=True), gr.update(interactive=True, value="Cancel Current Job")
+            yield last_video, job_id, gr.update(visible=True), '', 'Job cancelled', gr.update(interactive=True), gr.update(interactive=True, value="Cancel Current Job", visible=False)
             break
 
         # Update last_job_status for the next iteration
