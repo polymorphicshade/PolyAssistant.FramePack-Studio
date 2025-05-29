@@ -518,7 +518,20 @@ def worker(
             # Store the input video pixels and latents for later use
             input_video_pixels = input_video_pixels.cpu()
             video_latents = video_latents.cpu()
-            
+
+            # RT_BORG: Colin, we may not need this. We either set it here, or pass as an argument, or maybe it's
+            # bundled up with the pipeline params (I don't quite get that yet).
+            # Store the input video latents in the generator instance for preparing clean latents
+            if hasattr(current_generator, 'set_full_video_latents'):
+                current_generator.set_full_video_latents(video_latents.clone()) # Pass a clone to be safe? CLONE PROBABLY NOT NEEDED
+                print(f"Stored full input video latents in VideoModelGenerator. Shape: {video_latents.shape}")
+    
+            # RT_BORG: Colin, we don't need the commented out code below, but I left it here for reference.
+            # None of the complicated prep for history_latents appears in the pftq PR.
+            # history_latents for video model only needs to start as the video_latents from the input video.
+            history_latents = video_latents
+            print(f"Initialized history_latents with video context. Shape: {history_latents.shape}")
+            """
             # For Video model, we need to ensure the generation starts from the end of the input video
             # First, store the video latents
             video_latents_cpu = video_latents.cpu()
@@ -548,7 +561,8 @@ def worker(
                 print(f"Placed last frame of video at position 0 in history_latents")
             
             print(f"Initialized history_latents with video context. Shape: {history_latents.shape}")
-            
+            """
+
             # Initialize total_generated_latent_frames for Video model
             # For Video model, we start with 0 since we'll be adding to the end of the video
             total_generated_latent_frames = 0
@@ -859,13 +873,29 @@ def worker(
                 else:
                     print("Warning: history_latents not shaped as expected for end_frame application.")
             
-            
+            # RT_BORG Colin this is a real HACK for now.
+            # The new prepare_clean_latents_and_indices in VideoModelGenerator is a little simpler not split up
+            # and I need to pass slightly different args (for now). Maybe more of this should just be set in the
+            # model instance vs passed as args? Not changing yet because I don't know what you have in mind for the
+            # future of arguments vs job_params vs classs instances storing their required state in fields.
+            if hasattr(current_generator, 'prepare_clean_latents_and_indices'):
+                clean_latent_indices, latent_indices, clean_latent_2x_indices, clean_latent_4x_indices, clean_latents, clean_latents_2x, clean_latents_4x = \
+                current_generator.prepare_clean_latents_and_indices(latent_paddings, latent_padding, latent_padding_size, latent_window_size, video_latents, history_latents)
+            else:
+                # Prepare indices using the generator
+                clean_latent_indices, latent_indices, clean_latent_2x_indices, clean_latent_4x_indices = current_generator.prepare_indices(latent_padding_size, latent_window_size)
+
+                # Prepare clean latents using the generator
+                clean_latents, clean_latents_2x, clean_latents_4x = current_generator.prepare_clean_latents(start_latent, history_latents)
+            # --- End Hack ---
+            """
             # Prepare indices using the generator
             clean_latent_indices, latent_indices, clean_latent_2x_indices, clean_latent_4x_indices = current_generator.prepare_indices(latent_padding_size, latent_window_size)
 
             # Prepare clean latents using the generator
             clean_latents, clean_latents_2x, clean_latents_4x = current_generator.prepare_clean_latents(start_latent, history_latents)
-            
+            """
+
             # Print debug info
             print(f"{model_type} model section {section_idx+1}/{total_latent_sections}, latent_padding={latent_padding}")
 
