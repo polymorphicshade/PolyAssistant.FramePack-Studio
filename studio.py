@@ -1285,8 +1285,25 @@ def monitor_job(job_id=None):
     """
     # If no job_id is provided, check if there's a current job in the queue
     if not job_id:
-        yield None, None, None, '', 'No job ID provided', gr.update(interactive=True), gr.update(interactive=True, visible=False)
-        return
+        # Check if there's a current job in the queue
+        with job_queue.lock:
+            current_job = job_queue.current_job
+            if current_job:
+                print(f"No job ID provided, but found current job {current_job.id}")
+                job_id = current_job.id
+                
+                # Immediately yield an update with the current job's progress data
+                if current_job.progress_data:
+                    preview = current_job.progress_data.get('preview')
+                    desc = current_job.progress_data.get('desc', '')
+                    html = current_job.progress_data.get('html', '')
+                    yield current_job.result, job_id, preview, desc, html, gr.update(interactive=True), gr.update(value="Cancel Current Job", interactive=True, visible=True)
+                else:
+                    # If no progress data yet, show a basic update
+                    yield None, job_id, None, 'Processing...', make_progress_bar_html(0, 'Starting job...'), gr.update(interactive=True), gr.update(value="Cancel Current Job", interactive=True, visible=True)
+            else:
+                yield None, None, None, '', 'No job ID provided', gr.update(interactive=True), gr.update(interactive=True, visible=False)
+                return
 
     last_video = None  # Track the last video file shown
     last_job_status = None  # Track the previous job status to detect status changes

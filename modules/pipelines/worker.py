@@ -109,7 +109,28 @@ def worker(
     prompt_sections = parse_timestamped_prompt(prompt_text, total_second_length, latent_window_size, model_type)
     job_id = generate_timestamp()
 
-    stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Starting ...'))))
+    # Initialize progress data with a clear starting message
+    initial_progress_data = {
+        'preview': None,
+        'desc': 'Starting job...',
+        'html': make_progress_bar_html(0, 'Starting job...')
+    }
+    
+    # Store initial progress data in the job object if using a job stream
+    if job_stream is not None:
+        from __main__ import job_queue
+        job = job_queue.get_job(job_id)
+        if job:
+            job.progress_data = initial_progress_data
+    
+    # Push initial progress update to both streams
+    stream_to_use.output_queue.push(('progress', (None, 'Starting job...', make_progress_bar_html(0, 'Starting job...'))))
+    
+    # Also push to the main stream if using a job-specific stream
+    from __main__ import stream as main_stream
+    if job_stream is not None and stream_to_use != main_stream:
+        print(f"Pushing initial progress update to main stream for job {job_id}")
+        main_stream.output_queue.push(('progress', (None, 'Starting job...', make_progress_bar_html(0, 'Starting job...'))))
 
     try:
         # Create a settings dictionary for the pipeline
@@ -543,13 +564,27 @@ def worker(
                 if job:
                     job.progress_data = progress_data
 
+            # Create progress data dictionary
+            progress_data = {
+                'preview': preview,
+                'desc': desc,
+                'html': make_progress_bar_html(percentage, segment_hint) + make_progress_bar_html(total_percentage, total_hint)
+            }
+            
+            # Store progress data in the job object
+            if job_stream is not None:
+                from __main__ import job_queue
+                job = job_queue.get_job(job_id)
+                if job:
+                    job.progress_data = progress_data
+                    
             # Always push to the job-specific stream
             stream_to_use.output_queue.push(('progress', (preview, desc, make_progress_bar_html(percentage, segment_hint) + make_progress_bar_html(total_percentage, total_hint))))
             
-            # Also push to the main stream if we're using a job-specific stream
-            # This ensures XY plot jobs update the preview in the Generate tab
+            # Always push to the main stream to ensure the UI is updated
+            # This is especially important for resumed jobs
             from __main__ import stream as main_stream
-            if job_stream is not None and stream_to_use != main_stream:
+            if main_stream and stream_to_use != main_stream:
                 print(f"Pushing preview update to main stream for job {job_id}")
                 main_stream.output_queue.push(('progress', (preview, desc, make_progress_bar_html(percentage, segment_hint) + make_progress_bar_html(total_percentage, total_hint))))
 

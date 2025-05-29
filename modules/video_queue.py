@@ -686,6 +686,69 @@ class VideoJobQueue:
                             job.progress_data = {}
                         # Mark it as running again
                         job.status = JobStatus.RUNNING
+                        # Set started_at if not already set
+                        if not job.started_at:
+                            job.started_at = time.time()
+                        # Set is_processing flag to False to ensure the worker loop will pick it up
+                        self.is_processing = False
+                        
+                        # Explicitly start the worker function for this job
+                        if self.worker_function is not None:
+                            try:
+                                from diffusers_helper.thread_utils import async_run
+                                print(f"Explicitly starting worker function for previously running job {job_id}")
+                                
+                                # Push an initial progress update to the stream to ensure UI shows something
+                                from diffusers_helper.gradio.progress_bar import make_progress_bar_html
+                                job.stream.output_queue.push(('progress', (None, 'Resuming job...', make_progress_bar_html(0, 'Resuming job...'))))
+                                
+                                # Store the progress data in the job object so it can be accessed by the UI
+                                job.progress_data = {
+                                    'preview': None,
+                                    'desc': 'Resuming job...',
+                                    'html': make_progress_bar_html(0, 'Resuming job...')
+                                }
+                                
+                                # Try to update the main UI directly
+                                try:
+                                    from __main__ import stream as main_stream
+                                    if main_stream:
+                                        print(f"Pushing initial UI update for job {job_id} to main stream")
+                                        
+                                        # Create a dummy preview image to ensure the latents box shows something
+                                        # This is a small black image that will be replaced by the actual preview
+                                        dummy_preview = np.zeros((64, 64, 3), dtype=np.uint8)
+                                        
+                                        # Push progress data with the dummy preview image
+                                        preview_data = (dummy_preview, 'Resuming job...', make_progress_bar_html(0, 'Resuming job...'))
+                                        main_stream.output_queue.push(('progress', preview_data))
+                                        
+                                        # Push the job ID to the main stream
+                                        main_stream.output_queue.push(('job_id', job_id))
+                                        
+                                        # Also push to monitor_job function to update the UI
+                                        main_stream.output_queue.push(('monitor_job', job_id))
+                                        
+                                        # Store the progress data in the job object
+                                        job.progress_data = {
+                                            'preview': dummy_preview,
+                                            'desc': 'Resuming job...',
+                                            'html': make_progress_bar_html(0, 'Resuming job...')
+                                        }
+                                except Exception as e:
+                                    print(f"Error updating main UI for job {job_id}: {e}")
+                                
+                                async_run(
+                                    self.worker_function,
+                                    **job.params,
+                                    job_stream=job.stream
+                                )
+                                print(f"Worker function started for previously running job {job_id}")
+                            except Exception as e:
+                                print(f"Error starting worker function for job {job_id}: {e}")
+                                import traceback
+                                traceback.print_exc()
+                        
                         loaded_count += 1
             
             print(f"Loaded {loaded_count} pending jobs from {file_path}")

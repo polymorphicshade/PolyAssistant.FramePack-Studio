@@ -1583,14 +1583,23 @@ def create_interface(
             with job_queue.lock:
                 current_job = job_queue.current_job
                 if current_job:
-                    return current_job.id
-                return None
+                    # Return all the necessary information to update the preview windows
+                    job_id = current_job.id
+                    result = current_job.result
+                    preview = current_job.progress_data.get('preview') if current_job.progress_data else None
+                    desc = current_job.progress_data.get('desc', '') if current_job.progress_data else ''
+                    html = current_job.progress_data.get('html', '') if current_job.progress_data else ''
+                    
+                    # Also trigger the monitor_job function to start monitoring this job
+                    print(f"Auto-check found current job {job_id}, triggering monitor_job")
+                    return job_id, result, preview, desc, html
+                return None, None, None, '', ''
                 
         # Connect the auto-check function to the interface load event
         block.load(
             fn=check_for_current_job,
             inputs=[],
-            outputs=[current_job_id]
+            outputs=[current_job_id, result_video, preview_image, progress_desc, progress_bar]
         )
 
         cleanup_btn.click(
