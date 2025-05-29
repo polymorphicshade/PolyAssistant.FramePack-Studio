@@ -780,11 +780,18 @@ class VideoJobQueue:
                     
                     # If we're already processing a job, wait for it to complete
                     if self.is_processing:
-                        # Put the job back in the queue
-                        self.queue.put(job_id)
-                        self.queue.task_done()
-                        time.sleep(0.1)  # Small delay to prevent busy waiting
-                        continue
+                        # Check if this is the job that's already marked as running
+                        # This can happen if the job was marked as running but not yet processed
+                        if job.status == JobStatus.RUNNING and self.current_job and self.current_job.id == job_id:
+                            print(f"Job {job_id} is already marked as running, processing it now")
+                            # We'll process this job now
+                            pass
+                        else:
+                            # Put the job back in the queue
+                            self.queue.put(job_id)
+                            self.queue.task_done()
+                            time.sleep(0.1)  # Small delay to prevent busy waiting
+                            continue
                     
                     # Check if there's a previously running job that was interrupted
                     previously_running_job = None
@@ -955,18 +962,12 @@ class VideoJobQueue:
                         next_job.started_at = time.time()
                         
                         # Remove the next job from the queue
-                        temp_queue = []
-                        try:
-                            while not self.queue.empty():
-                                item = self.queue.get()
-                                if item != next_job.id:  # Skip the next job
-                                    temp_queue.append(item)
-                            
-                            # Put everything back except the next job
-                            for item in temp_queue:
-                                self.queue.put(item)
-                        except Exception as e:
-                            print(f"DEBUG: Error removing next job from queue: {e}")
+                        # Instead of manually manipulating the queue, we'll just mark the task as done
+                        # when we process it in the next iteration
+                        print(f"DEBUG: Next job {next_job.id} will be processed in the next iteration")
+                        
+                        # We don't need to remove it from the queue here, as we've already
+                        # set it as the current job and marked it as running
                     
                     self.queue.task_done()
                     
