@@ -56,9 +56,9 @@ class VideoPipeline(BasePipeline):
         if job_params.get('steps', 0) <= 0:
             return False, "Steps must be greater than 0"
         
-        # Check for input video path
-        if not job_params.get('input_video_path'):
-            return False, "Input video path is required for Video model"
+        # Check for input video (stored in input_image for Video model)
+        if not job_params.get('input_image'):
+            return False, "Input video is required for Video model"
         
         return True, None
     
@@ -74,13 +74,29 @@ class VideoPipeline(BasePipeline):
         """
         processed_inputs = {}
         
-        # Get the input video path
-        input_video_path = job_params.get('input_video_path')
-        if not input_video_path:
-            raise ValueError("Input video path is required for Video model")
+        # Get the input video (stored in input_image for Video model)
+        input_video = job_params.get('input_image')
+        if not input_video:
+            raise ValueError("Input video is required for Video model")
         
-        # Store the input video path
-        processed_inputs['input_video'] = input_video_path
+        # Store the input video
+        processed_inputs['input_video'] = input_video
+        
+        # Note: The following code will be executed in the worker function:
+        # 1. The worker will call video_encode on the generator to get video_latents and input_video_pixels
+        # 2. Then it will store these values for later use:
+        #    input_video_pixels = input_video_pixels.cpu()
+        #    video_latents = video_latents.cpu()
+        # 
+        # 3. If the generator has the set_full_video_latents method, it will store the video latents:
+        #    if hasattr(current_generator, 'set_full_video_latents'):
+        #        current_generator.set_full_video_latents(video_latents.clone())
+        #        print(f"Stored full input video latents in VideoModelGenerator. Shape: {video_latents.shape}")
+        # 
+        # 4. For the Video model, history_latents is initialized with the video_latents:
+        #    history_latents = video_latents
+        #    print(f"Initialized history_latents with video context. Shape: {history_latents.shape}")
+        processed_inputs['input_files_dir'] = job_params.get('input_files_dir')
         
         # Get resolution parameters
         resolutionW = job_params.get('resolutionW', 640)

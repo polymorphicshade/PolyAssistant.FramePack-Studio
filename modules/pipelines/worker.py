@@ -77,7 +77,8 @@ def worker(
     end_frame_image_path=None,  # Add end_frame_image_path parameter
     resolutionW=640,  # Add resolution parameter with default value
     resolutionH=640,
-    lora_loaded_names=[]
+    lora_loaded_names=[],
+    input_video=None     # Add input_video parameter with default value of None
 ):
     """
     Worker function for video generation using the pipeline architecture.
@@ -118,10 +119,13 @@ def worker(
     
     # Store initial progress data in the job object if using a job stream
     if job_stream is not None:
-        from __main__ import job_queue
-        job = job_queue.get_job(job_id)
-        if job:
-            job.progress_data = initial_progress_data
+        try:
+            from __main__ import job_queue
+            job = job_queue.get_job(job_id)
+            if job:
+                job.progress_data = initial_progress_data
+        except Exception as e:
+            print(f"Error storing initial progress data: {e}")
     
     # Push initial progress update to both streams
     stream_to_use.output_queue.push(('progress', (None, 'Starting job...', make_progress_bar_html(0, 'Starting job...'))))
@@ -231,22 +235,15 @@ def worker(
         job_params.update(processed_inputs)
         
         # Save the starting image directly to the output directory
-        print(f"[DEBUG] Checking if we should save starting image. save_metadata={settings.get('save_metadata')}, has_input_image={job_params.get('input_image') is not None}")
-        print(f"[DEBUG] Output directory: {output_dir}")
-        
         if settings.get("save_metadata") and job_params.get('input_image') is not None: # Check if metadata saving is enabled overall
             try:
-                print(f"[DEBUG] Attempting to save starting image for job {job_id}")
                 # Ensure output directory exists
                 os.makedirs(output_dir, exist_ok=True)
-                print(f"[DEBUG] Created output directory: {output_dir}")
                 
                 # Get the input image
                 input_image_np = job_params.get('input_image')
-                print(f"[DEBUG] Input image type: {type(input_image_np)}")
                 
                 if isinstance(input_image_np, np.ndarray):
-                    print(f"[DEBUG] Input image is a numpy array. Shape: {input_image_np.shape}, dtype: {input_image_np.dtype}")
                     # Create PNG metadata
                     png_metadata = PngInfo()
                     png_metadata.add_text("prompt", job_params.get('prompt_text', ''))
@@ -255,22 +252,16 @@ def worker(
                     
                     # Convert image if needed
                     if input_image_np.dtype != np.uint8:
-                        print(f"[DEBUG] Converting image from {input_image_np.dtype} to uint8")
                         if input_image_np.max() <= 1.0 and input_image_np.min() >= -1.0 and input_image_np.dtype in [np.float32, np.float64]:
                             input_image_np = ((input_image_np + 1.0) / 2.0 * 255.0).clip(0, 255).astype(np.uint8)
-                            print(f"[DEBUG] Converted from [-1,1] range to uint8")
                         elif input_image_np.max() <= 1.0 and input_image_np.min() >= 0.0 and input_image_np.dtype in [np.float32, np.float64]:
                             input_image_np = (input_image_np * 255.0).clip(0, 255).astype(np.uint8)
-                            print(f"[DEBUG] Converted from [0,1] range to uint8")
                         else:
                             input_image_np = input_image_np.clip(0, 255).astype(np.uint8)
-                            print(f"[DEBUG] Clipped/cast to uint8")
                     
                     # Save the image
                     start_image_path = os.path.join(output_dir, f'{job_id}.png')
-                    print(f"[DEBUG] Saving image to {start_image_path}")
                     Image.fromarray(input_image_np).save(start_image_path, pnginfo=png_metadata)
-                    print(f"[DEBUG] Successfully saved starting image to {start_image_path}")
             except Exception as e:
                 print(f"Error saving starting image: {e}")
                 traceback.print_exc()
@@ -325,7 +316,7 @@ def worker(
             
             # Encode the video using the VideoModelGenerator
             start_latent, input_image_np, video_latents, fps, height, width, input_video_pixels = current_generator.video_encode(
-                video_path=job_params['input_video'],
+                video_path=job_params['input_image'],  # For Video model, input_image contains the video path
                 resolution=job_params['resolutionW'],
                 no_resize=False,
                 vae_batch_size=16,
@@ -339,40 +330,26 @@ def worker(
             if not high_vram:
                 load_model_as_complete(image_encoder, target_device=gpu)
                 
-            image_encoder_output = current_generator.encode_image(input_image_np, feature_extractor, image_encoder)
+            from diffusers_helper.clip_vision import hf_clip_vision_encode
+            image_encoder_output = hf_clip_vision_encode(input_image_np, feature_extractor, image_encoder)
             image_encoder_last_hidden_state = image_encoder_output.last_hidden_state
             
             # Store the input video pixels and latents for later use
             input_video_pixels = input_video_pixels.cpu()
             video_latents = video_latents.cpu()
             
-            # For Video model, we need to ensure the generation starts from the end of the input video
-            # First, store the video latents
-            video_latents_cpu = video_latents.cpu()
+            # Store the full video latents in the generator instance for preparing clean latents
+            if hasattr(current_generator, 'set_full_video_latents'):
+                current_generator.set_full_video_latents(video_latents.clone())
+                print(f"Stored full input video latents in VideoModelGenerator. Shape: {video_latents.shape}")
+            
+            # For Video model, history_latents is initialized with the video_latents
+            history_latents = video_latents
             
             # Store the last frame of the video latents as start_latent for the model
-            start_latent = video_latents_cpu[:, :, -1:].cpu()
+            start_latent = video_latents[:, :, -1:].cpu()
             print(f"Using last frame of input video as start_latent. Shape: {start_latent.shape}")
-            
-            # Initialize history_latents with the entire video latents
-            # This provides full context for the model to generate a coherent continuation
-            # We'll use the last frame as the starting point for generation
-            history_latents = current_generator.prepare_history_latents(height, width)
-            
-            # Copy the video latents into the history_latents tensor
-            # This ensures the model has access to the full video context
-            video_frames = video_latents_cpu.shape[2]
-            if video_frames > 0:
-                # Calculate how many frames we can copy (limited by history_latents size)
-                max_frames = min(video_frames, history_latents.shape[2] - 1)  # Leave room for start_latent
-                if max_frames > 0:
-                    # Copy the last max_frames frames from the video latents
-                    history_latents[:, :, 1:max_frames+1, :, :] = video_latents_cpu[:, :, -max_frames:, :, :]
-                    print(f"Copied {max_frames} frames from video latents to history_latents")
-                
-                # Always put the last frame at position 0 (this is what the model will extend from)
-                history_latents[:, :, 0:1, :, :] = start_latent
-                print(f"Placed last frame of video at position 0 in history_latents")
+            print(f"Placed last frame of video at position 0 in history_latents")
             
             print(f"Initialized history_latents with video context. Shape: {history_latents.shape}")
             
@@ -397,7 +374,8 @@ def worker(
             if not high_vram:
                 load_model_as_complete(vae, target_device=gpu)
 
-            start_latent = current_generator.encode_image_vae(input_image_pt, vae)
+            from diffusers_helper.hunyuan import vae_encode
+            start_latent = vae_encode(input_image_pt, vae)
 
             # CLIP Vision
             stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'CLIP Vision encoding ...'))))
@@ -405,7 +383,8 @@ def worker(
             if not high_vram:
                 load_model_as_complete(image_encoder, target_device=gpu)
 
-            image_encoder_output = current_generator.encode_image(input_image_np, feature_extractor, image_encoder)
+            from diffusers_helper.clip_vision import hf_clip_vision_encode
+            image_encoder_output = hf_clip_vision_encode(input_image_np, feature_extractor, image_encoder)
             image_encoder_last_hidden_state = image_encoder_output.last_hidden_state
 
         # VAE encode end_frame_image if provided
@@ -426,14 +405,15 @@ def worker(
                 # Use the main job's target width/height (bucket dimensions) for the end frame
                 end_frame_np = job_params['end_frame_image']
                 
-                if settings.get("save_metadata"): # Save processed end frame for debugging
-                     Image.fromarray(end_frame_np).save(os.path.join(metadata_dir, f'{job_id}_end_frame_processed.png'))
+                if settings.get("save_metadata"):
+                    Image.fromarray(end_frame_np).save(os.path.join(metadata_dir, f'{job_id}_end_frame_processed.png'))
                 
                 end_frame_pt = torch.from_numpy(end_frame_np).float() / 127.5 - 1
                 end_frame_pt = end_frame_pt.permute(2, 0, 1)[None, :, None] # VAE expects [B, C, F, H, W]
                 
                 if not high_vram: load_model_as_complete(vae, target_device=gpu) # Ensure VAE is loaded
-                end_frame_latent = current_generator.encode_image_vae(end_frame_pt, vae)
+                from diffusers_helper.hunyuan import vae_encode
+                end_frame_latent = vae_encode(end_frame_pt, vae)
                 print("End frame VAE encoded.")
         
         if not high_vram: # Offload VAE and image_encoder if they were loaded
@@ -504,7 +484,8 @@ def worker(
             avg_step = sum(step_durations) / len(step_durations) if step_durations else 0.0
 
             preview = d['denoised']
-            preview = current_generator.decode_latent_fake(preview, vae)
+            from diffusers_helper.hunyuan import vae_decode_fake
+            preview = vae_decode_fake(preview)
             preview = (preview * 255.0).detach().cpu().numpy().clip(0, 255).astype(np.uint8)
             preview = einops.rearrange(preview, 'b c t h w -> (b h) (t w) c')
 
@@ -554,16 +535,6 @@ def worker(
                 current_prompt
             )
 
-            progress_data = {
-                'preview': preview,
-                'desc': desc,
-                'html': make_progress_bar_html(percentage, segment_hint) + make_progress_bar_html(total_percentage, total_hint)
-            }
-            if job_stream is not None:
-                job = job_queue.get_job(job_id)
-                if job:
-                    job.progress_data = progress_data
-
             # Create progress data dictionary
             progress_data = {
                 'preview': preview,
@@ -573,10 +544,13 @@ def worker(
             
             # Store progress data in the job object
             if job_stream is not None:
-                from __main__ import job_queue
-                job = job_queue.get_job(job_id)
-                if job:
-                    job.progress_data = progress_data
+                try:
+                    from __main__ import job_queue
+                    job = job_queue.get_job(job_id)
+                    if job:
+                        job.progress_data = progress_data
+                except Exception as e:
+                    print(f"Error updating job progress data: {e}")
                     
             # Always push to the job-specific stream
             stream_to_use.output_queue.push(('progress', (preview, desc, make_progress_bar_html(percentage, segment_hint) + make_progress_bar_html(total_percentage, total_hint))))
@@ -585,7 +559,6 @@ def worker(
             # This is especially important for resumed jobs
             from __main__ import stream as main_stream
             if main_stream and stream_to_use != main_stream:
-                print(f"Pushing preview update to main stream for job {job_id}")
                 main_stream.output_queue.push(('progress', (preview, desc, make_progress_bar_html(percentage, segment_hint) + make_progress_bar_html(total_percentage, total_hint))))
 
         # --- Main generation loop ---
@@ -699,11 +672,16 @@ def worker(
                     print("Warning: history_latents not shaped as expected for end_frame application.")
             
             
-            # Prepare indices using the generator
-            clean_latent_indices, latent_indices, clean_latent_2x_indices, clean_latent_4x_indices = current_generator.prepare_indices(latent_padding_size, latent_window_size)
+            # Check if the generator has the combined prepare_clean_latents_and_indices method
+            if hasattr(current_generator, 'prepare_clean_latents_and_indices'):
+                clean_latent_indices, latent_indices, clean_latent_2x_indices, clean_latent_4x_indices, clean_latents, clean_latents_2x, clean_latents_4x = \
+                current_generator.prepare_clean_latents_and_indices(latent_paddings, latent_padding, latent_padding_size, latent_window_size, video_latents, history_latents)
+            else:
+                # Prepare indices using the generator
+                clean_latent_indices, latent_indices, clean_latent_2x_indices, clean_latent_4x_indices = current_generator.prepare_indices(latent_padding_size, latent_window_size)
 
-            # Prepare clean latents using the generator
-            clean_latents, clean_latents_2x, clean_latents_4x = current_generator.prepare_clean_latents(start_latent, history_latents)
+                # Prepare clean latents using the generator
+                clean_latents, clean_latents_2x, clean_latents_4x = current_generator.prepare_clean_latents(start_latent, history_latents)
             
             # Print debug info
             print(f"{model_type} model section {section_idx+1}/{total_latent_sections}, latent_padding={latent_padding}")
@@ -720,7 +698,8 @@ def worker(
             else:
                 current_generator.transformer.initialize_teacache(enable_teacache=False)
 
-            generated_latents = current_generator.sample(
+            from diffusers_helper.pipelines.k_diffusion_hunyuan import sample_hunyuan
+            generated_latents = sample_hunyuan(
                 transformer=current_generator.transformer,
                 width=width,
                 height=height,

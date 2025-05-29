@@ -188,7 +188,7 @@ def create_metadata(job_params, job_id, settings):
         "end_frame_used": True if job_params.get('end_frame_image') is not None else False,
         
         # Video input-related parameters
-        "input_video": os.path.basename(job_params.get('input_video_path', '')) if job_params.get('input_video_path') else None,
+        "input_video": os.path.basename(job_params.get('input_image', '')) if job_params.get('input_image') and model_type == "Video" else None,
         "video_path": job_params.get('input_image') if model_type == "Video" else None,
         
         # XY Plot-related parameters
