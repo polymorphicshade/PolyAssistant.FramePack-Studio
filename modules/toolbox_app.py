@@ -6,6 +6,12 @@ import devicetorch
 import traceback
 import gc
 
+from torchvision.transforms.functional import rgb_to_grayscale
+import types
+functional_tensor_mod = types.ModuleType('functional_tensor')
+functional_tensor_mod.rgb_to_grayscale = rgb_to_grayscale
+sys.modules.setdefault('torchvision.transforms.functional_tensor', functional_tensor_mod)
+    
 from modules.toolbox.toolbox_processor import VideoProcessor
 from modules.toolbox.message_manager import MessageManager
 from modules.toolbox.system_monitor import SystemMonitor
