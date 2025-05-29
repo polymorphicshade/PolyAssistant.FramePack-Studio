@@ -26,6 +26,8 @@ from diffusers_helper.gradio.progress_bar import make_progress_bar_css, make_pro
 from diffusers_helper.bucket_tools import find_nearest_bucket
 from modules.xy_plot_wrapper import xy_plot_process_wrapper
 
+from modules.toolbox_app import tb_create_video_toolbox_ui
+
 # XY Plot axis options and helper functions
 xy_plot_axis_options = {
     # "type": [
@@ -281,6 +283,15 @@ def create_interface(
             padding-top: 28px !important;
         }
     }
+    
+    .video-component { 
+        min-height: 300px !important; 
+        height: 60vh !important;
+        /* object-fit: contain;
+    }
+
+    .message-box { min-height: 200px; }
+
     """
 
     # Get the theme from settings
@@ -303,7 +314,8 @@ def create_interface(
             with gr.Column(scale=0, min_width=40):
                 refresh_stats_btn = gr.Button("⟳", elem_id="refresh-stats-btn", elem_classes="narrow-button")
 
-        with gr.Tabs():
+        # Essential to capture main_tabs_component for later use by send_to_toolbox_btn
+        with gr.Tabs(elem_id="main_tabs") as main_tabs_component:
             with gr.Tab("Generate", id="generate_tab"):
                 with gr.Row():
                     with gr.Column(scale=2):
@@ -1227,7 +1239,7 @@ def create_interface(
                             thumbnail_container.elem_classes = ["thumbnail-container"]
 
                         # Add CSS for thumbnails
-            with gr.TabItem("Outputs"):
+            with gr.Tab("Outputs", id="outputs_tab"): # Ensure 'id' is present for tab switching
                 outputDirectory_video = settings.get("output_dir", settings.default_settings['output_dir'])
                 outputDirectory_metadata = settings.get("metadata_dir", settings.default_settings['metadata_dir'])
                 def get_gallery_items():
@@ -1253,17 +1265,23 @@ def create_interface(
                                 max_number = num
                                 selected_file = f
                     return selected_file
+                # load_video_and_info_from_prefix now also returns button visibility
                 def load_video_and_info_from_prefix(prefix):
                     video_file = get_latest_video_version(prefix)
-                    if not video_file:
-                        return None, "JSON not found."
-                    video_path = os.path.join(outputDirectory_video, video_file)
                     json_path = os.path.join(outputDirectory_metadata, prefix) + ".json"
-                    info = {"description": "no info"}
+                    
+                    if not video_file or not os.path.exists(os.path.join(outputDirectory_video, video_file)) or not os.path.exists(json_path):
+                        # If video or info not found, button should be hidden
+                        return None, "Video or JSON not found.", gr.update(visible=False) 
+
+                    video_path = os.path.join(outputDirectory_video, video_file)
+                    info_content = {"description": "no info"}
                     if os.path.exists(json_path):
                         with open(json_path, "r", encoding="utf-8") as f:
-                            info = json.load(f)
-                    return video_path, json.dumps(info, indent=2, ensure_ascii=False)
+                            info_content = json.load(f)
+                    # If video and info found, button should be visible
+                    return video_path, json.dumps(info_content, indent=2, ensure_ascii=False), gr.update(visible=True)
+
                 gallery_items_state = gr.State(get_gallery_items())
                 with gr.Row():
                     with gr.Column(scale=2):
@@ -1279,15 +1297,43 @@ def create_interface(
                         video_out = gr.Video(sources=[], autoplay=True, loop=True, visible=False)
                     with gr.Column(scale=1):
                         info_out = gr.Textbox(label="Generation info", visible=False)
+                        send_to_toolbox_btn = gr.Button("➡️ Send to Toolbox", visible=False)  # Added new send_to_toolbox_btn
                     def refresh_gallery():
                         new_items = get_gallery_items()
                         return gr.update(value=[i[0] for i in new_items]), new_items
                     refresh_button.click(fn=refresh_gallery, outputs=[thumbs, gallery_items_state])
-                    def on_select(evt: gr.SelectData, gallery_items):
+                    
+                    # MODIFIED: on_select now handles visibility of the new button
+                    def on_select(evt: gr.SelectData, gallery_items): # Using original FPS parameter names
+                        if evt.index is None or not gallery_items or evt.index >= len(gallery_items):
+                            # Handle invalid selection: hide video, info, and new button
+                            return gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
+                        
                         prefix = gallery_items[evt.index][1]
-                        video, info = load_video_and_info_from_prefix(prefix)
-                        return gr.update(value=video, visible=True), gr.update(value=info, visible=True)
-                    thumbs.select(fn=on_select, inputs=[gallery_items_state], outputs=[video_out, info_out])
+                        # load_video_and_info_from_prefix now returns three items
+                        video_path, info_string, button_visibility_update = load_video_and_info_from_prefix(prefix)
+                        
+                        # Determine visibility for video and info based on whether video_path was found
+                        video_player_update = gr.update(value=video_path, visible=bool(video_path))
+                        info_textbox_update = gr.update(value=info_string, visible=bool(video_path))
+                        
+                        # button_visibility_update is already a gr.update object from load_video_and_info_from_prefix
+                        return video_player_update, info_textbox_update, button_visibility_update
+
+                    # Original FPS thumbs.select, MODIFIED outputs
+                    thumbs.select(
+                        fn=on_select, 
+                        inputs=[gallery_items_state], 
+                        outputs=[video_out, info_out, send_to_toolbox_btn] # Added send_to_toolbox_btn
+                    )
+            with gr.Tab("Toolbox", id="toolbox_tab"):          
+                # Call the function from toolbox_app.py to build the Toolbox UI
+                # It returns the UI layout and the input video component for Toolbox
+                toolbox_ui_layout, tb_target_video_input = tb_create_video_toolbox_ui()
+                # The toolbox_ui_layout (e.g., a gr.Column) is automatically placed here.
+                # tb_target_video_input is the gr.Video component from the Toolbox's UI that
+                # FPS will send its output to.("Toolbox", id="toolbox_tab"):  
+                
             with gr.Tab("Settings"):
                 with gr.Row():
                     with gr.Column():
@@ -1493,6 +1539,28 @@ def create_interface(
             # Change the cancel button text to "Cancelling..."
             return queue_status_data, gr.update(value="Cancelling...", interactive=False), gr.update()
 
+        # --- NEW EVENT HANDLER for "Send to Toolbox" button ---
+        def handle_send_video_to_toolbox(selected_video_from_outputs_tab): # Parameter name is descriptive
+            # Check if the input is a valid file path (Gradio Video component value is the path)
+            if selected_video_from_outputs_tab and isinstance(selected_video_from_outputs_tab, str) and os.path.exists(selected_video_from_outputs_tab):
+                print(f"Sending video to Toolbox: {selected_video_from_outputs_tab}")
+                return gr.update(value=selected_video_from_outputs_tab), gr.update(selected="toolbox_tab")
+            else:
+                print(f"No valid video path from Outputs tab to send to Toolbox. Path received: {selected_video_from_outputs_tab}")
+                return gr.update(), gr.update() # No change
+
+        # Connect the button (defined in Outputs tab) to its handler
+        # This assumes send_to_toolbox_btn, video_out, tb_target_video_input, 
+        # and main_tabs_component are all accessible here.
+        send_to_toolbox_btn.click(
+            fn=handle_send_video_to_toolbox,
+            inputs=[video_out],  # Input is the video_out component from the Outputs tab
+            outputs=[
+                tb_target_video_input,  # Output to the Toolbox's input video component
+                main_tabs_component     # Output to the main gr.Tabs component to switch selected tab
+            ]
+        )
+        
         # --- Inputs Lists ---
         # --- Inputs for all models ---
         ips = [

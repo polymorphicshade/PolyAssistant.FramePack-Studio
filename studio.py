@@ -46,6 +46,30 @@ from modules.interface import create_interface, format_queue_status
 from modules.settings import Settings
 from modules.pipelines.metadata_utils import create_metadata
 
+# Try to suppress annoyingly persistent Windows asyncio proactor errors
+if os.name == 'nt':  # Windows only
+    import asyncio
+    from functools import wraps
+    
+    # Replace the problematic proactor event loop with selector event loop
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    
+    # Patch the base transport's close method
+    def silence_event_loop_closed(func):
+        @wraps(func)
+        def wrapper(self, *args, **kwargs):
+            try:
+                return func(self, *args, **kwargs)
+            except RuntimeError as e:
+                if str(e) != 'Event loop is closed':
+                    raise
+        return wrapper
+    
+    # Apply the patch
+    if hasattr(asyncio.proactor_events._ProactorBasePipeTransport, '_call_connection_lost'):
+        asyncio.proactor_events._ProactorBasePipeTransport._call_connection_lost = silence_event_loop_closed(
+            asyncio.proactor_events._ProactorBasePipeTransport._call_connection_lost)
+            
 # ADDED: Debug function to verify LoRA state
 def verify_lora_state(transformer, label=""):
     """Debug function to verify the state of LoRAs in a transformer model"""
