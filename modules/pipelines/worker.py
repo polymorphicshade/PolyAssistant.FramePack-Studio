@@ -209,6 +209,51 @@ def worker(
         # Update job_params with processed inputs
         job_params.update(processed_inputs)
         
+        # Save the starting image directly to the output directory
+        print(f"[DEBUG] Checking if we should save starting image. save_metadata={settings.get('save_metadata')}, has_input_image={job_params.get('input_image') is not None}")
+        print(f"[DEBUG] Output directory: {output_dir}")
+        
+        if settings.get("save_metadata") and job_params.get('input_image') is not None: # Check if metadata saving is enabled overall
+            try:
+                print(f"[DEBUG] Attempting to save starting image for job {job_id}")
+                # Ensure output directory exists
+                os.makedirs(output_dir, exist_ok=True)
+                print(f"[DEBUG] Created output directory: {output_dir}")
+                
+                # Get the input image
+                input_image_np = job_params.get('input_image')
+                print(f"[DEBUG] Input image type: {type(input_image_np)}")
+                
+                if isinstance(input_image_np, np.ndarray):
+                    print(f"[DEBUG] Input image is a numpy array. Shape: {input_image_np.shape}, dtype: {input_image_np.dtype}")
+                    # Create PNG metadata
+                    png_metadata = PngInfo()
+                    png_metadata.add_text("prompt", job_params.get('prompt_text', ''))
+                    png_metadata.add_text("seed", str(job_params.get('seed', 0)))
+                    png_metadata.add_text("model_type", job_params.get('model_type', "Unknown"))
+                    
+                    # Convert image if needed
+                    if input_image_np.dtype != np.uint8:
+                        print(f"[DEBUG] Converting image from {input_image_np.dtype} to uint8")
+                        if input_image_np.max() <= 1.0 and input_image_np.min() >= -1.0 and input_image_np.dtype in [np.float32, np.float64]:
+                            input_image_np = ((input_image_np + 1.0) / 2.0 * 255.0).clip(0, 255).astype(np.uint8)
+                            print(f"[DEBUG] Converted from [-1,1] range to uint8")
+                        elif input_image_np.max() <= 1.0 and input_image_np.min() >= 0.0 and input_image_np.dtype in [np.float32, np.float64]:
+                            input_image_np = (input_image_np * 255.0).clip(0, 255).astype(np.uint8)
+                            print(f"[DEBUG] Converted from [0,1] range to uint8")
+                        else:
+                            input_image_np = input_image_np.clip(0, 255).astype(np.uint8)
+                            print(f"[DEBUG] Clipped/cast to uint8")
+                    
+                    # Save the image
+                    start_image_path = os.path.join(output_dir, f'{job_id}.png')
+                    print(f"[DEBUG] Saving image to {start_image_path}")
+                    Image.fromarray(input_image_np).save(start_image_path, pnginfo=png_metadata)
+                    print(f"[DEBUG] Successfully saved starting image to {start_image_path}")
+            except Exception as e:
+                print(f"Error saving starting image: {e}")
+                traceback.print_exc()
+        
         # Pre-encode all prompts
         stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Text encoding all prompts...'))))
 

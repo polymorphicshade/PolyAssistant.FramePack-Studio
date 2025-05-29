@@ -446,6 +446,8 @@ def worker(
             H, W, _ = input_image.shape
             height, width = find_nearest_bucket(H, W, resolution=resolutionW if has_input_image else (resolutionH+resolutionW)/2)
             input_image_np = resize_and_center_crop(input_image, target_width=width, target_height=height)
+            
+            Image.fromarray(input_image_np).save(os.path.join(metadata_dir, f'{job_id}.png'))
 
             # Create metadata using the centralized metadata utility
             job_params = {
@@ -593,8 +595,8 @@ def worker(
                 end_frame_np = resize_and_center_crop(end_frame_image, target_width=width, target_height=height)
                 
                 if settings.get("save_metadata"): # Save processed end frame for debugging
-                     Image.fromarray(end_frame_np).save(os.path.join(metadata_dir, f'{job_id}_end_frame_processed.png'))
-                
+                    Image.fromarray(end_frame_np).save(os.path.join(metadata_dir, f'{job_id}_end_frame_processed.png'))
+
                 end_frame_pt = torch.from_numpy(end_frame_np).float() / 127.5 - 1
                 end_frame_pt = end_frame_pt.permute(2, 0, 1)[None, :, None] # VAE expects [B, C, F, H, W]
                 
