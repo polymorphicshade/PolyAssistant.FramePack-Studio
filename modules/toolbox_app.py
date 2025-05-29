@@ -195,6 +195,13 @@ def tb_handle_clear_temp_files():
 # --- Gradio Interface ---
 
 def tb_create_video_toolbox_ui():
+    
+    # Determine initial autosave state.
+    # You can make "toolbox_autosave_enabled" a persistent setting if desired.
+    # For now, it defaults to True if not found in settings.
+    initial_autosave_state = settings_instance.get("toolbox_autosave_enabled", True)
+    tb_processor.set_autosave_mode(initial_autosave_state)
+    
     with gr.Column() as tb_toolbox_ui_main_container:
         gr.Markdown("# 🧰 Video Toolbox")
 
@@ -222,7 +229,7 @@ def tb_create_video_toolbox_ui():
                     )
                     tb_autosave_checkbox = gr.Checkbox(
                         label="Autosave", 
-                        value=True, # Default to OFF
+                        value=initial_autosave_state,
                         scale=1
                     )
 
@@ -438,20 +445,19 @@ def tb_create_video_toolbox_ui():
             inputs=[tb_processed_video_output],
             outputs=[tb_processed_video_output, tb_message_output] 
         ) 
-        # NEW handler for the autosave checkbox itself
+        # Handler for the autosave checkbox
         def tb_handle_autosave_toggle(autosave_is_on_ui_value):
             tb_processor.set_autosave_mode(autosave_is_on_ui_value) # Update the processor's internal switch
-            
             return {
                 tb_manual_save_btn: gr.update(visible=not autosave_is_on_ui_value),
-                # tb_processed_video_output: gr.update(label=new_label),
                 tb_message_output: gr.update(value=tb_update_messages()) # Fetch new messages
             }
+
         tb_autosave_checkbox.change(
             fn=tb_handle_autosave_toggle,
             inputs=[tb_autosave_checkbox],
-            # Outputs now include tb_message_output
-            outputs=[tb_manual_save_btn, tb_processed_video_output, tb_message_output]
+            # Outputs list refined to only what the handler updates
+            outputs=[tb_manual_save_btn, tb_message_output]
         )
         # Event handler for the new clear temporary files button
         tb_clear_temp_button.click(
