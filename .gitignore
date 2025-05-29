@@ -4,6 +4,8 @@ repo/
 loras/
 input_files/
 queue_images/
+modules/toolbox/model_esrgan/
+modules/toolbox/model_rife/
 queue.json
 settings.json
 # Byte-compiled / optimized / DLL files
