@@ -6,6 +6,7 @@ import devicetorch
 import traceback
 import gc
 
+# patch fix for basicsr
 from torchvision.transforms.functional import rgb_to_grayscale
 import types
 functional_tensor_mod = types.ModuleType('functional_tensor')
@@ -59,14 +60,69 @@ def tb_handle_extract_frames(video_path, extraction_rate, progress=gr.Progress()
     tb_processor.tb_extract_frames(video_path, int(extraction_rate), progress)
     return tb_update_messages()
 
-def tb_handle_reassemble_frames(uploaded_frames_dir_info, output_fps, progress=gr.Progress()):
+# MODIFIED tb_handle_reassemble_frames
+def tb_handle_reassemble_frames(
+    selected_extracted_folder, # New input from dropdown
+    uploaded_frames_dir_info,  # Existing input from gr.File
+    output_fps,
+    output_video_name, # New input from Textbox
+    progress=gr.Progress()
+):
     tb_message_mgr.clear()
-    if uploaded_frames_dir_info is None or not uploaded_frames_dir_info:
-        tb_message_mgr.add_warning("No frame directory selected or directory is empty/invalid.")
+    
+    frames_source_to_use = None
+    source_description = ""
+
+    if selected_extracted_folder and selected_extracted_folder.strip():
+        # Dropdown selection takes precedence
+        frames_source_to_use = os.path.join(tb_processor.extracted_frames_target_path, selected_extracted_folder)
+        source_description = f"selected folder '{selected_extracted_folder}'"
+        if not os.path.isdir(frames_source_to_use):
+            tb_message_mgr.add_error(f"Selected folder '{selected_extracted_folder}' not found at expected path: {frames_source_to_use}")
+            return None, tb_update_messages()
+    elif uploaded_frames_dir_info and (isinstance(uploaded_frames_dir_info, list) and uploaded_frames_dir_info):
+        # Fallback to gr.File upload if dropdown is not used
+        frames_source_to_use = uploaded_frames_dir_info
+        source_description = "uploaded files/folder"
+    else:
+        tb_message_mgr.add_warning("No frame source selected or provided (neither dropdown nor file upload).")
         return None, tb_update_messages()
-    output_video = tb_processor.tb_reassemble_frames_to_video(uploaded_frames_dir_info, output_fps, progress)
+
+    tb_message_mgr.add_message(f"Attempting to reassemble frames from {source_description}.")
+    output_video = tb_processor.tb_reassemble_frames_to_video(
+        frames_source_to_use, 
+        output_fps, 
+        output_base_name_override=output_video_name, # Pass the desired name
+        progress=progress
+    )
     return output_video, tb_update_messages()
 
+# NEW HANDLERS for extracted frames folder management
+def tb_handle_refresh_extracted_folders():
+    tb_message_mgr.clear() # Optional: clear messages before refresh
+    folders = tb_processor.tb_get_extracted_frame_folders()
+    # Disable clear button if no folders, enable if folders exist and one might be selected
+    clear_btn_update = gr.update(interactive=False) # Default to disabled
+    if folders:
+        # We don't know if one is selected yet, so keep it disabled until selection.
+        # Or, if you want to enable it if *any* folder exists, change logic here.
+        pass # Keep it disabled for now. It will be enabled on dropdown.change
+    return gr.update(choices=folders, value=None), tb_update_messages(), clear_btn_update
+
+def tb_handle_clear_selected_folder(selected_folder_to_delete):
+    tb_message_mgr.clear()
+    if not selected_folder_to_delete:
+        tb_message_mgr.add_warning("No folder selected from the dropdown to delete.")
+        return tb_update_messages(), gr.update() # Return current dropdown state
+
+    success = tb_processor.tb_delete_extracted_frames_folder(selected_folder_to_delete)
+    
+    # After deletion, refresh the folder list
+    updated_folders = tb_processor.tb_get_extracted_frame_folders()
+    # If the deleted folder was the one selected, the value should clear.
+    # The dropdown will clear itself if its current value is no longer in choices.
+    return tb_update_messages(), gr.update(choices=updated_folders, value=None)
+    
 # --- Default Filter Values ---
 TB_DEFAULT_FILTER_SETTINGS = { # Prefixed constant name
     "brightness": 0, "contrast": 1, "saturation": 1, "temperature": 0,
@@ -200,7 +256,6 @@ def tb_handle_clear_temp_files():
 # --- Gradio Interface ---
 
 def tb_create_video_toolbox_ui():
-    
     # Determine initial autosave state.
     # You can make "toolbox_autosave_enabled" a persistent setting if desired.
     # For now, it defaults to True if not found in settings.
@@ -309,27 +364,38 @@ def tb_create_video_toolbox_ui():
                 
                 with gr.TabItem("🖼️ Frames I/O"): 
                     with gr.Row():
-                        with gr.Column():
+                        with gr.Column(): # Column for extraction
                             gr.Markdown("### Extract Frames from Video")
                             gr.Markdown("Extract frames from the **uploaded video (top-left)** as images.")
                             tb_extract_rate_slider = gr.Number(
-                                label="Extract Every Nth Frame", 
-                                value=1, 
-                                minimum=1, 
-                                step=1, 
+                                label="Extract Every Nth Frame", value=1, minimum=1, step=1, 
                                 info="1 = all frames. N = 1st, (N+1)th... (frame 0, N, 2N...)"
                             )
                             tb_extract_frames_btn = gr.Button("🔨 Extract Frames", variant="primary")
-                        with gr.Column():
+                        
+                        with gr.Column(): # Column for reassembly - UI as you provided
                             gr.Markdown("### Reassemble Frames to Video")
-                            gr.Markdown("Drag individual frames or Click to upload a folder containing frame images to create a video.")
+                            
+                            tb_extracted_folders_dropdown = gr.Dropdown(
+                                label="Select Previously Extracted Folder",
+                                info="Select a folder from your 'extracted_frames' directory."
+                            )
+                            with gr.Row():
+                                tb_refresh_extracted_folders_btn = gr.Button("🔄 Refresh List")
+                                tb_clear_selected_folder_btn = gr.Button(
+                                    "🗑️ Clear Selected Folder", variant="stop", interactive=False
+                                )
+
+                            gr.Markdown("Alternatively, drag individual frames or Click to upload a folder containing frame images:") # Label for this component
                             tb_reassemble_frames_input_files = gr.File( 
-                                label="Click to Select Directory Containing Frame Images (e.g., PNG, JPG)", 
-                                file_count="directory",
-                                elem_classes="file-upload-area" 
+                                label="Upload Frame Images Folder (or individual image files)", # Updated label for clarity
+                                file_count="directory", 
                             )
                             tb_reassemble_output_fps = gr.Number(
-                                label="Output Video FPS", value=25, minimum=1, step=1
+                                label="Output Video FPS", value=30, minimum=1, step=1
+                            )
+                            tb_reassemble_video_name_input = gr.Textbox( # NEW Textbox for name
+                                label="Output Video Name (optional, .mp4 added automatically)"
                             )
                             tb_reassemble_frames_btn = gr.Button("🧩 Reassemble Video", variant="primary")
                             
@@ -395,18 +461,6 @@ def tb_create_video_toolbox_ui():
             outputs=[tb_processed_video_output, tb_message_output]
         )
 
-        tb_extract_frames_btn.click(
-            fn=tb_handle_extract_frames,
-            inputs=[tb_input_video_component, tb_extract_rate_slider],
-            outputs=[tb_message_output]
-        )
-
-        tb_reassemble_frames_btn.click(
-            fn=tb_handle_reassemble_frames,
-            inputs=[tb_reassemble_frames_input_files, tb_reassemble_output_fps], 
-            outputs=[tb_processed_video_output, tb_message_output] 
-        )
-
         tb_use_processed_as_input_btn.click(
             fn=lambda video: (video, tb_message_mgr.add_message("Moved processed video to input.") or tb_update_messages()),
             inputs=[tb_processed_video_output],
@@ -422,9 +476,53 @@ def tb_create_video_toolbox_ui():
             outputs=[tb_processed_video_output, tb_message_output]
         )
         
+        # Frames I/O Event Handlers
+        tb_extract_frames_btn.click(
+            fn=tb_handle_extract_frames,
+            inputs=[tb_input_video_component, tb_extract_rate_slider],
+            outputs=[tb_message_output]
+        ).then( # Automatically refresh folder list after extraction
+            fn=tb_handle_refresh_extracted_folders,
+            inputs=None,
+            outputs=[tb_extracted_folders_dropdown, tb_message_output, tb_clear_selected_folder_btn]
+        )
+
+        tb_refresh_extracted_folders_btn.click(
+            fn=tb_handle_refresh_extracted_folders,
+            inputs=None,
+            outputs=[tb_extracted_folders_dropdown, tb_message_output, tb_clear_selected_folder_btn]
+        )
+
+        tb_extracted_folders_dropdown.change(
+            fn=lambda selection: gr.update(interactive=bool(selection)), # Enable/disable clear button
+            inputs=[tb_extracted_folders_dropdown],
+            outputs=[tb_clear_selected_folder_btn]
+        )
+
+        tb_clear_selected_folder_btn.click(
+            fn=tb_handle_clear_selected_folder,
+            inputs=[tb_extracted_folders_dropdown],
+            outputs=[tb_message_output, tb_extracted_folders_dropdown] # Dropdown updates from handler
+        ).then( # After clearing, re-evaluate clear button interactivity
+            fn=lambda selection: gr.update(interactive=bool(selection)),
+            inputs=[tb_extracted_folders_dropdown],
+            outputs=[tb_clear_selected_folder_btn]
+        )
+
+        tb_reassemble_frames_btn.click(
+            fn=tb_handle_reassemble_frames,
+            inputs=[
+                tb_extracted_folders_dropdown, 
+                tb_reassemble_frames_input_files, 
+                tb_reassemble_output_fps,
+                tb_reassemble_video_name_input # New input for name
+            ], 
+            outputs=[tb_processed_video_output, tb_message_output] 
+        )
+        
+        # Clear messages on new uploads to gr.File
         tb_reassemble_frames_input_files.upload(fn=lambda: tb_message_mgr.clear() or tb_update_messages(), outputs=tb_message_output)
         tb_reassemble_frames_input_files.clear(fn=lambda: tb_message_mgr.clear() or tb_update_messages(), outputs=tb_message_output)
-
         tb_open_folder_button.click(
             fn=lambda: tb_processor.tb_open_output_folder() or tb_update_messages(),
             outputs=[tb_message_output]

@@ -67,92 +67,6 @@ class VideoProcessor:
             self.toolbox_video_output_dir = self._base_temp_output_dir
             self.message_manager.add_message("Autosave DISABLED: Processed videos will be saved to the temporary folder.", "INFO")
 
-    def _tb_log_ffmpeg_error(self, e_ffmpeg: subprocess.CalledProcessError, operation_description: str):
-        """Helper to log FFmpeg errors consistently."""
-        self.message_manager.add_error(f"FFmpeg failed during {operation_description}.")
-        ffmpeg_stderr_str = e_ffmpeg.stderr.strip() if e_ffmpeg.stderr else ""
-        ffmpeg_stdout_str = e_ffmpeg.stdout.strip() if e_ffmpeg.stdout else ""
-
-        details_log = []
-        if ffmpeg_stderr_str: details_log.append(f"FFmpeg Stderr: {ffmpeg_stderr_str}")
-        if ffmpeg_stdout_str: details_log.append(f"FFmpeg Stdout: {ffmpeg_stdout_str}")
-        
-        if details_log:
-            self.message_manager.add_message("FFmpeg Output:\n" + "\n".join(details_log), "INFO")
-        else:
-            self.message_manager.add_message(f"No specific output from FFmpeg. (Return code: {e_ffmpeg.returncode}, Command: '{e_ffmpeg.cmd}')", "INFO")
-
-    def tb_reassemble_frames_to_video(self, uploaded_frames_list, output_fps, progress=gr.Progress()):
-        if not uploaded_frames_list:
-            self.message_manager.add_warning("No frames folder/files provided for reassembly.")
-            return None
-        
-        try:
-            output_fps = int(output_fps)
-            if output_fps <= 0:
-                self.message_manager.add_error("Output FPS must be a positive number.")
-                return None
-        except ValueError:
-            self.message_manager.add_error("Invalid FPS value.")
-            return None
-
-        self.message_manager.add_message(f"Starting frame reassembly to video at {output_fps} FPS.")
-        progress(0, desc="Initializing reassembly...")
-
-        frame_paths = []
-        for temp_file_wrapper in uploaded_frames_list:
-            frame_paths.append(temp_file_wrapper.name)
-        
-        if not frame_paths:
-            self.message_manager.add_warning("No image files found in the provided selection.")
-            return None
-
-        frame_paths.sort() 
-        self.message_manager.add_message(f"Found {len(frame_paths)} frames to reassemble.")
-
-        output_base_name = "reassembled_video"
-        output_video_path = self._tb_generate_output_path(
-            input_material_name=output_base_name,
-            suffix=f"{output_fps}fps_reassembled", 
-            target_dir=self.reassembled_video_target_path,
-            ext=".mp4"
-        )
-
-        frames_data = []
-        try:
-            self.message_manager.add_message("Reading frame images...")
-            for i, frame_path in enumerate(progress.tqdm(frame_paths, desc="Reading frames")):
-                try:
-                    if not frame_path.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.webp')):
-                        self.message_manager.add_warning(f"Skipping non-standard image file: {os.path.basename(frame_path)}")
-                        continue
-                    frames_data.append(imageio.imread(frame_path))
-                except Exception as e_read_frame: 
-                    self.message_manager.add_warning(f"Could not read frame {os.path.basename(frame_path)}: {e_read_frame}. Skipping.")
-            
-            if not frames_data:
-                self.message_manager.add_error("No valid frames could be read for reassembly.")
-                return None
-
-            self.message_manager.add_message(f"Writing {len(frames_data)} frames to video: {output_video_path}")
-            progress(0.8, desc="Writing video...")
-            
-            imageio.mimwrite(output_video_path, frames_data, fps=output_fps, quality=VIDEO_QUALITY, macro_block_size=16)
-
-            progress(1.0, desc="Reassembly complete.")
-            self.message_manager.add_success(f"Successfully reassembled {len(frames_data)} frames into: {output_video_path}")
-            return output_video_path
-
-        except Exception as e:
-            self.message_manager.add_error(f"Error during frame reassembly: {e}")
-            import traceback
-            self.message_manager.add_error(traceback.format_exc())
-            progress(1.0, desc="Error during reassembly.")
-            return None
-        finally:
-            del frames_data 
-            gc.collect()
-
     def _tb_find_ffmpeg_executables(self):
         ffmpeg_name = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
         ffprobe_name = "ffprobe.exe" if sys.platform == "win32" else "ffprobe"
@@ -201,6 +115,253 @@ class VideoProcessor:
                 "or install imageio-ffmpeg: pip install imageio-ffmpeg --upgrade", "ERROR"
             )
         return ffmpeg_path, ffprobe_path
+        
+    # def _tb_find_ffmpeg_executables(self):
+        # self.message_manager.add_message(
+            # "DEBUG: _tb_find_ffmpeg_executables INTENTIONALLY RETURNING None, None. "
+            # "VideoProcessor will not have ffmpeg/ffprobe.", "DEBUG"
+        # )
+        # Intentionally do not search for or assign ffmpeg_path or ffprobe_path
+        # This means self.ffmpeg_exe and self.ffprobe_exe in VideoProcessor will be None
+        # return None, None
+    
+    def _tb_log_ffmpeg_error(self, e_ffmpeg: subprocess.CalledProcessError, operation_description: str):
+        """Helper to log FFmpeg errors consistently."""
+        self.message_manager.add_error(f"FFmpeg failed during {operation_description}.")
+        ffmpeg_stderr_str = e_ffmpeg.stderr.strip() if e_ffmpeg.stderr else ""
+        ffmpeg_stdout_str = e_ffmpeg.stdout.strip() if e_ffmpeg.stdout else ""
+
+        details_log = []
+        if ffmpeg_stderr_str: details_log.append(f"FFmpeg Stderr: {ffmpeg_stderr_str}")
+        if ffmpeg_stdout_str: details_log.append(f"FFmpeg Stdout: {ffmpeg_stdout_str}")
+        
+        if details_log:
+            self.message_manager.add_message("FFmpeg Output:\n" + "\n".join(details_log), "INFO")
+        else:
+            self.message_manager.add_message(f"No specific output from FFmpeg. (Return code: {e_ffmpeg.returncode}, Command: '{e_ffmpeg.cmd}')", "INFO")
+
+    def tb_extract_frames(self, video_path, extraction_rate, progress=gr.Progress()):
+        if video_path is None:
+            self.message_manager.add_warning("No input video for frame extraction.")
+            return None
+        if not isinstance(extraction_rate, int) or extraction_rate < 1:
+            self.message_manager.add_error("Extraction rate must be a positive integer (1 for all frames, N for every Nth frame).")
+            return None
+
+        resolved_video_path = str(Path(video_path).resolve())
+        output_folder_name = self._tb_generate_output_folder_path(
+            resolved_video_path, 
+            suffix=f"extracted_every_{extraction_rate}")
+        os.makedirs(output_folder_name, exist_ok=True)
+
+        self.message_manager.add_message(
+            f"Starting frame extraction for {os.path.basename(resolved_video_path)} (every {extraction_rate} frame(s))."
+        )
+        self.message_manager.add_message(f"Outputting to: {output_folder_name}")
+        progress(0, desc="Initializing frame extraction...")
+        
+        reader = None 
+        try:
+            reader = imageio.get_reader(resolved_video_path, 'ffmpeg')
+            total_frames = None
+            try:
+                total_frames = reader.count_frames()
+                if total_frames == float('inf'): 
+                    total_frames = None 
+            except Exception: 
+                 meta_nframes = reader.get_meta_data().get('nframes')
+                 if meta_nframes and meta_nframes != float('inf'):
+                     total_frames = meta_nframes
+                 else: 
+                    self.message_manager.add_warning("Could not determine total frames for precise progress. Will process until end.")
+                    total_frames = None
+
+            extracted_count = 0
+            frame_iterable = reader
+            if total_frames:
+                frame_iterable = progress.tqdm(reader, total=total_frames, desc="Extracting frames")
+            else: 
+                self.message_manager.add_message("Processing frames (total unknown)...")
+
+
+            for i, frame in enumerate(frame_iterable):
+                if not total_frames and i % 100 == 0: 
+                    progress(i / (i + 1000.0), desc=f"Extracting frame {i+1}...") 
+                
+                if i % extraction_rate == 0:
+                    frame_filename = f"frame_{extracted_count:06d}.png"
+                    output_frame_path = os.path.join(output_folder_name, frame_filename)
+                    imageio.imwrite(output_frame_path, frame, format='PNG')
+                    extracted_count += 1
+            
+            progress(1.0, desc="Extraction complete.")
+            self.message_manager.add_success(f"Successfully extracted {extracted_count} frames to: {output_folder_name}")
+            return output_folder_name
+
+        except Exception as e:
+            self.message_manager.add_error(f"Error during frame extraction: {e}")
+            import traceback
+            self.message_manager.add_error(traceback.format_exc())
+            progress(1.0, desc="Error during extraction.")
+            return None
+        finally:
+            if reader: 
+                reader.close()
+            gc.collect()
+            
+    def tb_get_extracted_frame_folders(self) -> list:
+        """Scans the extracted_frames_target_path for subdirectories."""
+        if not os.path.exists(self.extracted_frames_target_path):
+            self.message_manager.add_warning(f"Extracted frames directory not found: {self.extracted_frames_target_path}")
+            return []
+        try:
+            folders = [
+                d for d in os.listdir(self.extracted_frames_target_path)
+                if os.path.isdir(os.path.join(self.extracted_frames_target_path, d))
+            ]
+            # Optionally, sort them (e.g., alphabetically or by creation time if desired)
+            folders.sort() 
+            self.message_manager.add_message(f"Found {len(folders)} extracted frame folders.")
+            return folders
+        except Exception as e:
+            self.message_manager.add_error(f"Error scanning for extracted frame folders: {e}")
+            return []
+
+    def tb_delete_extracted_frames_folder(self, folder_name_to_delete: str) -> bool:
+        """Deletes a specified subfolder from the extracted_frames_target_path."""
+        if not folder_name_to_delete:
+            self.message_manager.add_warning("No folder selected for deletion.")
+            return False
+        
+        folder_path_to_delete = os.path.join(self.extracted_frames_target_path, folder_name_to_delete)
+
+        if not os.path.exists(folder_path_to_delete) or not os.path.isdir(folder_path_to_delete):
+            self.message_manager.add_error(f"Folder not found or is not a directory: {folder_path_to_delete}")
+            return False
+        
+        try:
+            shutil.rmtree(folder_path_to_delete)
+            self.message_manager.add_success(f"Successfully deleted folder: {folder_name_to_delete}")
+            return True
+        except Exception as e:
+            self.message_manager.add_error(f"Error deleting folder '{folder_name_to_delete}': {e}")
+            self.message_manager.add_error(traceback.format_exc() if 'traceback' in sys.modules else str(e)) # Add traceback if available
+            return False
+            
+    # MODIFIED tb_reassemble_frames_to_video
+    def tb_reassemble_frames_to_video(self, frames_source, output_fps, output_base_name_override=None, progress=gr.Progress()):
+        if not frames_source:
+            self.message_manager.add_warning("No frames source (folder or files) provided for reassembly.")
+            return None
+        
+        try:
+            output_fps = int(output_fps)
+            if output_fps <= 0:
+                self.message_manager.add_error("Output FPS must be a positive number.")
+                return None
+        except ValueError:
+            self.message_manager.add_error("Invalid FPS value for reassembly.")
+            return None
+
+        self.message_manager.add_message(f"Starting frame reassembly to video at {output_fps} FPS.")
+        
+        frame_info_list = []
+        frames_data_prepared = False
+
+        try:
+            if isinstance(frames_source, str) and os.path.isdir(frames_source):
+                self.message_manager.add_message(f"Processing frames from directory: {frames_source}")
+                for filename in os.listdir(frames_source):
+                    if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.webp')):
+                        full_path = os.path.join(frames_source, filename)
+                        frame_info_list.append({
+                            'original_like_filename': filename,
+                            'temp_path': full_path
+                        })
+            elif isinstance(frames_source, list):
+                self.message_manager.add_message(f"Processing {len(frames_source)} uploaded files for reassembly.")
+                for temp_file_wrapper in frames_source:
+                    temp_path = temp_file_wrapper.name
+                    original_like_filename = os.path.basename(temp_path)
+                    frame_info_list.append({
+                        'original_like_filename': original_like_filename,
+                        'temp_path': temp_path
+                    })
+            else:
+                self.message_manager.add_error("Invalid frames_source type for reassembly.")
+                return None
+            
+            if not frame_info_list:
+                self.message_manager.add_warning("No valid image files found in the provided source to reassemble.")
+                return None
+
+            def natural_sort_key_for_dict(item):
+                filename = item['original_like_filename']
+                return [int(text) if text.isdigit() else text.lower() for text in re.split('([0-9]+)', filename)]
+
+            frame_info_list.sort(key=natural_sort_key_for_dict)
+            self.message_manager.add_message(f"Sorted {len(frame_info_list)} frames based on their filenames.")
+            
+            if frame_info_list:
+                debug_sorted_names = [info['original_like_filename'] for info in frame_info_list[:min(5, len(frame_info_list))]]
+                self.message_manager.add_message(f"DEBUG: First {len(debug_sorted_names)} sorted filenames: {debug_sorted_names}")
+
+            output_file_basename = "reassembled_video"
+            if output_base_name_override and isinstance(output_base_name_override, str) and output_base_name_override.strip():
+                sanitized_name = "".join(c if c.isalnum() or c in (' ', '_', '-') else '_' for c in output_base_name_override.strip())
+                output_file_basename = Path(sanitized_name).stem
+                if not output_file_basename:
+                    output_file_basename = "reassembled_video" 
+                self.message_manager.add_message(f"Using custom output video base name: {output_file_basename}")
+
+            output_video_path = self._tb_generate_output_path(
+                input_material_name=output_file_basename,
+                suffix=f"{output_fps}fps_reassembled", 
+                target_dir=self.reassembled_video_target_path,
+                ext=".mp4"
+            )
+
+            frames_data = []
+            frames_data_prepared = True
+
+            self.message_manager.add_message("Reading frame images (in sorted order)...")
+            
+            frame_iterator = frame_info_list
+            # MODIFIED CONDITION: Check frame_info_list first, then progress and hasattr
+            if frame_info_list and progress is not None and hasattr(progress, 'tqdm'):
+                 frame_iterator = progress.tqdm(frame_info_list, desc="Reading frames")
+
+            for frame_info in frame_iterator:
+                frame_actual_path = frame_info['temp_path']
+                filename_for_log = frame_info['original_like_filename']
+                try:
+                    if not filename_for_log.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp', '.webp')):
+                        self.message_manager.add_warning(f"Skipping non-standard image file: {filename_for_log}.")
+                        continue
+                    frames_data.append(imageio.imread(frame_actual_path))
+                except Exception as e_read_frame: 
+                    self.message_manager.add_warning(f"Could not read frame ({filename_for_log}): {e_read_frame}. Skipping.")
+            
+            if not frames_data:
+                self.message_manager.add_error("No valid frames could be successfully read for reassembly.")
+                return None
+
+            self.message_manager.add_message(f"Writing {len(frames_data)} frames to video: {output_video_path}")
+            
+            imageio.mimwrite(output_video_path, frames_data, fps=output_fps, quality=VIDEO_QUALITY, macro_block_size=16)
+
+            self.message_manager.add_success(f"Successfully reassembled {len(frames_data)} frames into: {output_video_path}")
+            return output_video_path
+
+        except Exception as e:
+            self.message_manager.add_error(f"Error during frame reassembly: {e}")
+            import traceback
+            self.message_manager.add_error(traceback.format_exc())
+            return None
+        finally:
+            if frames_data_prepared and 'frames_data' in locals(): 
+                del frames_data 
+            gc.collect()
 
     def _tb_clean_filename(self, filename):
         filename = re.sub(r'_\d{6}_\d{6}', '', filename)
@@ -883,75 +1044,7 @@ class VideoProcessor:
         finally:
             gc.collect()
             
-    def tb_extract_frames(self, video_path, extraction_rate, progress=gr.Progress()):
-        if video_path is None:
-            self.message_manager.add_warning("No input video for frame extraction.")
-            return None
-        if not isinstance(extraction_rate, int) or extraction_rate < 1:
-            self.message_manager.add_error("Extraction rate must be a positive integer (1 for all frames, N for every Nth frame).")
-            return None
 
-        resolved_video_path = str(Path(video_path).resolve())
-        output_folder_name = self._tb_generate_output_folder_path(
-            resolved_video_path, 
-            suffix=f"extracted_every_{extraction_rate}")
-        os.makedirs(output_folder_name, exist_ok=True)
-
-        self.message_manager.add_message(
-            f"Starting frame extraction for {os.path.basename(resolved_video_path)} (every {extraction_rate} frame(s))."
-        )
-        self.message_manager.add_message(f"Outputting to: {output_folder_name}")
-        progress(0, desc="Initializing frame extraction...")
-        
-        reader = None 
-        try:
-            reader = imageio.get_reader(resolved_video_path, 'ffmpeg')
-            total_frames = None
-            try:
-                total_frames = reader.count_frames()
-                if total_frames == float('inf'): 
-                    total_frames = None 
-            except Exception: 
-                 meta_nframes = reader.get_meta_data().get('nframes')
-                 if meta_nframes and meta_nframes != float('inf'):
-                     total_frames = meta_nframes
-                 else: 
-                    self.message_manager.add_warning("Could not determine total frames for precise progress. Will process until end.")
-                    total_frames = None
-
-            extracted_count = 0
-            frame_iterable = reader
-            if total_frames:
-                frame_iterable = progress.tqdm(reader, total=total_frames, desc="Extracting frames")
-            else: 
-                self.message_manager.add_message("Processing frames (total unknown)...")
-
-
-            for i, frame in enumerate(frame_iterable):
-                if not total_frames and i % 100 == 0: 
-                    progress(i / (i + 1000.0), desc=f"Extracting frame {i+1}...") 
-                
-                if i % extraction_rate == 0:
-                    frame_filename = f"frame_{extracted_count:06d}.png"
-                    output_frame_path = os.path.join(output_folder_name, frame_filename)
-                    imageio.imwrite(output_frame_path, frame, format='PNG')
-                    extracted_count += 1
-            
-            progress(1.0, desc="Extraction complete.")
-            self.message_manager.add_success(f"Successfully extracted {extracted_count} frames to: {output_folder_name}")
-            return output_folder_name
-
-        except Exception as e:
-            self.message_manager.add_error(f"Error during frame extraction: {e}")
-            import traceback
-            self.message_manager.add_error(traceback.format_exc())
-            progress(1.0, desc="Error during extraction.")
-            return None
-        finally:
-            if reader: 
-                reader.close()
-            gc.collect()
-            
     def tb_upscale_video(self, video_path, upscale_factor_str, progress=gr.Progress()):
         if video_path is None:
             self.message_manager.add_warning("No input video for upscaling.")
