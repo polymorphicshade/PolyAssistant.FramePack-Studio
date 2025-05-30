@@ -104,6 +104,7 @@ class VideoModelGenerator(BaseModelGenerator):
             - target_height: Target height of the video
             - target_width: Target width of the video
             - input_video_pixels: Video frames as tensor
+            - end_of_input_video_image_np: Last frame as numpy array
         """
         if device is None:
             device = self.gpu
@@ -185,6 +186,7 @@ class VideoModelGenerator(BaseModelGenerator):
 
             # Save first frame for CLIP vision encoding
             input_image_np = processed_frames[0]
+            end_of_input_video_image_np = processed_frames[-1]
 
             # Convert to tensor and normalize to [-1, 1]
             print("Converting frames to tensor...")
@@ -244,7 +246,7 @@ class VideoModelGenerator(BaseModelGenerator):
                 torch.cuda.empty_cache()
                 print("VAE moved back to CPU, CUDA cache cleared")
 
-            return start_latent, input_image_np, history_latents, fps, target_height, target_width, input_video_pixels
+            return start_latent, input_image_np, history_latents, fps, target_height, target_width, input_video_pixels, end_of_input_video_image_np
 
         except Exception as e:
             print(f"Error in video_encode: {str(e)}")
@@ -282,7 +284,7 @@ class VideoModelGenerator(BaseModelGenerator):
         else:
             return list(reversed(range(total_latent_sections)))
 
-    def prepare_clean_latents_and_indices(self, latent_paddings, latent_padding, latent_padding_size, latent_window_size, video_latents, history_latents):
+    def prepare_clean_latents_and_indices(self, end_latent, end_frame_weight, end_clip_embedding, end_of_input_video_embedding, latent_paddings, latent_padding, latent_padding_size, latent_window_size, video_latents, history_latents):
         """
         Combined method to prepare clean latents and indices for the Video model.
         
@@ -296,10 +298,13 @@ class VideoModelGenerator(BaseModelGenerator):
         # num_clean_frames Should come from UI - 20250506 pftq: Renamed slider to Number of Context Frames and updated description
         # num_clean_frames = gr.Slider(label="Number of Context Frames (Adherence to Video)", minimum=2, maximum=10, value=5, step=1, info="Expensive. Retain more video details. Reduce if memory issues or motion too restricted (jumpcut, ignoring prompt, still).")
         num_clean_frames = 5 # This is a placeholder for the number of clean frames. SEE: 20250507 pftq: Process end frame if provided
-        # Placeholder for end frame latent. SEE: 20250507 pftq: Process end frame if provided
-        # if we make an end_latent and these other values available, it should just work.
-        end_latent = None
-        end_of_input_video_embedding, end_clip_embedding, end_frame_weight = None, None, 0.0 # Placeholders for end frame processing. SEE: 20250507 pftq: Process end frame if provided
+        # Placeholders for end frame processing
+        # Colin, I'm only leaving them for the moment in case you want separate models for
+        # Video-backward and Video-backward-Endframe.
+        # end_latent = None
+        # end_of_input_video_embedding = None # Placeholder for end frame's CLIP embedding. SEE: 20250507 pftq: Process end frame if provided
+        # end_clip_embedding = None # Placeholders for end frame processing. SEE: 20250507 pftq: Process end frame if provided
+        # end_frame_weight = 0.0 # Placeholders for end frame processing. SEE: 20250507 pftq: Process end frame if provided
         # HACK MORE STUFF IN THAT PROBABLY SHOULD BE ARGUMENTS OR OTHWISE MADE AVAILABLE
         end_of_input_video_latent = video_latents[:, :, -1:] # Last frame of the input video (produced by video_encode in the PR)
         is_start_of_video = latent_padding == 0 # This refers to the start of the *generated* video part
