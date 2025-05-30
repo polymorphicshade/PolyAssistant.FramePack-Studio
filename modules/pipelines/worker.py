@@ -315,7 +315,7 @@ def worker(
             stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Video processing ...'))))
             
             # Encode the video using the VideoModelGenerator
-            start_latent, input_image_np, video_latents, fps, height, width, input_video_pixels = current_generator.video_encode(
+            start_latent, input_image_np, video_latents, fps, height, width, input_video_pixels, end_of_input_video_image_np = current_generator.video_encode(
                 video_path=job_params['input_image'],  # For Video model, input_image contains the video path
                 resolution=job_params['resolutionW'],
                 no_resize=False,
@@ -333,6 +333,8 @@ def worker(
             from diffusers_helper.clip_vision import hf_clip_vision_encode
             image_encoder_output = hf_clip_vision_encode(input_image_np, feature_extractor, image_encoder)
             image_encoder_last_hidden_state = image_encoder_output.last_hidden_state
+
+            end_of_input_video_embedding = hf_clip_vision_encode(end_of_input_video_image_np, feature_extractor, image_encoder).last_hidden_state
             
             # Store the input video pixels and latents for later use
             input_video_pixels = input_video_pixels.cpu()
@@ -389,7 +391,18 @@ def worker(
 
         # VAE encode end_frame_image if provided
         end_frame_latent = None
-        if (model_type == "Original with Endframe" or model_type == "F1 with Endframe") and job_params.get('end_frame_image') is not None:
+
+        # RT_BORG: Remove this
+        # Not useful after gradio is set up to pass endframes without my HACK
+        # Until then, it's helpful to see end_frame_image got set up properly. 
+        if job_params.get('end_frame_image') is not None:
+            print(f"================== Received end frame for {model_type} model... ")
+        else:
+            print(f"================== No end frame provided for {model_type} model")
+        
+        # RT_BORG: Include end_frame_image processing for Video model.
+        # Colin, this needs to change if you decide on a "Video with Endframe" model instead.
+        if (model_type == "Original with Endframe" or model_type == "F1 with Endframe" or model_type == "Video") and job_params.get('end_frame_image') is not None:
             print(f"Processing end frame for {model_type} model...")
             end_frame_image = job_params['end_frame_image']
             
@@ -415,6 +428,18 @@ def worker(
                 from diffusers_helper.hunyuan import vae_encode
                 end_frame_latent = vae_encode(end_frame_pt, vae)
                 print("End frame VAE encoded.")
+
+                # RT_BORG: Video Mode CLIP Vision encoding for end frame
+                # Colin, sorry, I don't know the python way to forward declare the end_clip_embedding variable in case we didn't take this path.
+                # I'll check if it exists where it's used and set it to None if I have to, but I'm sure that's terrible.
+                # Again, if you decide on a "Video with Endframe" model, this will need to change.
+                if model_type == "Video":
+                    if not high_vram: # Ensure image_encoder is on GPU for this operation
+                        load_model_as_complete(image_encoder, target_device=gpu)
+                    from diffusers_helper.clip_vision import hf_clip_vision_encode
+                    end_clip_embedding = hf_clip_vision_encode(end_frame_np, feature_extractor, image_encoder).last_hidden_state
+                    end_clip_embedding = end_clip_embedding.to(current_generator.transformer.dtype)
+                    # Need that dtype conversion for end_clip_embedding? I don't think so, but it was in the original PR.
         
         if not high_vram: # Offload VAE and image_encoder if they were loaded
             offload_model_from_device_for_memory_preservation(vae, target_device=gpu, preserved_memory_gb=settings.get("gpu_memory_preservation"))
@@ -674,8 +699,14 @@ def worker(
             
             # Check if the generator has the combined prepare_clean_latents_and_indices method
             if hasattr(current_generator, 'prepare_clean_latents_and_indices'):
+                # RT_BORG: Colin, as I said above, I'm sure this it terrible. Please forgive me (and fix my python).
+                if not 'end_clip_embedding' in locals():
+                    end_clip_embedding = None
+                if not 'end_of_input_video_embedding' in locals():
+                    end_of_input_video_embedding = None
+
                 clean_latent_indices, latent_indices, clean_latent_2x_indices, clean_latent_4x_indices, clean_latents, clean_latents_2x, clean_latents_4x = \
-                current_generator.prepare_clean_latents_and_indices(latent_paddings, latent_padding, latent_padding_size, latent_window_size, video_latents, history_latents)
+                current_generator.prepare_clean_latents_and_indices(end_frame_latent, end_frame_strength, end_clip_embedding, end_of_input_video_embedding, latent_paddings, latent_padding, latent_padding_size, latent_window_size, video_latents, history_latents)
             else:
                 # Prepare indices using the generator
                 clean_latent_indices, latent_indices, clean_latent_2x_indices, clean_latent_4x_indices = current_generator.prepare_indices(latent_padding_size, latent_window_size)
