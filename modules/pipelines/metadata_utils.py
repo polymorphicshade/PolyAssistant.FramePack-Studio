@@ -157,6 +157,15 @@ def create_metadata(job_params, job_id, settings):
         metadata.add_text("x_param", job_params.get('x_param', ''))
         metadata.add_text("y_param", job_params.get('y_param', ''))
     
+    # Determine end_frame_used value safely (avoiding NumPy array boolean ambiguity)
+    end_frame_image = job_params.get('end_frame_image')
+    end_frame_used = False
+    if end_frame_image is not None:
+        if isinstance(end_frame_image, np.ndarray):
+            end_frame_used = end_frame_image.any()  # True if any element is non-zero
+        else:
+            end_frame_used = True
+    
     # Create comprehensive JSON metadata with all possible parameters
     # This is created before file saving logic that might use it (e.g. JSON dump)
     # but PngInfo 'metadata' is used for images.
@@ -185,10 +194,10 @@ def create_metadata(job_params, job_id, settings):
         # Endframe-related parameters
         "end_frame_strength": job_params.get('end_frame_strength', None),
         "end_frame_image_path": job_params.get('end_frame_image_path', None),
-        "end_frame_used": True if job_params.get('end_frame_image') is not None else False,
+        "end_frame_used": end_frame_used,
         
         # Video input-related parameters
-        "input_video": os.path.basename(job_params.get('input_image', '')) if job_params.get('input_image') and model_type == "Video" else None,
+        "input_video": os.path.basename(job_params.get('input_image', '')) if job_params.get('input_image') is not None and model_type == "Video" else None,
         "video_path": job_params.get('input_image') if model_type == "Video" else None,
         
         # XY Plot-related parameters
@@ -213,49 +222,65 @@ def create_metadata(job_params, job_id, settings):
         for lora_name in selected_loras:
             try:
                 idx = lora_loaded_names.index(lora_name)
-                weight = lora_values[idx] if lora_values and idx < len(lora_values) else 1.0
-                if isinstance(weight, list):
-                    weight_value = weight[0] if weight and len(weight) > 0 else 1.0
+                # Fix for NumPy array boolean ambiguity
+                has_lora_values = lora_values is not None and len(lora_values) > 0
+                weight = lora_values[idx] if has_lora_values and idx < len(lora_values) else 1.0
+                
+                # Handle different types of weight values
+                if isinstance(weight, np.ndarray):
+                    # Convert NumPy array to a scalar value
+                    weight_value = float(weight.item()) if weight.size == 1 else float(weight.mean())
+                elif isinstance(weight, list):
+                    # Handle list type weights
+                    has_items = weight is not None and len(weight) > 0
+                    weight_value = float(weight[0]) if has_items else 1.0
                 else:
-                    weight_value = weight
-                lora_data[lora_name] = float(weight_value)
+                    # Handle scalar weights
+                    weight_value = float(weight) if weight is not None else 1.0
+                
+                lora_data[lora_name] = weight_value
+                print(f"[METADATA_DEBUG] Saved LoRA '{lora_name}' with weight {weight_value}")
             except ValueError:
                 lora_data[lora_name] = 1.0
+                print(f"[METADATA_DEBUG] LoRA '{lora_name}' not found in loaded names, using default weight 1.0")
+            except Exception as e:
+                lora_data[lora_name] = 1.0
+                print(f"[METADATA_ERROR] Error processing LoRA '{lora_name}': {e}")
+                traceback.print_exc()
+        
         metadata_dict["loras"] = lora_data
+        print(f"[METADATA_DEBUG] Saved LoRA data: {lora_data}")
     else:
         metadata_dict["loras"] = {}
+        print("[METADATA_DEBUG] No LoRAs selected, saving empty loras dictionary")
 
-    # Check if called from worker.py to decide on saving placeholder and JSON
-    call_stack = traceback.extract_stack()
-    is_called_from_worker = any('worker.py' in frame.filename for frame in call_stack)
+    # Always save metadata regardless of where it's called from
+    # --- Placeholder Image Saving Logic ---
+    # The actual start image is now saved by save_job_start_image() early in worker.py.
+    # This function (create_metadata) will now only handle the placeholder image and JSON.
+    
+    placeholder_target_path = os.path.join(metadata_dir_path, f'{job_id}.png')
+    print(f"[METADATA_DEBUG] Job ID: {job_id} - Evaluating placeholder image saving.")
+    print(f"[METADATA_DEBUG] Placeholder target path: {placeholder_target_path}")
+    
+    # Save the placeholder image (which has PngInfo `metadata` embedded).
+    # This acts as a fallback or alternative metadata carrier if needed, saved in metadata_dir.
+    try:
+        placeholder_img.save(placeholder_target_path, pnginfo=metadata) # metadata is the PngInfo object
+        print(f"[METADATA_SUCCESS] Saved placeholder image to {placeholder_target_path}")
+    except Exception as e:
+        print(f"[METADATA_ERROR] Error saving placeholder image to {placeholder_target_path}: {e}")
+        traceback.print_exc()
 
-    if is_called_from_worker:
-        # --- Placeholder Image Saving Logic ---
-        # The actual start image is now saved by save_job_start_image() early in worker.py.
-        # This function (create_metadata) will now only handle the placeholder image and JSON.
+    # --- JSON Metadata Saving Logic ---
+    json_metadata_path = os.path.join(metadata_dir_path, f'{job_id}.json')
+    print(f"[METADATA_DEBUG] Attempting to save JSON metadata to: {json_metadata_path}")
+    try:
+        with open(json_metadata_path, 'w') as f:
+            json.dump(metadata_dict, f, indent=2)
+        print(f"[METADATA_SUCCESS] Saved JSON metadata to {json_metadata_path}")
+    except Exception as e:
+        print(f"[METADATA_ERROR] Error saving JSON metadata to {json_metadata_path}: {e}")
+        traceback.print_exc()
         
-        placeholder_target_path = os.path.join(metadata_dir_path, f'{job_id}.png')
-        print(f"[METADATA_DEBUG] Job ID: {job_id} - Evaluating placeholder image saving.")
-        print(f"[METADATA_DEBUG] Placeholder target path: {placeholder_target_path}")
-        
-        # Save the placeholder image (which has PngInfo `metadata` embedded).
-        # This acts as a fallback or alternative metadata carrier if needed, saved in metadata_dir.
-        try:
-            placeholder_img.save(placeholder_target_path, pnginfo=metadata) # metadata is the PngInfo object
-            print(f"[METADATA_SUCCESS] Saved placeholder image to {placeholder_target_path}")
-        except Exception as e:
-            print(f"[METADATA_ERROR] Error saving placeholder image to {placeholder_target_path}: {e}")
-            traceback.print_exc()
-
-        # --- JSON Metadata Saving Logic ---
-        json_metadata_path = os.path.join(metadata_dir_path, f'{job_id}.json')
-        print(f"[METADATA_DEBUG] Attempting to save JSON metadata to: {json_metadata_path}")
-        try:
-            with open(json_metadata_path, 'w') as f:
-                json.dump(metadata_dict, f, indent=2)
-            print(f"[METADATA_SUCCESS] Saved JSON metadata to {json_metadata_path}")
-        except Exception as e:
-            print(f"[METADATA_ERROR] Error saving JSON metadata to {json_metadata_path}: {e}")
-            traceback.print_exc()
-            
     return metadata_dict
