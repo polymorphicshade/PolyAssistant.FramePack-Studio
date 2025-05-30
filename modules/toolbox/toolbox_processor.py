@@ -39,8 +39,8 @@ class VideoProcessor:
         studio_output_dir = Path(self.settings.get("output_dir"))
 
         # Define the underlying fixed paths
-        self._base_temp_output_dir = studio_output_dir / "toolbox_output" / "temp_processing"
-        self._base_permanent_save_dir = studio_output_dir / "toolbox_output" / "saved_videos"
+        self._base_temp_output_dir = studio_output_dir / "postprocessed_output" / "temp_processing"
+        self._base_permanent_save_dir = studio_output_dir / "postprocessed_output" / "saved_videos"
         
         # self.toolbox_video_output_dir is the DYNAMIC "switchable" path.
         # It defaults to the temporary location.
@@ -53,9 +53,9 @@ class VideoProcessor:
         os.makedirs(self._base_permanent_save_dir, exist_ok=True)
 
         # These remain fixed as they are not affected by autosave for general processing
-        self.extracted_frames_target_path = studio_output_dir / "toolbox_output" / "toolbox_frames" / "extracted_frames"
+        self.extracted_frames_target_path = studio_output_dir / "postprocessed_output" / "toolbox_frames" / "extracted_frames"
         os.makedirs(self.extracted_frames_target_path, exist_ok=True)
-        self.reassembled_video_target_path = studio_output_dir / "toolbox_output" / "toolbox_frames" / "reassembled_videos"
+        self.reassembled_video_target_path = studio_output_dir / "postprocessed_output" / "toolbox_frames" / "reassembled_videos"
         os.makedirs(self.reassembled_video_target_path, exist_ok=True)
 
     # NEW METHOD to flip the "railroad switch"

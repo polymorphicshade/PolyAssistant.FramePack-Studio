@@ -284,14 +284,22 @@ def create_interface(
         }
     }
     
-    .video-component { 
-        min-height: 300px !important; 
-        height: 60vh !important;
-        /* object-fit: contain;
+    .video-size video {
+        max-height: 60vh;
+        min-height: 300px !important;
+        object-fit: contain;
     }
-
-    .message-box { min-height: 200px; }
-
+   
+    /* hide the gr.Video source selection bar for tb_input_video_component */
+    #toolbox-video-player .source-selection {
+        display: none !important;
+    }
+    
+    .analysis-box {
+    }
+    
+    .message-box {
+    }    
     """
 
     # Get the theme from settings
@@ -1297,7 +1305,7 @@ def create_interface(
                         video_out = gr.Video(sources=[], autoplay=True, loop=True, visible=False)
                     with gr.Column(scale=1):
                         info_out = gr.Textbox(label="Generation info", visible=False)
-                        send_to_toolbox_btn = gr.Button("➡️ Send to Toolbox", visible=False)  # Added new send_to_toolbox_btn
+                        send_to_toolbox_btn = gr.Button("➡️ Send to Post-processing", visible=False)  # Added new send_to_toolbox_btn
                     def refresh_gallery():
                         new_items = get_gallery_items()
                         return gr.update(value=[i[0] for i in new_items]), new_items
@@ -1326,7 +1334,7 @@ def create_interface(
                         inputs=[gallery_items_state], 
                         outputs=[video_out, info_out, send_to_toolbox_btn] # Added send_to_toolbox_btn
                     )
-            with gr.Tab("Toolbox", id="toolbox_tab"):          
+            with gr.Tab("Post-processing", id="toolbox_tab"):          
                 # Call the function from toolbox_app.py to build the Toolbox UI
                 # It returns the UI layout and the input video component for Toolbox
                 toolbox_ui_layout, tb_target_video_input = tb_create_video_toolbox_ui()
@@ -1539,14 +1547,14 @@ def create_interface(
             # Change the cancel button text to "Cancelling..."
             return queue_status_data, gr.update(value="Cancelling...", interactive=False), gr.update()
 
-        # --- NEW EVENT HANDLER for "Send to Toolbox" button ---
-        def handle_send_video_to_toolbox(selected_video_from_outputs_tab): # Parameter name is descriptive
+        # --- NEW EVENT HANDLER for "Send to Post-processing" button ---
+        def handle_send_video_to_toolbox(selected_video_from_outputs_tab):
             # Check if the input is a valid file path (Gradio Video component value is the path)
             if selected_video_from_outputs_tab and isinstance(selected_video_from_outputs_tab, str) and os.path.exists(selected_video_from_outputs_tab):
-                print(f"Sending video to Toolbox: {selected_video_from_outputs_tab}")
+                print(f"Sending video to Post-processing {selected_video_from_outputs_tab}")
                 return gr.update(value=selected_video_from_outputs_tab), gr.update(selected="toolbox_tab")
             else:
-                print(f"No valid video path from Outputs tab to send to Toolbox. Path received: {selected_video_from_outputs_tab}")
+                print(f"No valid video path from Outputs tab to send to Post-processing. Path received: {selected_video_from_outputs_tab}")
                 return gr.update(), gr.update() # No change
 
         # Connect the button (defined in Outputs tab) to its handler

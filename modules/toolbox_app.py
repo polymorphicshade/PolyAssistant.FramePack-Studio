@@ -30,7 +30,6 @@ def tb_handle_update_monitor():
     return SystemMonitor.get_system_info()
 
 def tb_handle_analyze_video(video_path):
-    print(f"Toolbox analyze received video_path: {video_path}")
     tb_message_mgr.clear()
     analysis = tb_processor.tb_analyze_video_input(video_path)
     return tb_update_messages(), analysis
@@ -111,7 +110,7 @@ def tb_handle_upscale_video(video_path, upscale_factor, progress=gr.Progress()):
 
 def tb_handle_unload_studio_models():
     tb_message_mgr.clear()
-    print("Toolbox: Attempting to unload the main Transformer model...")
+    print("Attempting to unload the main Transformer model...")
     tb_message_mgr.add_message("Attempting to unload the main Transformer model...")
 
     studio_scope = None
@@ -134,7 +133,7 @@ def tb_handle_unload_studio_models():
         _cg = getattr(studio_scope, 'current_generator', None)
         if not (_cg and hasattr(_cg, 'transformer') and _cg.transformer):
             tb_message_mgr.add_message("No active Transformer found to unload.")
-            print("Toolbox: No active transformer to unload.")
+            print("No active transformer to unload.")
             return tb_update_messages()
 
         _trans_name = _cg.transformer.__class__.__name__ # Get name before it's gone
@@ -144,7 +143,7 @@ def tb_handle_unload_studio_models():
         
         if hasattr(_trans, 'to') and getattr(_trans, 'device', cpu) != cpu:
             try: _trans.to(cpu)
-            except Exception as e_cpu: print(f"Toolbox: Transformer to CPU failed: {e_cpu}") # Log but continue
+            except Exception as e_cpu: print(f"Transformer to CPU failed: {e_cpu}") # Log but continue
 
         _cg.transformer = None
         setattr(studio_scope, 'current_generator', None)
@@ -154,11 +153,11 @@ def tb_handle_unload_studio_models():
         gc.collect()
         devicetorch.empty_cache(torch) 
 
-        print(f"Toolbox: Transformer '{_trans_name}' unload process completed.")
+        print(f"Transformer '{_trans_name}' unload process completed.")
         tb_message_mgr.add_success(f"Success: Transformer '{_trans_name}' unloaded.")
 
     except Exception as e:
-        print(f"Toolbox: Transformer Unload FAILED. Error:\n{traceback.format_exc()}")
+        print(f"Transformer Unload FAILED. Error:\n{traceback.format_exc()}")
         tb_message_mgr.add_error(f"Unload FAILED: Error. Check console. ({type(e).__name__})")
     
     return tb_update_messages()
@@ -209,21 +208,20 @@ def tb_create_video_toolbox_ui():
     tb_processor.set_autosave_mode(initial_autosave_state)
     
     with gr.Column() as tb_toolbox_ui_main_container:
-        gr.Markdown("# 🧰 Video Toolbox")
-
         with gr.Row():
             with gr.Column(scale=1):
                 tb_input_video_component = gr.Video(
-                    label="Upload Video for Toolbox Processing",
-                    elem_classes="video-component" 
+                    label="Upload Video for post-processing",
+                    elem_classes="video-size",
+                    elem_id="toolbox-video-player"                    
                 )
                 tb_analyze_button = gr.Button("📊 Analyze Video")
 
             with gr.Column(scale=1):
                 tb_processed_video_output = gr.Video(
-                    label="Toolbox Processed Video",
+                    label="Processed Video",
                     interactive=False,
-                    elem_classes="video-component"
+                    elem_classes="video-size" 
                 )
                 with gr.Row():
                     tb_use_processed_as_input_btn = gr.Button("🔄 Use Processed as Input", scale=3)
@@ -242,15 +240,15 @@ def tb_create_video_toolbox_ui():
         with gr.Row():
             with gr.Column(scale=1):
                 tb_video_analysis_output = gr.Textbox(
-                    label="Toolbox Video Analysis",
-                    lines=8,
+                    label="Video Analysis",
+                    lines=12,
                     interactive=False,
-                    elem_classes="scrollable-textbox", 
+                    elem_classes="analysis-box", 
                 )
             with gr.Column(scale=1):
                 tb_resource_monitor_output = gr.Textbox(
-                    label="💻 Toolbox System Monitor",
-                    lines=8,
+                    label="💻 System Monitor",
+                    lines=9,
                     interactive=False,
                 )
                 with gr.Row():
@@ -259,7 +257,7 @@ def tb_create_video_toolbox_ui():
                     gr.Markdown(
                         "Studio will automatically reload models when you start a new video generation. "
                     )
-        with gr.Accordion("Toolbox Operations", open=True):
+        with gr.Accordion("Operations", open=True):
             with gr.Tabs():
                 with gr.TabItem("🎞️ Frame Adjust (Speed & Interpolation)"):
                     gr.Markdown("Adjust video speed and interpolate frames using RIFE AI.")
@@ -328,7 +326,6 @@ def tb_create_video_toolbox_ui():
                             tb_reassemble_frames_input_files = gr.File( 
                                 label="Click to Select Directory Containing Frame Images (e.g., PNG, JPG)", 
                                 file_count="directory",
-                                file_types=["image"],
                                 elem_classes="file-upload-area" 
                             )
                             tb_reassemble_output_fps = gr.Number(
