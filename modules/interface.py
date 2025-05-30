@@ -1527,15 +1527,19 @@ def create_interface(
 
                 # Add the new seed value to the results if randomize is checked
                 if new_seed_value is not None:
-                    return [result[0], job_id, result[2], result[3], result[4], result[5], button_update, queue_status_data, new_seed_value]
+                    # Use result[6] directly for end_button to preserve its value
+                    return [result[0], job_id, result[2], result[3], result[4], result[5], result[6], queue_status_data, new_seed_value]
                 else:
-                    return [result[0], job_id, result[2], result[3], result[4], result[5], button_update, queue_status_data, gr.update()]
+                    # Use result[6] directly for end_button to preserve its value
+                    return [result[0], job_id, result[2], result[3], result[4], result[5], result[6], queue_status_data, gr.update()]
 
             # If no job ID was created, still return the new seed if randomize is checked
             if new_seed_value is not None:
-                return result + [button_update, update_queue_status_fn(), new_seed_value]
+                # Make sure to preserve the end_button update from result[6]
+                return [result[0], result[1], result[2], result[3], result[4], result[5], result[6], update_queue_status_fn(), new_seed_value]
             else:
-                return result + [button_update, update_queue_status_fn(), gr.update()]
+                # Make sure to preserve the end_button update from result[6]
+                return [result[0], result[1], result[2], result[3], result[4], result[5], result[6], update_queue_status_fn(), gr.update()]
 
         # Custom end process function that ensures the queue is updated and changes button text
         def end_process_with_update():
@@ -1544,7 +1548,8 @@ def create_interface(
             # Don't try to get the new job ID immediately after cancellation
             # The monitor_job function will handle the transition to the next job
             
-            # Change the cancel button text to "Cancelling..."
+            # Change the cancel button text to "Cancelling..." and make it non-interactive
+            # This ensures the button stays in this state until the job is fully cancelled
             return queue_status_data, gr.update(value="Cancelling...", interactive=False), gr.update()
 
         # --- NEW EVENT HANDLER for "Send to Post-processing" button ---
