@@ -1,6 +1,7 @@
 from .original_generator import OriginalModelGenerator
 from .f1_generator import F1ModelGenerator
 from .video_generator import VideoModelGenerator
+from .video_f1_generator import VideoF1ModelGenerator
 from .original_with_endframe_generator import OriginalWithEndframeModelGenerator
 from .f1_with_endframe_generator import F1WithEndframeModelGenerator
 
@@ -28,5 +29,7 @@ def create_model_generator(model_type, **kwargs):
         return F1WithEndframeModelGenerator(**kwargs)
     elif model_type == "Video":
         return VideoModelGenerator(**kwargs)
+    elif model_type == "VideoF1":
+        return VideoF1ModelGenerator(**kwargs)
     else:
         raise ValueError(f"Unsupported model type: {model_type}")
