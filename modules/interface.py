@@ -332,7 +332,7 @@ def create_interface(
                 with gr.Row():
                     with gr.Column(scale=2):
                         model_type = gr.Radio(
-                            choices=["Original", "Original with Endframe", "F1", "Video"],
+                            choices=["Original", "Original with Endframe", "F1", "F1 with Endframe", "Video", "Video F1"],
                             value="Original",
                             label="Generation Type"
                         )
@@ -412,7 +412,7 @@ def create_interface(
 
                         # Show/hide input groups based on model selection
                         def update_input_visibility(model_choice_value):
-                            is_video_model = (model_choice_value == "Video")
+                            is_video_model = (model_choice_value == "Video" or model_choice_value == "Video F1")
                             is_endframe_model = (model_choice_value == "Original with Endframe" or model_choice_value == "F1 with Endframe")
                             is_xy_plot_model = (model_choice_value == "XY Plot")
                             
@@ -1500,24 +1500,26 @@ def create_interface(
             # DO NOT parse the prompt here. Parsing happens once in the worker.
 
             # Use the appropriate input based on model type
-            input_data = input_video if model_type == "Video" else input_image
+            input_data = input_video if model_type == "Video" or model_type == "Video F1" else input_image
             
             # Define actual end_frame params to pass to backend
             actual_end_frame_image_for_backend = None
             actual_end_frame_strength_for_backend = 1.0  # Default strength
 
-            if model_type == "Original with Endframe" or model_type == "F1 with Endframe" or model_type == "Video":
+            if model_type == "Original with Endframe" or model_type == "F1 with Endframe" or model_type == "Video" or model_type == "Video F1":
                 actual_end_frame_image_for_backend = end_frame_image_original # Use the unpacked value
                 actual_end_frame_strength_for_backend = end_frame_strength_original # Use the unpacked value
             
-            # For Video model, check if combine_with_source is checked
+            # For Video models, check if combine_with_source is checked and get num_cleaned_frames
             combine_with_source_value = None
-            if model_type == "Video":
+            num_cleaned_frames_value = None
+            if model_type == "Video" or model_type == "Video F1":
                 # Access the combine_with_source checkbox directly
                 try:
                     combine_with_source_value = combine_with_source.value
+                    num_cleaned_frames_value = num_cleaned_frames.value
                 except:
-                    print("Warning: Could not access combine_with_source checkbox value")
+                    print("Warning: Could not access combine_with_source or num_cleaned_frames value")
             
             # Get the input video path for Video model
             input_image_path = None

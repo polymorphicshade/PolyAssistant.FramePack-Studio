@@ -79,15 +79,12 @@ def worker(
     resolutionH=640,
     lora_loaded_names=[],
     input_video=None,     # Add input_video parameter with default value of None
-    combine_with_source=None  # Add combine_with_source parameter
+    combine_with_source=None,  # Add combine_with_source parameter
+    num_cleaned_frames=5  # Add num_cleaned_frames parameter with default value
 ):
     """
     Worker function for video generation using the pipeline architecture.
     """
-
-    # RT_BORG: HACK to force VideoF1 model instead of Video model to test, since there's no UI for it yet.
-    if model_type == "Video":
-        model_type = "VideoF1"
 
 
     # Import globals from the main module
@@ -312,7 +309,7 @@ def worker(
             )
 
         # Process input image or video based on model type
-        if model_type == "Video" or model_type == "VideoF1":
+        if model_type == "Video" or model_type == "VideoF1" or model_type == "Video F1":
             stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Video processing ...'))))
             
             # Encode the video using the VideoModelGenerator
@@ -461,13 +458,13 @@ def worker(
 
         # Initialize total_generated_latent_frames for Video model
         # For VideoF1 model, pftq counts the input frames in "total generated", unlike pftq's treatment of Backward Video
-        if (model_type == "VideoF1"):
+        if (model_type == "VideoF1" or model_type == "Video F1"):
             total_generated_latent_frames = history_latents.shape[2]
         else:
             total_generated_latent_frames = 0  # Default initialization for almost all model types
 
         # Initialize history latents based on model type
-        if model_type != "Video" and model_type != "VideoF1":  # Skip for Video models as we already initialized it
+        if model_type != "Video" and model_type != "VideoF1" and model_type != "Video F1":  # Skip for Video models as we already initialized it
             history_latents = current_generator.prepare_history_latents(height, width)
             
             # For F1 model, initialize with start latent
@@ -716,9 +713,11 @@ def worker(
                 num_cleaned_frames = job_params.get('num_cleaned_frames', 5)
                 clean_latent_indices, latent_indices, clean_latent_2x_indices, clean_latent_4x_indices, clean_latents, clean_latents_2x, clean_latents_4x = \
                 current_generator.video_prepare_clean_latents_and_indices(end_frame_latent, end_frame_strength, end_clip_embedding, end_of_input_video_embedding, latent_paddings, latent_padding, latent_padding_size, latent_window_size, video_latents, history_latents, num_cleaned_frames)
-            elif model_type == "VideoF1":
+            elif model_type == "VideoF1" or model_type == "Video F1":
+                # Get num_cleaned_frames from job_params if available, otherwise use default value of 5
+                num_cleaned_frames = job_params.get('num_cleaned_frames', 5)
                 clean_latent_indices, latent_indices, clean_latent_2x_indices, clean_latent_4x_indices, clean_latents, clean_latents_2x, clean_latents_4x = \
-                current_generator.video_f1_prepare_clean_latents_and_indices(latent_window_size, video_latents, history_latents)
+                current_generator.video_f1_prepare_clean_latents_and_indices(latent_window_size, video_latents, history_latents, num_cleaned_frames)
             else:
                 # Prepare indices using the generator
                 clean_latent_indices, latent_indices, clean_latent_2x_indices, clean_latent_4x_indices = current_generator.prepare_indices(latent_padding_size, latent_window_size)
@@ -895,10 +894,9 @@ def worker(
         except Exception as e:
             print(f"Error during temp folder cleanup: {e}")
 
-    # RT_BORG: Colin, I didn't add model_type == "VideoF1" yet. Not sure it'll be handled the same way.
     # Check if the user wants to combine the source video with the generated video
     # This is done after the video cleanup routine to ensure the combined video is not deleted
-    if model_type == "Video" and combine_with_source and job_params.get('input_image_path'):
+    if (model_type == "Video" or model_type == "Video F1") and combine_with_source and job_params.get('input_image_path'):
         print("Creating combined video with source and generated content...")
         try:
             # Get the input video path

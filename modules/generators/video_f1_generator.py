@@ -44,7 +44,7 @@ class VideoF1ModelGenerator(VideoBaseModelGenerator):
         # Similar to F1 model uses a fixed approach with just 0 for last section and 1 for others
         return [1] * (total_latent_sections - 1) + [0]
 
-    def video_f1_prepare_clean_latents_and_indices(self, latent_window_size, video_latents, history_latents):
+    def video_f1_prepare_clean_latents_and_indices(self, latent_window_size, video_latents, history_latents, num_cleaned_frames=5):
         """
         Combined method to prepare clean latents and indices for the Video model.
         
@@ -54,11 +54,8 @@ class VideoF1ModelGenerator(VideoBaseModelGenerator):
         Returns:
             A tuple of (clean_latent_indices, latent_indices, clean_latent_2x_indices, clean_latent_4x_indices, clean_latents, clean_latents_2x, clean_latents_4x)
         """
-        # HACK SOME STUFF IN THAT SHOULD NOT BE HERE
-        # num_clean_frames Should come from UI - 20250506 pftq: Renamed slider to Number of Context Frames and updated description
-        # num_clean_frames = gr.Slider(label="Number of Context Frames (Adherence to Video)", minimum=2, maximum=10, value=5, step=1, info="Expensive. Retain more video details. Reduce if memory issues or motion too restricted (jumpcut, ignoring prompt, still).")
-        num_clean_frames = 5 # This is a placeholder for the number of clean frames. SEE: 20250507 pftq: Process end frame if provided
-        # End of HACK STUFF
+        # Get num_cleaned_frames from job_params if available, otherwise use default value of 5
+        num_clean_frames = num_cleaned_frames if num_cleaned_frames is not None else 5
 
         start_latent = history_latents[:, :, :1]  # Shape: (1, channels, 1, height//8, width//8)
 

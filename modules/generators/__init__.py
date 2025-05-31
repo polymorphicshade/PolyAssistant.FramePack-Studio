@@ -29,7 +29,7 @@ def create_model_generator(model_type, **kwargs):
         return F1WithEndframeModelGenerator(**kwargs)
     elif model_type == "Video":
         return VideoModelGenerator(**kwargs)
-    elif model_type == "VideoF1":
+    elif model_type == "VideoF1" or model_type == "Video F1":
         return VideoF1ModelGenerator(**kwargs)
     else:
         raise ValueError(f"Unsupported model type: {model_type}")

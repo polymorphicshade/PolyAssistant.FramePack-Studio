@@ -108,6 +108,11 @@ class VideoPipeline(BasePipeline):
             processed_inputs['combine_with_source'] = job_params.get('combine_with_source')
             print(f"Video pipeline: combine_with_source = {processed_inputs['combine_with_source']}")
         
+        # Pass through the num_cleaned_frames parameter if it exists
+        if 'num_cleaned_frames' in job_params:
+            processed_inputs['num_cleaned_frames'] = job_params.get('num_cleaned_frames')
+            print(f"Video pipeline: num_cleaned_frames = {processed_inputs['num_cleaned_frames']}")
+        
         # Get resolution parameters
         resolutionW = job_params.get('resolutionW', 640)
         resolutionH = job_params.get('resolutionH', 640)
