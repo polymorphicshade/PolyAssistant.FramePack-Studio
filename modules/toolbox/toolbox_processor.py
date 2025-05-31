@@ -440,7 +440,13 @@ class VideoProcessor:
             return "Please upload a video."
         
         resolved_video_path = str(Path(video_path).resolve())
-        analysis_report = "Could not analyze video fully." 
+        analysis_report_lines = [] # Use a list to build the report string
+        
+        # Variables to hold parsed info, initialized to defaults
+        video_width, video_height = 0, 0
+        num_frames_value = None # For the upscale warning
+        duration_display, fps_display, resolution_display, nframes_display, has_audio_str = "N/A", "N/A", "N/A", "N/A", "No"
+        analysis_source = "imageio" # Default analysis source
 
         if self.has_ffprobe:
             self.message_manager.add_message(f"Analyzing video with ffprobe: {os.path.basename(video_path)}")
@@ -457,105 +463,145 @@ class VideoProcessor:
 
                 if not video_stream:
                     self.message_manager.add_error("No video stream found in the file (ffprobe).")
-                    return "Error: No video stream found."
+                    # Fall through to imageio or return error, depending on desired strictness
+                    # For now, let's allow imageio to try
+                else:
+                    analysis_source = "ffprobe"
+                    duration_str = probe_data.get("format", {}).get("duration", "0") 
+                    duration = float(duration_str) if duration_str and duration_str.replace('.', '', 1).isdigit() else 0.0
+                    duration_display = f"{duration:.2f} seconds"
 
-                duration_str = probe_data.get("format", {}).get("duration", "0") 
-                duration = float(duration_str) if duration_str else 0.0
-                duration_display = f"{duration:.2f} seconds"
+                    r_frame_rate_str = video_stream.get("r_frame_rate", "0/0")
+                    avg_frame_rate_str = video_stream.get("avg_frame_rate", "0/0")
+                    calculated_fps = 0.0
 
-                r_frame_rate_str = video_stream.get("r_frame_rate", "0/0")
-                avg_frame_rate_str = video_stream.get("avg_frame_rate", "0/0")
-                fps_display = "N/A"; calculated_fps = 0.0
-
-                def parse_fps(fps_s):
-                    if isinstance(fps_s, (int, float)): return float(fps_s)
-                    if isinstance(fps_s, str) and "/" in fps_s:
-                        try: num, den = map(float, fps_s.split('/')); return num / den if den != 0 else 0.0
+                    def parse_fps(fps_s):
+                        if isinstance(fps_s, (int, float)): return float(fps_s)
+                        if isinstance(fps_s, str) and "/" in fps_s:
+                            try: num, den = map(float, fps_s.split('/')); return num / den if den != 0 else 0.0
+                            except ValueError: return 0.0
+                        try: return float(fps_s) 
                         except ValueError: return 0.0
-                    try: return float(fps_s) 
-                    except ValueError: return 0.0
 
-                r_fps_val = parse_fps(r_frame_rate_str); avg_fps_val = parse_fps(avg_frame_rate_str)
+                    r_fps_val = parse_fps(r_frame_rate_str); avg_fps_val = parse_fps(avg_frame_rate_str)
 
-                if r_fps_val > 0: calculated_fps = r_fps_val; fps_display = f"{r_fps_val:.2f} FPS"
-                if avg_fps_val > 0 and abs(r_fps_val - avg_fps_val) > 0.01: calculated_fps = avg_fps_val; fps_display += f" (Avg: {avg_fps_val:.2f} FPS)"
-                elif avg_fps_val > 0 and r_fps_val <=0: calculated_fps = avg_fps_val; fps_display = f"{avg_fps_val:.2f} FPS (Average)"
-                
-                width = video_stream.get("width", "N/A"); height = video_stream.get("height", "N/A")
-                resolution_display = f"{width}x{height}"
+                    if r_fps_val > 0: calculated_fps = r_fps_val; fps_display = f"{r_fps_val:.2f} FPS"
+                    if avg_fps_val > 0 and abs(r_fps_val - avg_fps_val) > 0.01 : # Only show average if meaningfully different
+                        calculated_fps = avg_fps_val # Prefer average if it's different and valid
+                        fps_display = f"{avg_fps_val:.2f} FPS (Avg, r: {r_fps_val:.2f})" 
+                    elif avg_fps_val > 0 and r_fps_val <=0: 
+                        calculated_fps = avg_fps_val; fps_display = f"{avg_fps_val:.2f} FPS (Average)"
+                    
+                    video_width = video_stream.get("width", 0)
+                    video_height = video_stream.get("height", 0)
+                    resolution_display = f"{video_width}x{video_height}" if video_width and video_height else "N/A"
 
-                nframes_str = video_stream.get("nb_frames")
-                nframes_display = "N/A"
-                if nframes_str and nframes_str.isdigit(): nframes_display = str(int(nframes_str))
-                elif duration > 0 and calculated_fps > 0: nframes_display = f"{int(duration * calculated_fps)} (Calculated)"
-                
-                has_audio_str = "No"
-                if audio_stream:
-                    has_audio_str = (f"Yes (Codec: {audio_stream.get('codec_name', 'N/A')}, "
-                                     f"Channels: {audio_stream.get('channels', 'N/A')}, "
-                                     f"Rate: {audio_stream.get('sample_rate', 'N/A')} Hz)")
+                    nframes_str_probe = video_stream.get("nb_frames")
+                    if nframes_str_probe and nframes_str_probe.isdigit():
+                        num_frames_value = int(nframes_str_probe)
+                        nframes_display = str(num_frames_value)
+                    elif duration > 0 and calculated_fps > 0:
+                        num_frames_value = int(duration * calculated_fps)
+                        nframes_display = f"{num_frames_value} (Calculated)"
+                    
+                    if audio_stream:
+                        has_audio_str = (f"Yes (Codec: {audio_stream.get('codec_name', 'N/A')}, "
+                                         f"Channels: {audio_stream.get('channels', 'N/A')}, "
+                                         f"Rate: {audio_stream.get('sample_rate', 'N/A')} Hz)")
+                    self.message_manager.add_success("Video analysis complete (using ffprobe).")
 
-                analysis_report = (
-                    f"Video Analysis (ffprobe):\n"
-                    f"File: {os.path.basename(video_path)}\n"
-                    f"------------------------------------\n"
-                    f"Duration: {duration_display}\nFrame Rate: {fps_display}\n"
-                    f"Resolution: {resolution_display}\nFrames: {nframes_display}\n"
-                    f"Audio: {has_audio_str}\nSource: {video_path}"
-                )
-                self.message_manager.add_success("Video analysis complete (using ffprobe).")
-                return analysis_report
-
-            except subprocess.CalledProcessError as e_ffprobe_call:
-                self.message_manager.add_warning(f"ffprobe analysis failed. Trying imageio fallback.")
-                self._tb_log_ffmpeg_error(e_ffprobe_call, "video analysis with ffprobe")
-            except json.JSONDecodeError as e_json:
-                self.message_manager.add_warning(f"ffprobe output was not valid JSON ({e_json}). Trying imageio fallback.")
-            except Exception as e_ffprobe:
-                self.message_manager.add_warning(f"General ffprobe analysis error ({e_ffprobe}). Trying imageio fallback.")
+            except (subprocess.CalledProcessError, json.JSONDecodeError, Exception) as e_ffprobe:
+                self.message_manager.add_warning(f"ffprobe analysis failed ({type(e_ffprobe).__name__}). Trying imageio fallback.")
+                if isinstance(e_ffprobe, subprocess.CalledProcessError):
+                    self._tb_log_ffmpeg_error(e_ffprobe, "video analysis with ffprobe")
+                analysis_source = "imageio" # Ensure fallback if ffprobe fails midway
         
-        # Fallback to imageio if ffprobe is not available or failed
-        self.message_manager.add_message(f"Analyzing video with imageio: {os.path.basename(video_path)}")
-        reader = None
-        try:
-            reader = imageio.get_reader(resolved_video_path)
-            meta = reader.get_meta_data()
-            duration_imgio = meta.get('duration', 'N/A')
-            fps_val_imgio = meta.get('fps', 'N/A') 
-            size_imgio = meta.get('size', ('N/A', 'N/A'))
-            nframes_val_imgio_meta = meta.get('nframes', "N/A") 
-            nframes_val_imgio_display = "N/A"
+        if analysis_source == "imageio": # Either ffprobe not available, or it failed
+            self.message_manager.add_message(f"Analyzing video with imageio: {os.path.basename(video_path)}")
+            reader = None
+            try:
+                reader = imageio.get_reader(resolved_video_path)
+                meta = reader.get_meta_data()
+                
+                duration_imgio_val = meta.get('duration')
+                duration_display = f"{float(duration_imgio_val):.2f} seconds" if duration_imgio_val is not None else "N/A"
+                
+                fps_val_imgio = meta.get('fps')
+                fps_display = f"{float(fps_val_imgio):.2f} FPS" if fps_val_imgio is not None else "N/A"
+                
+                size_imgio = meta.get('size')
+                if isinstance(size_imgio, tuple) and len(size_imgio) == 2:
+                    video_width, video_height = int(size_imgio[0]), int(size_imgio[1])
+                    resolution_display = f"{video_width}x{video_height}"
+                else:
+                    resolution_display = "N/A"
 
-            if nframes_val_imgio_meta not in [float('inf'), "N/A", None] and isinstance(nframes_val_imgio_meta, (int,float)):
-                nframes_val_imgio_display = str(int(nframes_val_imgio_meta))
-            elif hasattr(reader, 'count_frames'):
-                try: 
-                    nframes_val_imgio_count = reader.count_frames()
-                    if nframes_val_imgio_count != float('inf'):
-                         nframes_val_imgio_display = f"{int(nframes_val_imgio_count)} (Counted)"
-                    else: nframes_val_imgio_display = "Unknown (Stream or very long)"
-                except Exception: nframes_val_imgio_display = "Unknown (Frame count failed)"
+                nframes_val_imgio_meta = meta.get('nframes') 
+                if nframes_val_imgio_meta not in [float('inf'), "N/A", None] and isinstance(nframes_val_imgio_meta, (int,float)):
+                    num_frames_value = int(nframes_val_imgio_meta)
+                    nframes_display = str(num_frames_value)
+                elif hasattr(reader, 'count_frames'):
+                    try: 
+                        nframes_val_imgio_count = reader.count_frames()
+                        if nframes_val_imgio_count != float('inf'):
+                             num_frames_value = int(nframes_val_imgio_count)
+                             nframes_display = f"{num_frames_value} (Counted)"
+                        else: nframes_display = "Unknown (Stream or very long)"
+                    except Exception: nframes_display = "Unknown (Frame count failed)"
+                
+                has_audio_str = "(Audio info not available via imageio)"
+                self.message_manager.add_success("Video analysis complete (using imageio).")
+            except Exception as e_imgio:
+                self.message_manager.add_error(f"Error analyzing video with imageio: {e_imgio}")
+                import traceback
+                self.message_manager.add_error(traceback.format_exc())
+                return f"Error analyzing video: Both ffprobe (if attempted) and imageio failed."
+            finally:
+                if reader: reader.close()
+
+        # --- Construct Main Analysis Report ---
+        analysis_report_lines.append(f"Video Analysis ({analysis_source}):")
+        analysis_report_lines.append(f"File: {os.path.basename(video_path)}")
+        analysis_report_lines.append("------------------------------------")
+        analysis_report_lines.append(f"Duration: {duration_display}")
+        analysis_report_lines.append(f"Frame Rate: {fps_display}")
+        analysis_report_lines.append(f"Resolution: {resolution_display}")
+        analysis_report_lines.append(f"Frames: {nframes_display}")
+        analysis_report_lines.append(f"Audio: {has_audio_str}")
+        analysis_report_lines.append(f"Source: {video_path}")
+
+        # --- Append UPSCALE ADVISORY Conditionally ---
+        if video_width > 0 and video_height > 0: # Ensure we have dimensions
+            HD_WIDTH_THRESHOLD = 1920
+            FOUR_K_WIDTH_THRESHOLD = 3800 
             
-            resolution_display_imgio = f"{size_imgio[0]}x{size_imgio[1]}" if isinstance(size_imgio, tuple) and len(size_imgio) == 2 else "N/A"
-            fps_display_imgio = f"{fps_val_imgio} FPS" if fps_val_imgio != 'N/A' else "N/A"
+            is_hd_or_larger = (video_width >= HD_WIDTH_THRESHOLD or video_height >= (HD_WIDTH_THRESHOLD * 9/16 * 0.95)) # Adjusted height for aspect ratios
+            is_4k_or_larger = (video_width >= FOUR_K_WIDTH_THRESHOLD or video_height >= (FOUR_K_WIDTH_THRESHOLD * 9/16 * 0.95))
 
-            analysis_report = (
-                f"Video Analysis (imageio):\n"
-                f"File: {os.path.basename(video_path)}\n"
-                f"------------------------------------\n"
-                f"Duration: {duration_imgio} seconds\nFrame Rate: {fps_display_imgio}\n"
-                f"Resolution: {resolution_display_imgio}\nFrames: {nframes_val_imgio_display}\n"
-                f"(Audio information not available via imageio analysis)\nSource: {video_path}"
-            )
-            self.message_manager.add_success("Video analysis complete (using imageio). Less detail than ffprobe.")
-            return analysis_report
-        except Exception as e:
-            self.message_manager.add_error(f"Error analyzing video with imageio: {e}")
-            import traceback
-            self.message_manager.add_error(traceback.format_exc())
-            return f"Error analyzing video (imageio): {e}"
-        finally:
-            if reader: reader.close()
+            upscale_warnings = []
+            if is_4k_or_larger:
+                upscale_warnings.append(
+                    "This video is 4K resolution or higher. Upscaling (e.g., to 8K+) will be EXTREMELY "
+                    "slow, memory-intensive, and may cause issues. Proceed with caution."
+                )
+            elif is_hd_or_larger:
+                upscale_warnings.append(
+                    "This video is HD (1080p) or larger. Upscaling (e.g., to 4K+) will be resource-intensive "
+                    "and slow. Ensure your system is prepared."
+                )
+            
+            if num_frames_value and num_frames_value > 900: # e.g., > 30 seconds at 30fps
+                 upscale_warnings.append(
+                    f"With {num_frames_value} frames, upscaling will also be very time-consuming."
+                )
+
+            if upscale_warnings:
+                analysis_report_lines.append("\n--- UPSCALE ADVISORY ---")
+                for warning_msg in upscale_warnings:
+                    analysis_report_lines.append(f"⚠️ {warning_msg}")
+                # analysis_report_lines.append("------------------------") # Optional closing separator
+        
+        return "\n".join(analysis_report_lines)
 
 
     def _tb_has_audio_stream(self, video_path_to_check):
