@@ -11,6 +11,8 @@ import numpy as np # Added
 from PIL import Image, ImageDraw, ImageFont
 from PIL.PngImagePlugin import PngInfo
 
+from modules.version import APP_VERSION
+
 def get_placeholder_color(model_type):
     """
     Get the placeholder image color for a specific model type.
@@ -198,6 +200,9 @@ def create_metadata(job_params, job_id, settings, save_placeholder=False):
     # This is created before file saving logic that might use it (e.g. JSON dump)
     # but PngInfo 'metadata' is used for images.
     metadata_dict = {
+        # Version information
+        "app_version": APP_VERSION,  # Using numeric version without 'v' prefix for metadata
+        
         # Common parameters
         "prompt": job_params.get('prompt_text', ''),
         "negative_prompt": job_params.get('n_prompt', ''),

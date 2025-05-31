@@ -11,6 +11,8 @@ import numpy as np
 import base64
 import io
 
+from modules.version import APP_VERSION, APP_VERSION_DISPLAY
+
 import subprocess
 import itertools
 import re
@@ -322,7 +324,7 @@ def create_interface(
             with gr.Column(scale=1, min_width=180):
                 queue_stats_display = gr.Markdown("<p style='margin:0;color:white;' class='toolbar-text'>Queue: 0 | Running: 0 | Completed: 0</p>")
             with gr.Column(scale=0, min_width=50):
-                version_display = gr.Markdown("<p style='margin:0;color:white;' class='toolbar-text'>v0.3.1</p>")
+                version_display = gr.Markdown(f"<p style='margin:0;color:white;' class='toolbar-text'>{APP_VERSION_DISPLAY}</p>")
             with gr.Column(scale=0, min_width=40):
                 refresh_stats_btn = gr.Button("⟳", elem_id="refresh-stats-btn", elem_classes="narrow-button")
 

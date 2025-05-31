@@ -16,6 +16,10 @@ import datetime
 os.environ['HF_HOME'] = os.path.abspath(os.path.realpath(os.path.join(os.path.dirname(__file__), './hf_download')))
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'  # Prevent tokenizers parallelism warning
 
+APP_VERSION = "0.3.2"  # Numeric version for metadata
+APP_VERSION_DISPLAY = f"v{APP_VERSION}"  # Display version for toolbar
+
+
 import gradio as gr
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
