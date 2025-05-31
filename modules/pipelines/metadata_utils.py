@@ -223,7 +223,7 @@ def create_metadata(job_params, job_id, settings, save_placeholder=False):
         # Endframe-related parameters
         "end_frame_strength": job_params.get('end_frame_strength', None),
         "end_frame_image_path": job_params.get('end_frame_image_path', None),
-        "end_frame_used": end_frame_used,
+        "end_frame_used": str(end_frame_used),
         
         # Video input-related parameters
         "input_video": os.path.basename(job_params.get('input_image', '')) if job_params.get('input_image') is not None and model_type == "Video" else None,
