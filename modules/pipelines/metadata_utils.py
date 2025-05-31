@@ -218,6 +218,7 @@ def create_metadata(job_params, job_id, settings, save_placeholder=False):
         "total_second_length": job_params.get('total_second_length', 6),
         "blend_sections": job_params.get('blend_sections', 4),
         "latent_window_size": job_params.get('latent_window_size', 9),
+        "num_cleaned_frames": job_params.get('num_cleaned_frames', 5),
         
         # Endframe-related parameters
         "end_frame_strength": job_params.get('end_frame_strength', None),
