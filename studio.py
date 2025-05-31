@@ -418,6 +418,10 @@ def process(
         'combine_with_source': combine_with_source  # Add combine_with_source parameter
     }
     
+    # Add num_cleaned_frames parameter if this is a Video model
+    if model_type == "Video":
+        job_params['num_cleaned_frames'] = num_cleaned_frames if 'num_cleaned_frames' in locals() else 5
+    
     # Print teacache parameters for debugging
     print(f"Teacache parameters: use_teacache={use_teacache}, teacache_num_steps={teacache_num_steps}, teacache_rel_l1_thresh={teacache_rel_l1_thresh}")
     

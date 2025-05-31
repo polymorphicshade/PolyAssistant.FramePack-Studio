@@ -712,8 +712,10 @@ def worker(
                 if not 'end_of_input_video_embedding' in locals():
                     end_of_input_video_embedding = None
 
+                # Get num_cleaned_frames from job_params if available, otherwise use default value of 5
+                num_cleaned_frames = job_params.get('num_cleaned_frames', 5)
                 clean_latent_indices, latent_indices, clean_latent_2x_indices, clean_latent_4x_indices, clean_latents, clean_latents_2x, clean_latents_4x = \
-                current_generator.video_prepare_clean_latents_and_indices(end_frame_latent, end_frame_strength, end_clip_embedding, end_of_input_video_embedding, latent_paddings, latent_padding, latent_padding_size, latent_window_size, video_latents, history_latents)
+                current_generator.video_prepare_clean_latents_and_indices(end_frame_latent, end_frame_strength, end_clip_embedding, end_of_input_video_embedding, latent_paddings, latent_padding, latent_padding_size, latent_window_size, video_latents, history_latents, num_cleaned_frames)
             elif model_type == "VideoF1":
                 clean_latent_indices, latent_indices, clean_latent_2x_indices, clean_latent_4x_indices, clean_latents, clean_latents_2x, clean_latents_4x = \
                 current_generator.video_f1_prepare_clean_latents_and_indices(latent_window_size, video_latents, history_latents)

@@ -388,6 +388,8 @@ def create_interface(
                                 info="If checked, the source video will be combined with the generated video",
                                 interactive=True
                             )
+                            num_cleaned_frames = gr.Slider(label="Number of Context Frames (Adherence to Video)", minimum=2, maximum=10, value=5, step=1, interactive=True, info="Expensive. Retain more video details. Reduce if memory issues or motion too restricted (jumpcut, ignoring prompt, still).")
+
                     
                         # Create a group for XY Plot controls, initially hidden
                         with gr.Group(visible=False) as xy_plot_controls_group:

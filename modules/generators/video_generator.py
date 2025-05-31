@@ -45,20 +45,18 @@ class VideoModelGenerator(VideoBaseModelGenerator):
         else:
             return list(reversed(range(total_latent_sections)))
 
-    def video_prepare_clean_latents_and_indices(self, end_latent, end_frame_weight, end_clip_embedding, end_of_input_video_embedding, latent_paddings, latent_padding, latent_padding_size, latent_window_size, video_latents, history_latents):
+    def video_prepare_clean_latents_and_indices(self, end_latent, end_frame_weight, end_clip_embedding, end_of_input_video_embedding, latent_paddings, latent_padding, latent_padding_size, latent_window_size, video_latents, history_latents, num_cleaned_frames=5):
         """
         Combined method to prepare clean latents and indices for the Video model.
         
         Args:
             Work in progress - better not to pass in latent_paddings and latent_padding.
+            num_cleaned_frames: Number of context frames to use from the video (adherence to video)
             
         Returns:
             A tuple of (clean_latent_indices, latent_indices, clean_latent_2x_indices, clean_latent_4x_indices, clean_latents, clean_latents_2x, clean_latents_4x)
         """
         # HACK SOME STUFF IN THAT SHOULD NOT BE HERE
-        # num_clean_frames Should come from UI - 20250506 pftq: Renamed slider to Number of Context Frames and updated description
-        # num_clean_frames = gr.Slider(label="Number of Context Frames (Adherence to Video)", minimum=2, maximum=10, value=5, step=1, info="Expensive. Retain more video details. Reduce if memory issues or motion too restricted (jumpcut, ignoring prompt, still).")
-        num_clean_frames = 5 # This is a placeholder for the number of clean frames. SEE: 20250507 pftq: Process end frame if provided
         # Placeholders for end frame processing
         # Colin, I'm only leaving them for the moment in case you want separate models for
         # Video-backward and Video-backward-Endframe.
@@ -235,4 +233,3 @@ class VideoModelGenerator(VideoBaseModelGenerator):
                 f'Generated video length: {max(0, (total_generated_latent_frames * 4 - 3) / 30):.2f} seconds (FPS-30). '
                 f'Current position: {current_pos:.2f}s (remaining: {original_pos:.2f}s). '
                 f'using prompt: {current_prompt[:256]}...')
-    
