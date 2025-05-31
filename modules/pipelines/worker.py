@@ -117,9 +117,10 @@ def worker(
     prompt_sections = parse_timestamped_prompt(prompt_text, total_second_length, latent_window_size, model_type)
     job_id = generate_timestamp()
 
-    # Initialize progress data with a clear starting message
+    # Initialize progress data with a clear starting message and dummy preview
+    dummy_preview = np.zeros((64, 64, 3), dtype=np.uint8)
     initial_progress_data = {
-        'preview': None,
+        'preview': dummy_preview,
         'desc': 'Starting job...',
         'html': make_progress_bar_html(0, 'Starting job...')
     }
@@ -135,13 +136,21 @@ def worker(
             print(f"Error storing initial progress data: {e}")
     
     # Push initial progress update to both streams
-    stream_to_use.output_queue.push(('progress', (None, 'Starting job...', make_progress_bar_html(0, 'Starting job...'))))
+    stream_to_use.output_queue.push(('progress', (dummy_preview, 'Starting job...', make_progress_bar_html(0, 'Starting job...'))))
+    
+    # Push job ID to stream to ensure monitoring connection
+    stream_to_use.output_queue.push(('job_id', job_id))
+    stream_to_use.output_queue.push(('monitor_job', job_id))
     
     # Also push to the main stream if using a job-specific stream
     from __main__ import stream as main_stream
     if job_stream is not None and stream_to_use != main_stream:
         print(f"Pushing initial progress update to main stream for job {job_id}")
-        main_stream.output_queue.push(('progress', (None, 'Starting job...', make_progress_bar_html(0, 'Starting job...'))))
+        main_stream.output_queue.push(('progress', (dummy_preview, 'Starting job...', make_progress_bar_html(0, 'Starting job...'))))
+        
+        # Push job ID to main stream to ensure monitoring connection
+        main_stream.output_queue.push(('job_id', job_id))
+        main_stream.output_queue.push(('monitor_job', job_id))
 
     try:
         # Create a settings dictionary for the pipeline

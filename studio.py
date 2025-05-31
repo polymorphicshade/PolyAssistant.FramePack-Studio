@@ -508,15 +508,37 @@ def monitor_job(job_id=None):
                 print(f"No job ID provided, but found current job {current_job.id}")
                 job_id = current_job.id
                 
+                # Create a dummy preview image if needed
+                dummy_preview = np.zeros((64, 64, 3), dtype=np.uint8)
+
                 # Immediately yield an update with the current job's progress data
-                if current_job.progress_data:
+                if current_job.progress_data and 'preview' in current_job.progress_data and current_job.progress_data['preview'] is not None:
                     preview = current_job.progress_data.get('preview')
                     desc = current_job.progress_data.get('desc', '')
                     html = current_job.progress_data.get('html', '')
                     yield current_job.result, job_id, preview, desc, html, gr.update(interactive=True), gr.update(value="Cancel Current Job", interactive=True, visible=True)
                 else:
-                    # If no progress data yet, show a basic update
-                    yield None, job_id, None, 'Processing...', make_progress_bar_html(0, 'Starting job...'), gr.update(interactive=True), gr.update(value="Cancel Current Job", interactive=True, visible=True)
+                    # If no progress data yet, show a basic update with dummy preview
+                    if not current_job.progress_data:
+                        current_job.progress_data = {}
+                    current_job.progress_data['preview'] = dummy_preview
+                    current_job.progress_data['desc'] = 'Processing...'
+                    current_job.progress_data['html'] = make_progress_bar_html(0, 'Starting job...')
+                    
+                    # Push job ID to main stream to ensure monitoring connection
+                    try:
+                        # Push to both the main stream and the job's stream if they're different
+                        stream.output_queue.push(('job_id', current_job.id))
+                        stream.output_queue.push(('monitor_job', current_job.id))
+                        
+                        # If the job has its own stream, push to that too
+                        if current_job.stream and current_job.stream != stream:
+                            current_job.stream.output_queue.push(('job_id', current_job.id))
+                            current_job.stream.output_queue.push(('monitor_job', current_job.id))
+                    except Exception as e:
+                        print(f"Error pushing job ID to streams: {e}")
+                    
+                    yield None, job_id, dummy_preview, 'Processing...', make_progress_bar_html(0, 'Starting job...'), gr.update(interactive=True), gr.update(value="Cancel Current Job", interactive=True, visible=True)
             else:
                 yield None, None, None, '', 'No job ID provided', gr.update(interactive=True), gr.update(interactive=True, visible=False)
                 return
