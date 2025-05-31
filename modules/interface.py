@@ -37,7 +37,7 @@ xy_plot_axis_options = {
     #     "True if multi axis - like prompt replace, False is only on one axis - like steps"
     # ],
     "Nothing": ["nothing", "", "", True],
-    "Model type": ["dropdown", ["Original", "Original with Endframe", "F1", "F1 with Endframe"], ["Original", "F1"], False],
+    "Model type": ["dropdown", ["Original", "Original with Endframe", "F1"], ["Original", "F1"], False],
     "End frame influence": ["number", "float", "0.05-0.95[3]", False],
     "Latent type": ["dropdown", ["Black", "White", "Noise", "Green Screen"], ["Black", "Noise"], False],
     "Prompt add": ["textbox", "", "", True],
@@ -332,7 +332,7 @@ def create_interface(
                 with gr.Row():
                     with gr.Column(scale=2):
                         model_type = gr.Radio(
-                            choices=["Original", "Original with Endframe", "F1", "F1 with Endframe", "Video", "Video F1"],
+                            choices=["Original", "Original with Endframe", "F1", "Video", "Video F1"],
                             value="Original",
                             label="Generation Type"
                         )

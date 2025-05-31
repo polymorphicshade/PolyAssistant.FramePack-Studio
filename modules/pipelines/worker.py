@@ -396,7 +396,7 @@ def worker(
         
         # RT_BORG: Include end_frame_image processing for Video model.
         # Colin, this needs to change if you decide on a "Video with Endframe" model instead.
-        if (model_type == "Original with Endframe" or model_type == "F1 with Endframe" or model_type == "Video") and job_params.get('end_frame_image') is not None:
+        if (model_type == "Original with Endframe" or model_type == "Video") and job_params.get('end_frame_image') is not None:
             print(f"Processing end frame for {model_type} model...")
             end_frame_image = job_params['end_frame_image']
             
@@ -468,7 +468,7 @@ def worker(
             history_latents = current_generator.prepare_history_latents(height, width)
             
             # For F1 model, initialize with start latent
-            if model_type == "F1" or model_type == "F1 with Endframe":
+            if model_type == "F1":
                 history_latents = current_generator.initialize_with_start_latent(history_latents, start_latent)
                 total_generated_latent_frames = 1  # Start with 1 for F1 model since it includes the first frame
             elif model_type == "Original" or model_type == "Original with Endframe":
@@ -674,7 +674,7 @@ def worker(
                   f'using prompt: {current_prompt[:60]}...')
 
             # Apply end_frame_latent to history_latents for models with Endframe support
-            if (model_type == "Original with Endframe" or model_type == "F1 with Endframe") and i_section_loop == 0 and end_frame_latent is not None:
+            if (model_type == "Original with Endframe") and i_section_loop == 0 and end_frame_latent is not None:
                 print(f"Applying end_frame_latent to history_latents with strength: {end_frame_strength}")
                 actual_end_frame_latent_for_history = end_frame_latent.clone()
                 if end_frame_strength != 1.0: # Only multiply if not full strength

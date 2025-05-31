@@ -7,7 +7,6 @@ from .base_pipeline import BasePipeline
 from .original_pipeline import OriginalPipeline
 from .f1_pipeline import F1Pipeline
 from .original_with_endframe_pipeline import OriginalWithEndframePipeline
-from .f1_with_endframe_pipeline import F1WithEndframePipeline
 from .video_pipeline import VideoPipeline
 from .video_f1_pipeline import VideoF1Pipeline
 from .xy_plot_pipeline import XYPlotPipeline
@@ -29,8 +28,6 @@ def create_pipeline(model_type, settings):
         return F1Pipeline(settings)
     elif model_type == "Original with Endframe":
         return OriginalWithEndframePipeline(settings)
-    elif model_type == "F1 with Endframe":
-        return F1WithEndframePipeline(settings)
     elif model_type == "Video":
         return VideoPipeline(settings)
     elif model_type == "VideoF1" or model_type == "Video F1":
@@ -45,7 +42,6 @@ __all__ = [
     'OriginalPipeline',
     'F1Pipeline',
     'OriginalWithEndframePipeline',
-    'F1WithEndframePipeline',
     'VideoPipeline',
     'VideoF1Pipeline',
     'XYPlotPipeline',
