@@ -309,7 +309,7 @@ def worker(
             )
 
         # Process input image or video based on model type
-        if model_type == "Video" or model_type == "VideoF1" or model_type == "Video F1":
+        if model_type == "Video" or model_type == "Video F1":
             stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Video processing ...'))))
             
             # Encode the video using the VideoModelGenerator
@@ -457,14 +457,14 @@ def worker(
         num_frames = latent_window_size * 4 - 3
 
         # Initialize total_generated_latent_frames for Video model
-        # For VideoF1 model, pftq counts the input frames in "total generated", unlike pftq's treatment of Backward Video
-        if (model_type == "VideoF1" or model_type == "Video F1"):
+        # For "Video F1" model, pftq counts the input frames in "total generated", unlike pftq's treatment of Backward Video
+        if (model_type == "Video F1"):
             total_generated_latent_frames = history_latents.shape[2]
         else:
             total_generated_latent_frames = 0  # Default initialization for almost all model types
 
         # Initialize history latents based on model type
-        if model_type != "Video" and model_type != "VideoF1" and model_type != "Video F1":  # Skip for Video models as we already initialized it
+        if model_type != "Video" and model_type != "Video F1":  # Skip for Video models as we already initialized it
             history_latents = current_generator.prepare_history_latents(height, width)
             
             # For F1 model, initialize with start latent
@@ -535,7 +535,7 @@ def worker(
             segment_hint = f'Sampling {current_step}/{steps}  ETA {fmt_eta(segment_eta)}'
             total_hint = f'Total {total_steps_done}/{total_steps}  ETA {fmt_eta(total_eta)}'
 
-            # RT_BORG: NOT SURE HOW TO HANDLE THIS FOR VideoF1 MODEL
+            # RT_BORG: NOT SURE HOW TO HANDLE THIS FOR "Video F1" MODEL
             #
             # For Video model, add the input video frame count when calculating current position
             if model_type == "Video":
@@ -597,8 +597,8 @@ def worker(
                 stream_to_use.output_queue.push(('end', None))
                 return
 
-            # RT_BORG: I don't know what to do here for VideoF1 model.
-            # total_generated_latent_frames is different for VideoF1 model (it counts input video frames)
+            # RT_BORG: I don't know what to do here for "Video F1" model.
+            # total_generated_latent_frames is different for "Video F1" model (it counts input video frames)
             #
             # Calculate the current time position
             if model_type == "Video":
@@ -713,7 +713,7 @@ def worker(
                 num_cleaned_frames = job_params.get('num_cleaned_frames', 5)
                 clean_latent_indices, latent_indices, clean_latent_2x_indices, clean_latent_4x_indices, clean_latents, clean_latents_2x, clean_latents_4x = \
                 current_generator.video_prepare_clean_latents_and_indices(end_frame_latent, end_frame_strength, end_clip_embedding, end_of_input_video_embedding, latent_paddings, latent_padding, latent_padding_size, latent_window_size, video_latents, history_latents, num_cleaned_frames)
-            elif model_type == "VideoF1" or model_type == "Video F1":
+            elif model_type == "Video F1":
                 # Get num_cleaned_frames from job_params if available, otherwise use default value of 5
                 num_cleaned_frames = job_params.get('num_cleaned_frames', 5)
                 clean_latent_indices, latent_indices, clean_latent_2x_indices, clean_latent_4x_indices, clean_latents, clean_latents_2x, clean_latents_4x = \

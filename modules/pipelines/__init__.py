@@ -30,7 +30,7 @@ def create_pipeline(model_type, settings):
         return OriginalWithEndframePipeline(settings)
     elif model_type == "Video":
         return VideoPipeline(settings)
-    elif model_type == "VideoF1" or model_type == "Video F1":
+    elif model_type == "Video F1":
         return VideoF1Pipeline(settings)
     elif model_type == "XY Plot":
         return XYPlotPipeline(settings)

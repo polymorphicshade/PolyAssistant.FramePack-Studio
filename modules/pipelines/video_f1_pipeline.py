@@ -1,6 +1,6 @@
 """
-VideoF1 pipeline class for FramePack Studio.
-This pipeline handles the "VideoF1" model type.
+Video F1 pipeline class for FramePack Studio.
+This pipeline handles the "Video F1" model type.
 """
 
 import os
@@ -14,7 +14,7 @@ from diffusers_helper.bucket_tools import find_nearest_bucket
 from .base_pipeline import BasePipeline
 
 class VideoF1Pipeline(BasePipeline):
-    """Pipeline for VideoF1 generation type."""
+    """Pipeline for Video F1 generation type."""
     
     def prepare_parameters(self, job_params):
         """
@@ -29,7 +29,7 @@ class VideoF1Pipeline(BasePipeline):
         processed_params = job_params.copy()
         
         # Ensure we have the correct model type
-        processed_params['model_type'] = "VideoF1"
+        processed_params['model_type'] = "Video F1"
         
         return processed_params
     
@@ -56,9 +56,9 @@ class VideoF1Pipeline(BasePipeline):
         if job_params.get('steps', 0) <= 0:
             return False, "Steps must be greater than 0"
         
-        # Check for input video (stored in input_image for VideoF1 model)
+        # Check for input video (stored in input_image for Video F1 model)
         if not job_params.get('input_image'):
-            return False, "Input video is required for VideoF1 model"
+            return False, "Input video is required for Video F1 model"
         
         # Check if combine_with_source is provided (optional)
         combine_with_source = job_params.get('combine_with_source')
@@ -69,7 +69,7 @@ class VideoF1Pipeline(BasePipeline):
     
     def preprocess_inputs(self, job_params):
         """
-        Preprocess input video for the VideoF1 generation type.
+        Preprocess input video for the Video F1 generation type.
         
         Args:
             job_params: Dictionary of job parameters
@@ -79,10 +79,10 @@ class VideoF1Pipeline(BasePipeline):
         """
         processed_inputs = {}
         
-        # Get the input video (stored in input_image for VideoF1 model)
+        # Get the input video (stored in input_image for Video F1 model)
         input_video = job_params.get('input_image')
         if not input_video:
-            raise ValueError("Input video is required for VideoF1 model")
+            raise ValueError("Input video is required for Video F1 model")
         
         # Store the input video
         processed_inputs['input_video'] = input_video
@@ -106,12 +106,12 @@ class VideoF1Pipeline(BasePipeline):
         # Pass through the combine_with_source parameter if it exists
         if 'combine_with_source' in job_params:
             processed_inputs['combine_with_source'] = job_params.get('combine_with_source')
-            print(f"VideoF1 pipeline: combine_with_source = {processed_inputs['combine_with_source']}")
+            print(f"Video F1 pipeline: combine_with_source = {processed_inputs['combine_with_source']}")
         
         # Pass through the num_cleaned_frames parameter if it exists
         if 'num_cleaned_frames' in job_params:
             processed_inputs['num_cleaned_frames'] = job_params.get('num_cleaned_frames')
-            print(f"VideoF1 pipeline: num_cleaned_frames = {processed_inputs['num_cleaned_frames']}")
+            print(f"Video F1 pipeline: num_cleaned_frames = {processed_inputs['num_cleaned_frames']}")
         
         # Get resolution parameters
         resolutionW = job_params.get('resolutionW', 640)
@@ -128,7 +128,7 @@ class VideoF1Pipeline(BasePipeline):
     
     def handle_results(self, job_params, result):
         """
-        Handle the results of the VideoF1 generation.
+        Handle the results of the Video F1 generation.
         
         Args:
             job_params: The job parameters
@@ -137,7 +137,7 @@ class VideoF1Pipeline(BasePipeline):
         Returns:
             Processed result
         """
-        # For VideoF1 generation, we just return the result as-is
+        # For Video F1 generation, we just return the result as-is
         return result
     
     # Using the centralized create_metadata method from BasePipeline

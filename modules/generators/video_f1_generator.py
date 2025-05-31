@@ -16,16 +16,16 @@ from .video_base_generator import VideoBaseModelGenerator
 
 class VideoF1ModelGenerator(VideoBaseModelGenerator):
     """
-    Model generator for the VideoF1 (forward video) extension of the F1 HunyuanVideo model.
+    Model generator for the Video F1 (forward video) extension of the F1 HunyuanVideo model.
     These generators accept video input instead of a single image.
     """
     
     def __init__(self, **kwargs):
         """
-        Initialize the VideoF1 model generator.
+        Initialize the Video F1 model generator.
         """
         super().__init__(**kwargs)
-        self.model_name = "VideoF1"
+        self.model_name = "Video F1"
         self.model_path = 'lllyasviel/FramePack_F1_I2V_HY_20250503'  # Same as F1
         self.model_repo_id_for_cache = "models--lllyasviel--FramePack_F1_I2V_HY_20250503" # Same as F1
     
@@ -106,7 +106,7 @@ class VideoF1ModelGenerator(VideoBaseModelGenerator):
     
     def update_history_latents(self, history_latents, generated_latents):
         """
-        Forward Generation: Update the history latents with the generated latents for the VideoF1 model.
+        Forward Generation: Update the history latents with the generated latents for the Video F1 model.
         
         Args:
             history_latents: The history latents
@@ -115,7 +115,7 @@ class VideoF1ModelGenerator(VideoBaseModelGenerator):
         Returns:
             The updated history latents
         """
-        # For VideoF1 model, we append the generated latents to the back of history latents
+        # For Video F1 model, we append the generated latents to the back of history latents
         # This matches the F1 implementation
         # It generates new sections forward in time, chunk by chunk
         return torch.cat([history_latents, generated_latents.to(history_latents)], dim=2)
@@ -148,7 +148,7 @@ class VideoF1ModelGenerator(VideoBaseModelGenerator):
             The updated history pixels
         """
         from diffusers_helper.utils import soft_append_bcthw
-        # For VideoF1 model, we append the current pixels to the history pixels
+        # For Video F1 model, we append the current pixels to the history pixels
         # This matches the F1 model, history_pixels is first, current_pixels is second
         return soft_append_bcthw(history_pixels, current_pixels, overlapped_frames)
     
