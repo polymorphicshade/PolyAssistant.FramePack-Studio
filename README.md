@@ -1,15 +1,16 @@
 # FramePack Studio
 
 FramePack Studio is an enhanced version of the FramePack demo script, designed to create intricate video scenes with improved prompt adherence. This is very much a work in progress, expect some bugs and broken features. 
-![screencapture-127-0-0-1-7860-2025-05-04-20_13_58](https://github.com/user-attachments/assets/8fcb90af-8c3f-47ca-8f23-61d9b59438ae)
+
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/colinurbs/FramePack-Studio)
 
 ## Current Features
 
 - **F1 and Original FramePack Models**: Run both in a single queue
+- **End Frame Control for 'Original' Model**: Run both in a single queue
 - **Timestamped Prompts**: Define different prompts for specific time segments in your video
 - **Prompt Blending**: Define the blending time between timestamped prompts
-- **Basic LoRA Support**: Works with most (all?) hunyuan LoRAs
+- **LoRA Support**: Works with most (all?) hunyuan LoRAs
 - **Queue System**: Process multiple generation jobs without blocking the interface
 - **Metadata Saving/Import**: Prompt and seed are encoded into the output PNG, all other generation metadata is saved in a JSON file
 - **I2V and T2V**: Works with or without an input image to allow for more flexibility when working with standard LoRAs
