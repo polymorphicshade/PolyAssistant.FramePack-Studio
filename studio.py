@@ -315,8 +315,9 @@ def process(
         selected_loras,
         resolutionW,
         resolutionH,
-        lora_loaded_names,
-        *lora_values
+        *lora_args,
+        input_image_path=None,
+        combine_with_source=None
     ):
     
     # Create a blank black image if no 
@@ -380,6 +381,10 @@ def process(
         except Exception as e:
             print(f"Error copying end frame image: {e}")
     
+    # Extract lora_loaded_names from lora_args
+    lora_loaded_names = lora_args[0] if lora_args and len(lora_args) > 0 else []
+    lora_values = lora_args[1:] if lora_args and len(lora_args) > 1 else []
+    
     # Create job parameters
     job_params = {
         'model_type': model_type,
@@ -409,7 +414,8 @@ def process(
         'end_frame_image_path': end_frame_image_path,  # Add the path to the copied end frame image
         'resolutionW': resolutionW, # Add resolution parameter
         'resolutionH': resolutionH,
-        'lora_loaded_names': lora_loaded_names
+        'lora_loaded_names': lora_loaded_names,
+        'combine_with_source': combine_with_source  # Add combine_with_source parameter
     }
     
     # Print teacache parameters for debugging

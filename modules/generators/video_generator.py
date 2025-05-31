@@ -614,3 +614,154 @@ class VideoModelGenerator(BaseModelGenerator):
                 f'Generated video length: {max(0, (total_generated_latent_frames * 4 - 3) / 30):.2f} seconds (FPS-30). '
                 f'Current position: {current_pos:.2f}s (remaining: {original_pos:.2f}s). '
                 f'using prompt: {current_prompt[:256]}...')
+    
+    def combine_videos(self, source_video_path, generated_video_path, output_path):
+        """
+        Combine the source video with the generated video side by side.
+        
+        Args:
+            source_video_path: Path to the source video
+            generated_video_path: Path to the generated video
+            output_path: Path to save the combined video
+            
+        Returns:
+            Path to the combined video
+        """
+        try:
+            import os
+            import subprocess
+            
+            print(f"Combining source video {source_video_path} with generated video {generated_video_path}")
+            
+            # Get the ffmpeg executable from the VideoProcessor class
+            from modules.toolbox.toolbox_processor import VideoProcessor
+            from modules.toolbox.message_manager import MessageManager
+            
+            # Create a message manager for logging
+            message_manager = MessageManager()
+            
+            # Import settings from main module
+            try:
+                from __main__ import settings
+                video_processor = VideoProcessor(message_manager, settings.settings)
+            except ImportError:
+                # Fallback to creating a new settings object
+                from modules.settings import Settings
+                settings = Settings()
+                video_processor = VideoProcessor(message_manager, settings.settings)
+            
+            # Get the ffmpeg executable
+            ffmpeg_exe = video_processor.ffmpeg_exe
+            
+            if not ffmpeg_exe:
+                print("FFmpeg executable not found. Cannot combine videos.")
+                return None
+            
+            print(f"Using ffmpeg at: {ffmpeg_exe}")
+            
+            # Create a temporary directory for the filter script
+            import tempfile
+            temp_dir = tempfile.gettempdir()
+            filter_script_path = os.path.join(temp_dir, f"filter_script_{os.path.basename(output_path)}.txt")
+            
+            # Get video dimensions using ffprobe
+            def get_video_info(video_path):
+                cmd = [
+                    ffmpeg_exe, "-i", video_path, 
+                    "-hide_banner", "-loglevel", "error"
+                ]
+                
+                # Run ffmpeg to get video info (it will fail but output info to stderr)
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                
+                # Parse the output to get dimensions
+                width = height = None
+                for line in result.stderr.split('\n'):
+                    if 'Video:' in line:
+                        # Look for dimensions like 640x480
+                        import re
+                        match = re.search(r'(\d+)x(\d+)', line)
+                        if match:
+                            width = int(match.group(1))
+                            height = int(match.group(2))
+                            break
+                
+                return width, height
+            
+            # Get dimensions of both videos
+            source_width, source_height = get_video_info(source_video_path)
+            generated_width, generated_height = get_video_info(generated_video_path)
+            
+            if not source_width or not generated_width:
+                print("Error: Could not determine video dimensions")
+                return None
+            
+            print(f"Source video: {source_width}x{source_height}")
+            print(f"Generated video: {generated_width}x{generated_height}")
+            
+            # Calculate target dimensions (maintain aspect ratio)
+            target_height = max(source_height, generated_height)
+            source_target_width = int(source_width * (target_height / source_height))
+            generated_target_width = int(generated_width * (target_height / generated_height))
+            
+            # Create a complex filter for side-by-side display with labels
+            filter_complex = (
+                f"[0:v]scale={source_target_width}:{target_height}[left];"
+                f"[1:v]scale={generated_target_width}:{target_height}[right];"
+                f"[left]drawtext=text='Source':x=({source_target_width}/2-50):y=20:fontsize=24:fontcolor=white:box=1:boxcolor=black@0.5[left_text];"
+                f"[right]drawtext=text='Generated':x=({generated_target_width}/2-70):y=20:fontsize=24:fontcolor=white:box=1:boxcolor=black@0.5[right_text];"
+                f"[left_text][right_text]hstack=inputs=2[v]"
+            )
+            
+            # Write the filter script to a file
+            with open(filter_script_path, 'w') as f:
+                f.write(filter_complex)
+            
+            # Build the ffmpeg command
+            cmd = [
+                ffmpeg_exe, "-y",
+                "-i", source_video_path,
+                "-i", generated_video_path,
+                "-filter_complex_script", filter_script_path,
+                "-map", "[v]"
+            ]
+            
+            # Check if source video has audio
+            has_audio_cmd = [
+                ffmpeg_exe, "-i", source_video_path,
+                "-hide_banner", "-loglevel", "error"
+            ]
+            audio_check = subprocess.run(has_audio_cmd, capture_output=True, text=True)
+            has_audio = "Audio:" in audio_check.stderr
+            
+            if has_audio:
+                cmd.extend(["-map", "0:a"])
+            
+            # Add output options
+            cmd.extend([
+                "-c:v", "libx264",
+                "-crf", "18",
+                "-preset", "medium"
+            ])
+            
+            if has_audio:
+                cmd.extend(["-c:a", "aac"])
+            
+            cmd.append(output_path)
+            
+            # Run the ffmpeg command
+            print(f"Running ffmpeg command: {' '.join(cmd)}")
+            subprocess.run(cmd, check=True, capture_output=True, text=True)
+            
+            # Clean up the filter script
+            if os.path.exists(filter_script_path):
+                os.remove(filter_script_path)
+            
+            print(f"Combined video saved to {output_path}")
+            return output_path
+            
+        except Exception as e:
+            print(f"Error combining videos: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return None

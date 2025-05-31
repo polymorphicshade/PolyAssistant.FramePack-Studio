@@ -381,7 +381,8 @@ def create_interface(
                             combine_with_source = gr.Checkbox(
                                 label="Combine with source video",
                                 value=True,
-                                info="If checked, the source video will be combined with the generated video"
+                                info="If checked, the source video will be combined with the generated video",
+                                interactive=True
                             )
                     
                         # Create a group for XY Plot controls, initially hidden
@@ -526,7 +527,7 @@ def create_interface(
                                 use_teacache.change(lambda enabled: (gr.update(visible=enabled), gr.update(visible=enabled)), inputs=use_teacache, outputs=[teacache_num_steps, teacache_rel_l1_thresh])
 
                             with gr.Row():
-                                seed = gr.Number(label="Seed", value=31337, precision=0)
+                                seed = gr.Number(label="Seed", value=2500, precision=0)
                                 randomize_seed = gr.Checkbox(label="Randomize", value=True, info="Generate a new random seed for each job")
 
                         with gr.Accordion("Advanced Parameters", open=False):
@@ -1502,13 +1503,29 @@ def create_interface(
             if model_type == "Original with Endframe" or model_type == "F1 with Endframe" or model_type == "Video":
                 actual_end_frame_image_for_backend = end_frame_image_original # Use the unpacked value
                 actual_end_frame_strength_for_backend = end_frame_strength_original # Use the unpacked value
+            
+            # For Video model, check if combine_with_source is checked
+            combine_with_source_value = None
+            if model_type == "Video":
+                # Access the combine_with_source checkbox directly
+                try:
+                    combine_with_source_value = combine_with_source.value
+                except:
+                    print("Warning: Could not access combine_with_source checkbox value")
+            
+            # Get the input video path for Video model
+            input_image_path = None
+            if model_type == "Video" and input_video is not None:
+                # For Video model, input_video contains the path to the video file
+                input_image_path = input_video
 
             # Use the current seed value as is for this job
             # Call the process function with all arguments
             # Pass the model_type and the ORIGINAL prompt_text string to the backend process function
             result = process_fn(model_type, input_data, actual_end_frame_image_for_backend, actual_end_frame_strength_for_backend, prompt_text, n_prompt, seed_value, total_second_length, # Pass original prompt_text string
                             latent_window_size, steps, cfg, gs, rs,
-                            use_teacache, teacache_num_steps, teacache_rel_l1_thresh, blend_sections, latent_type, clean_up_videos, selected_loras, resolutionW, resolutionH, *lora_args)
+                            use_teacache, teacache_num_steps, teacache_rel_l1_thresh, blend_sections, latent_type, clean_up_videos, selected_loras, resolutionW, resolutionH, 
+                            input_image_path=input_image_path, combine_with_source=combine_with_source_value, *lora_args)
 
             # If randomize_seed is checked, generate a new random seed for the next job
             new_seed_value = None
