@@ -55,11 +55,6 @@ def tb_handle_apply_filters(video_path, brightness, contrast, saturation, temper
                                           s_curve_contrast, film_grain_strength, progress)
     return output_video, tb_update_messages()
 
-def tb_handle_extract_frames(video_path, extraction_rate, progress=gr.Progress()):
-    tb_message_mgr.clear()
-    tb_processor.tb_extract_frames(video_path, int(extraction_rate), progress)
-    return tb_update_messages()
-
 # MODIFIED tb_handle_reassemble_frames
 def tb_handle_reassemble_frames(
     selected_extracted_folder, # New input from dropdown
@@ -98,8 +93,13 @@ def tb_handle_reassemble_frames(
     return output_video, tb_update_messages()
 
 # NEW HANDLERS for extracted frames folder management
+def tb_handle_extract_frames(video_path, extraction_rate, progress=gr.Progress()):
+    tb_message_mgr.clear()
+    tb_processor.tb_extract_frames(video_path, int(extraction_rate), progress)
+    return tb_update_messages()
+    
 def tb_handle_refresh_extracted_folders():
-    tb_message_mgr.clear() # Optional: clear messages before refresh
+    # tb_message_mgr.clear() # Optional: clear messages before refresh
     folders = tb_processor.tb_get_extracted_frame_folders()
     # Disable clear button if no folders, enable if folders exist and one might be selected
     clear_btn_update = gr.update(interactive=False) # Default to disabled

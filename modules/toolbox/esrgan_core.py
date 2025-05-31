@@ -2,6 +2,8 @@ import os
 import torch
 import gc
 import devicetorch
+import warnings # Import the warnings module
+import traceback # Ensure traceback is imported if used for logging
 
 from pathlib import Path
 from huggingface_hub import snapshot_download
@@ -15,15 +17,14 @@ from .message_manager import MessageManager
 _MODULE_DIR = Path(os.path.dirname(os.path.abspath(__file__)))
 
 # Constants
-# MODEL_ESRGAN_PATH = "model_esrgan" # OLD - this is relative to CWD
-MODEL_ESRGAN_PATH = _MODULE_DIR / "model_esrgan" # NEW - relative to this script's location
+MODEL_ESRGAN_PATH = _MODULE_DIR / "model_esrgan"
 
 class ESRGANUpscaler:
     def __init__(self, message_manager: MessageManager, device: torch.device):
         self.message_manager = message_manager
         self.device = device
-        self.model_dir = Path(MODEL_ESRGAN_PATH) # Path() constructor handles Path objects correctly
-        os.makedirs(self.model_dir, exist_ok=True) # self.model_dir is now an absolute path
+        self.model_dir = Path(MODEL_ESRGAN_PATH)
+        os.makedirs(self.model_dir, exist_ok=True)
         
         self.supported_models = {
             "RealESRGAN_x4plus": {
@@ -50,7 +51,7 @@ class ESRGANUpscaler:
             
         model_info = self.supported_models[model_key]
         model_filename = model_info["filename"]
-        model_path = self.model_dir / model_filename # self.model_dir is absolute
+        model_path = self.model_dir / model_filename
 
         if not model_path.exists():
             self.message_manager.add_message(f"ESRGAN model '{model_filename}' not found. Downloading...")
@@ -58,7 +59,7 @@ class ESRGANUpscaler:
                 snapshot_download(
                     repo_id=model_info["hf_repo_id"],
                     allow_patterns=[model_filename], 
-                    local_dir=self.model_dir, # Pass the absolute path
+                    local_dir=self.model_dir,
                     local_dir_use_symlinks=False
                 )
                 if not model_path.exists():
@@ -88,35 +89,43 @@ class ESRGANUpscaler:
             return None
 
         model_info = self.supported_models[model_key_to_load]
-        model_path_str = str(self.model_dir / model_info["filename"]) # model_dir is absolute
+        model_path_str = str(self.model_dir / model_info["filename"])
         
         self.message_manager.add_message(f"Loading ESRGAN model '{model_info['filename']}' for {target_scale}x scale to device: {self.device}...")
         try:
             model_arch = model_info["model_class"](**model_info["model_params"])
             
             gpu_id_for_realesrgan = None
-            use_half_precision = False
+            use_half_precision = False # Default to False
             if self.device.type == 'cuda':
                 gpu_id_for_realesrgan = self.device.index if self.device.index is not None else 0
-                use_half_precision = True 
+                use_half_precision = True # Enable half-precision for CUDA by default
 
-            upsampler = RealESRGANer(
-                scale=model_info["scale"],      
-                model_path=model_path_str, # Pass absolute string path
-                dni_weight=None,      
-                model=model_arch, 
-                tile=0,               
-                tile_pad=10,
-                pre_pad=0,
-                half=use_half_precision, 
-                gpu_id=gpu_id_for_realesrgan 
-            )
+            # Suppress the specific UserWarning from PyTorch related to weights_only
+            with warnings.catch_warnings():
+                # This filter targets the warning by category and a snippet of its message.
+                warnings.filterwarnings(
+                    "ignore",
+                    category=UserWarning,
+                    message=".*Environment variable TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD detected.*"
+                )
+                
+                upsampler = RealESRGANer(
+                    scale=model_info["scale"],      
+                    model_path=model_path_str,
+                    dni_weight=None,      
+                    model=model_arch, 
+                    tile=0, # tile=0 means auto-tile, can be problematic with OOM. Consider setting a value e.g. 512.
+                    tile_pad=10,
+                    pre_pad=0,
+                    half=use_half_precision, 
+                    gpu_id=gpu_id_for_realesrgan 
+                )
             self.upsamplers[target_scale] = upsampler
             self.message_manager.add_success(f"ESRGAN model '{model_info['filename']}' loaded for {target_scale}x scale.")
             return upsampler
         except Exception as e:
             self.message_manager.add_error(f"Failed to load ESRGAN model '{model_info['filename']}': {e}")
-            import traceback
             self.message_manager.add_error(traceback.format_exc())
             if target_scale in self.upsamplers: del self.upsamplers[target_scale] 
             return None
@@ -126,13 +135,13 @@ class ESRGANUpscaler:
             self.message_manager.add_message(f"Unloading ESRGAN model for {target_scale}x scale...")
             upsampler_instance = self.upsamplers.pop(target_scale)
             del upsampler_instance 
-            devicetorch.empty_cache(torch)
+            devicetorch.empty_cache(torch) # Use your devicetorch helper
             gc.collect()
             self.message_manager.add_success(f"ESRGAN model for {target_scale}x unloaded and memory cleared.")
         else:
             self.message_manager.add_message(f"ESRGAN model for {target_scale}x not loaded, no need to unload.")
 
-    def unload_all_models(self):
+    def unload_all_models(self): # Renamed from unload_models for clarity
         if not self.upsamplers:
             self.message_manager.add_message("No ESRGAN models currently loaded.")
             return
@@ -143,27 +152,30 @@ class ESRGANUpscaler:
             if scale in self.upsamplers: 
                 upsampler_instance = self.upsamplers.pop(scale)
                 del upsampler_instance
-        devicetorch.empty_cache(torch)
+        devicetorch.empty_cache(torch) # Use your devicetorch helper
         gc.collect()
         self.message_manager.add_success("All ESRGAN models unloaded and memory cleared.")
-
 
     def upscale_frame(self, frame_np_array, target_scale: int):
         upsampler = self.upsamplers.get(target_scale)
         if upsampler is None:
-            self.message_manager.add_error(f"ESRGAN model for {target_scale}x not found in loaded models. Call load_model first.")
-            return None
+            # Try to load it if not found, might be a good recovery mechanism
+            self.message_manager.add_warning(f"ESRGAN model for {target_scale}x not loaded. Attempting to load now...")
+            upsampler = self.load_model(target_scale)
+            if upsampler is None:
+                self.message_manager.add_error(f"Failed to auto-load ESRGAN model for {target_scale}x. Cannot upscale.")
+                return None
 
         try:
-            img_bgr = frame_np_array[:, :, ::-1] 
+            # RealESRGANer expects BGR, uint8 image. ImageIO often reads RGB.
+            img_bgr = frame_np_array[:, :, ::-1] # Convert RGB to BGR
             output_bgr, _ = upsampler.enhance(img_bgr, outscale=target_scale) 
-            output_rgb = output_bgr[:, :, ::-1]
+            output_rgb = output_bgr[:, :, ::-1] # Convert BGR back to RGB for consistency
             return output_rgb
         except Exception as e:
             self.message_manager.add_error(f"Error during ESRGAN frame upscaling: {e}")
-            import traceback
-            self.message_manager.add_error(traceback.format_exc())
+            self.message_manager.add_error(traceback.format_exc()) # Keep traceback for this critical error
             if "out of memory" in str(e).lower() and self.device.type == 'cuda':
-                self.message_manager.add_warning("CUDA OOM during upscaling. Emptying cache. Consider smaller frames or CPU. Current model will be unloaded by caller.")
-                devicetorch.empty_cache(torch) 
+                self.message_manager.add_warning("CUDA OOM during upscaling. Emptying cache. Current model may need to be reloaded or consider smaller tile size.")
+                devicetorch.empty_cache(torch)
             return None
