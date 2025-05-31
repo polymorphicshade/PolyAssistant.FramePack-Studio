@@ -733,7 +733,9 @@ class VideoProcessor:
                     ffmpeg_mux_cmd.extend(["-filter:a", ",".join(audio_filters)])
                     ffmpeg_mux_cmd.extend(["-c:a", "aac", "-b:a", "192k"]) 
                 else:
-                    ffmpeg_mux_cmd.extend(["-c:a", "copy"]) 
+                    # Ensure AAC for compatibility even if no speed change
+                    self.message_manager.add_message(f"Audio stream found. Re-encoding to AAC for MP4 compatibility (no speed change).", "INFO")
+                    ffmpeg_mux_cmd.extend(["-c:a", "aac", "-b:a", "192k"]) 
 
                 ffmpeg_mux_cmd.extend(["-map", "0:v:0", "-map", "1:a:0?", "-shortest", final_muxed_output_path])
                 
@@ -852,17 +854,37 @@ class VideoProcessor:
                         "-an", # No audio
                         output_path
                     ]
+
             else: # Regular 'loop'
                 ffmpeg_stream_loop_value = num_loops 
                 
                 self.message_manager.add_message(f"Regular loop: original video + {ffmpeg_stream_loop_value} additional loop(s).")
-                ffmpeg_cmd = [
+                
+                ffmpeg_cmd_parts = [
                     self.ffmpeg_exe, "-y", "-loglevel", "error",
                     "-stream_loop", str(ffmpeg_stream_loop_value),
-                    "-i", resolved_video_path, 
-                    "-c", "copy", # Copy both video and audio streams
-                    output_path
+                    "-i", resolved_video_path,
+                    "-c:v", "copy" 
                 ]
+
+                has_audio_in_original_for_loop = self._tb_has_audio_stream(resolved_video_path)
+                if has_audio_in_original_for_loop:
+                    self.message_manager.add_message("Original video has audio. Re-encoding to AAC for looped MP4.", "INFO")
+                    ffmpeg_cmd_parts.extend([
+                        "-c:a", "aac",      
+                        "-b:a", "192k",     
+                        "-map", "0:v:0",    
+                        "-map", "0:a:0?"    
+                    ])
+                else:
+                    self.message_manager.add_message("No audio in original or audio check failed. Looped video will be silent.", "INFO")
+                    ffmpeg_cmd_parts.extend([
+                        "-an",              
+                        "-map", "0:v:0"     
+                    ])
+                
+                ffmpeg_cmd_parts.append(output_path)
+                ffmpeg_cmd = ffmpeg_cmd_parts
             
             self.message_manager.add_message(f"Processing video {loop_type} with FFmpeg...")
             progress(0.5, desc=f"Running FFmpeg for {loop_type}...")
@@ -1013,16 +1035,28 @@ class VideoProcessor:
         
         progress(0.2, desc="Preparing filter command...")
         try:
-            ffmpeg_cmd = [
+            ffmpeg_cmd_base = [
                 self.ffmpeg_exe, "-y", 
                 "-loglevel", "error", 
                 "-i", resolved_video_path,
                 "-vf", ",".join(filters), 
-                "-c:v", "libx264", "-preset", "medium", "-crf", "20", # Good balance of quality/size
-                "-c:a", "copy", # Copy audio stream without re-encoding
-                "-map", "0:v:0", "-map", "0:a?", # Map video and optional audio
-                output_path
+                "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+                "-map", "0:v:0" # Always map video from input 0
             ]
+
+            audio_handling_opts = []
+            if self._tb_has_audio_stream(resolved_video_path):
+                self.message_manager.add_message("Original video has audio. Re-encoding to AAC for filtered video.", "INFO")
+                audio_handling_opts = [
+                    "-c:a", "aac", 
+                    "-b:a", "192k",
+                    "-map", "0:a:0?" # Map audio from input 0 (optional)
+                ]
+            else:
+                self.message_manager.add_message("No audio in original or audio check failed. Filtered video will be silent.", "INFO")
+                audio_handling_opts = ["-an"] # No audio output
+            
+            ffmpeg_cmd = ffmpeg_cmd_base + audio_handling_opts + [output_path]
             self.message_manager.add_message("🔄 Processing filters with FFmpeg...")
             progress(0.5, desc="Running FFmpeg for filters...")
             subprocess.run(ffmpeg_cmd, check=True, capture_output=True, text=True, errors='ignore') 
