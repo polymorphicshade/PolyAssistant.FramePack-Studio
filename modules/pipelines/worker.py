@@ -457,11 +457,7 @@ def worker(
         num_frames = latent_window_size * 4 - 3
 
         # Initialize total_generated_latent_frames for Video model
-        # For "Video F1" model, pftq counts the input frames in "total generated", unlike pftq's treatment of Backward Video
-        if (model_type == "Video F1"):
-            total_generated_latent_frames = history_latents.shape[2]
-        else:
-            total_generated_latent_frames = 0  # Default initialization for almost all model types
+        total_generated_latent_frames = 0  # Default initialization for all model types
 
         # Initialize history latents based on model type
         if model_type != "Video" and model_type != "Video F1":  # Skip for Video models as we already initialized it
