@@ -292,6 +292,31 @@ class VideoJobQueue:
                         # Fall back to the old serialization method
                         serialized_jobs[job_id] = self.serialize_job(job)
             
+            # Clean up images that are no longer in the queue
+            # First, get a list of all expected image files based on current jobs
+            expected_image_files = set()
+            for job_id in job_ids:
+                expected_image_files.add(f"{job_id}_input.png")
+                expected_image_files.add(f"{job_id}_end_frame.png")
+            
+            # Then check all files in the queue_images directory and remove any that aren't expected
+            if os.path.exists(queue_images_dir):
+                for filename in os.listdir(queue_images_dir):
+                    if filename not in expected_image_files:
+                        file_path = os.path.join(queue_images_dir, filename)
+                        try:
+                            # Check if it's a file (not a directory) and has a job ID format
+                            if os.path.isfile(file_path) and (filename.endswith("_input.png") or filename.endswith("_end_frame.png")):
+                                # Extract job ID from filename
+                                job_id = filename.split("_")[0] if "_" in filename else None
+                                
+                                # Only delete if the job ID is not in our current jobs
+                                if job_id and job_id not in job_ids:
+                                    os.remove(file_path)
+                                    print(f"Removed orphaned image file: {file_path}")
+                        except Exception as e:
+                            print(f"Error removing orphaned image file {file_path}: {e}")
+            
             # Save to file
             with open("queue.json", "w") as f:
                 json.dump(serialized_jobs, f, indent=2)
