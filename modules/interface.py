@@ -145,6 +145,10 @@ def create_interface(
     .contain-image, .contain-image > div, .contain-image > div > img {
         object-fit: contain !important;
     }
+
+    #non-mirrored-video {
+        transform: scaleX(-1) !important;
+    }
     
     /* Target all images in the contain-image class and its children */
     .contain-image img,
@@ -1303,7 +1307,7 @@ def create_interface(
                         )
                         refresh_button = gr.Button("Update")
                     with gr.Column(scale=5):
-                        video_out = gr.Video(sources=[], autoplay=True, loop=True, visible=False)
+                        video_out = gr.Video(sources=[], autoplay=True, loop=True, visible=False, elem_id="non-mirrored-video")
                     with gr.Column(scale=1):
                         info_out = gr.Textbox(label="Generation info", visible=False)
                         send_to_toolbox_btn = gr.Button("➡️ Send to Post-processing", visible=False)  # Added new send_to_toolbox_btn
