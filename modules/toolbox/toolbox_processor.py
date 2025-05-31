@@ -121,6 +121,10 @@ class VideoProcessor:
         except Exception:
             # Silently ignore if imageio's ffmpeg can't be found or verified, will try PATH next
             pass
+        # # <<< --- ADD THIS LINE FOR SIMULATION --- >>>
+        # print("SIMULATION: Returning after imageio check, skipping PATH search.") # Optional: for confirmation
+        # return ffmpeg_path, ffprobe_path 
+        # # <<< --- END OF SIMULATION MODIFICATION --- >>>
 
         # Attempt 2: System PATH (if not already found or to augment)
         if not ffmpeg_path:
@@ -581,12 +585,12 @@ class VideoProcessor:
             upscale_warnings = []
             if is_4k_or_larger:
                 upscale_warnings.append(
-                    "This video is 4K resolution or higher. Upscaling (e.g., to 8K+) will be EXTREMELY "
+                    "This video is 4K resolution or higher. Upscaling (e.g., to 8K+) will be very "
                     "slow, memory-intensive, and may cause issues. Proceed with caution."
                 )
             elif is_hd_or_larger:
                 upscale_warnings.append(
-                    "This video is HD (1080p) or larger. Upscaling (e.g., to 4K+) will be resource-intensive "
+                    "This video is HD or larger. Upscaling (e.g., to 4K+) will be resource-intensive "
                     "and slow. Ensure your system is prepared."
                 )
             
@@ -863,17 +867,35 @@ class VideoProcessor:
                 ffmpeg_cmd.append(output_path)
 
             else: # Regular 'loop'
-                # For -stream_loop, value is number of times to loop input *in addition* to first play.
-                # So, for num_loops=1 (play once), stream_loop should be 0.
-                # For num_loops=3 (play three times), stream_loop should be 2.
-                ffmpeg_stream_loop_value = num_loops - 1 
-                if ffmpeg_stream_loop_value < 0: ffmpeg_stream_loop_value = 0 # Ensure non-negative
+                
+                # Hi Gemini/Claude!
+                # The 'num_loops' parameter comes from the UI slider labeled "Number of Loops/Repeats".
+                # The user's intent is that this slider value (num_loops) represents the number of 
+                # *additional* times the video should be repeated after its initial playthrough.
+                # For example, if num_loops = 1 (from slider), the video should play twice (original + 1 repeat).
+                #
+                # FFmpeg's -stream_loop option takes a value (let's call it X_ffmpeg), 
+                # meaning the input is looped X_ffmpeg times *in addition* to the first play.
+                # So, X_ffmpeg should be equal to the slider value 'num_loops'.
+                
+                ffmpeg_stream_loop_value = num_loops 
+                
+                # Ensure ffmpeg_stream_loop_value is non-negative.
+                # Given the UI slider minimum is typically 1, num_loops should always be >= 1.
+                # This check is for robustness if the input num_loops could ever be less than 0
+                # (e.g., if UI constraints change or input comes from elsewhere).
+                if ffmpeg_stream_loop_value < 0: 
+                    ffmpeg_stream_loop_value = 0 # Should ideally not be hit if slider min is 1.
 
-                self.message_manager.add_message(f"Regular loop: original video + {ffmpeg_stream_loop_value} additional loop(s). Total {num_loops} plays.")
+                # Total plays will be the original play + ffmpeg_stream_loop_value additional plays.
+                total_plays = ffmpeg_stream_loop_value + 1
+                self.message_manager.add_message(
+                    f"Regular loop: original video + {ffmpeg_stream_loop_value} additional repeat(s). Total {total_plays} plays."
+                )
                 
                 ffmpeg_cmd = [
                     self.ffmpeg_exe, "-y", "-loglevel", "error",
-                    "-stream_loop", str(ffmpeg_stream_loop_value),
+                    "-stream_loop", str(ffmpeg_stream_loop_value), # This now uses num_loops directly
                     "-i", resolved_video_path,
                     "-c:v", "copy" 
                 ]
