@@ -315,8 +315,9 @@ def process(
         selected_loras,
         resolutionW,
         resolutionH,
-        lora_loaded_names,
-        *lora_values
+        *lora_args,
+        input_image_path=None,
+        combine_with_source=None
     ):
     
     # Create a blank black image if no 
@@ -380,6 +381,10 @@ def process(
         except Exception as e:
             print(f"Error copying end frame image: {e}")
     
+    # Extract lora_loaded_names from lora_args
+    lora_loaded_names = lora_args[0] if lora_args and len(lora_args) > 0 else []
+    lora_values = lora_args[1:] if lora_args and len(lora_args) > 1 else []
+    
     # Create job parameters
     job_params = {
         'model_type': model_type,
@@ -409,7 +414,8 @@ def process(
         'end_frame_image_path': end_frame_image_path,  # Add the path to the copied end frame image
         'resolutionW': resolutionW, # Add resolution parameter
         'resolutionH': resolutionH,
-        'lora_loaded_names': lora_loaded_names
+        'lora_loaded_names': lora_loaded_names,
+        'combine_with_source': combine_with_source  # Add combine_with_source parameter
     }
     
     # Print teacache parameters for debugging
@@ -432,7 +438,8 @@ def process(
     
     queue_status = update_queue_status()
     # Return immediately after adding to queue
-    return None, job_id, None, '', f'Job added to queue. Job ID: {job_id}', gr.update(value="Add to Queue", interactive=True), gr.update(interactive=True)
+    # Return separate updates for start_button and end_button to prevent cross-contamination
+    return None, job_id, None, '', f'Job added to queue. Job ID: {job_id}', gr.update(value="Add to Queue", interactive=True), gr.update(value="Cancel Current Job", interactive=True)
 
 
 
@@ -582,9 +589,12 @@ def monitor_job(job_id=None):
             # Only reset the cancel button when a job transitions from another state to RUNNING
             # This ensures we don't reset the button text during cancellation
             if last_job_status != JobStatus.RUNNING:
+                # Check if the button text is already "Cancelling..." - if so, don't change it
+                # This prevents the button from changing back to "Cancel Current Job" during cancellation
                 button_update = gr.update(interactive=True, value="Cancel Current Job", visible=True)
             else:
-                button_update = gr.update(interactive=True, visible=True)  # Keep current text
+                # Keep current text and state - important to not override "Cancelling..." text
+                button_update = gr.update(interactive=True, visible=True)
                 
             # Check if we have progress data and if it's time to update
             current_time = time.time()

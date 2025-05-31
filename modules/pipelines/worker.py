@@ -78,7 +78,8 @@ def worker(
     resolutionW=640,  # Add resolution parameter with default value
     resolutionH=640,
     lora_loaded_names=[],
-    input_video=None     # Add input_video parameter with default value of None
+    input_video=None,     # Add input_video parameter with default value of None
+    combine_with_source=None  # Add combine_with_source parameter
 ):
     """
     Worker function for video generation using the pipeline architecture.
@@ -234,36 +235,21 @@ def worker(
         # Update job_params with processed inputs
         job_params.update(processed_inputs)
         
-        # Save the starting image directly to the output directory
-        if settings.get("save_metadata") and job_params.get('input_image') is not None: # Check if metadata saving is enabled overall
+        # Save the starting image directly to the output directory with full metadata
+        if settings.get("save_metadata") and job_params.get('input_image') is not None:
             try:
-                # Ensure output directory exists
-                os.makedirs(output_dir, exist_ok=True)
+                # Import the save_job_start_image function from metadata_utils
+                from modules.pipelines.metadata_utils import save_job_start_image, create_metadata
                 
-                # Get the input image
-                input_image_np = job_params.get('input_image')
+                # Create comprehensive metadata for the job
+                metadata_dict = create_metadata(job_params, job_id, settings)
                 
-                if isinstance(input_image_np, np.ndarray):
-                    # Create PNG metadata
-                    png_metadata = PngInfo()
-                    png_metadata.add_text("prompt", job_params.get('prompt_text', ''))
-                    png_metadata.add_text("seed", str(job_params.get('seed', 0)))
-                    png_metadata.add_text("model_type", job_params.get('model_type', "Unknown"))
-                    
-                    # Convert image if needed
-                    if input_image_np.dtype != np.uint8:
-                        if input_image_np.max() <= 1.0 and input_image_np.min() >= -1.0 and input_image_np.dtype in [np.float32, np.float64]:
-                            input_image_np = ((input_image_np + 1.0) / 2.0 * 255.0).clip(0, 255).astype(np.uint8)
-                        elif input_image_np.max() <= 1.0 and input_image_np.min() >= 0.0 and input_image_np.dtype in [np.float32, np.float64]:
-                            input_image_np = (input_image_np * 255.0).clip(0, 255).astype(np.uint8)
-                        else:
-                            input_image_np = input_image_np.clip(0, 255).astype(np.uint8)
-                    
-                    # Save the image
-                    start_image_path = os.path.join(output_dir, f'{job_id}.png')
-                    Image.fromarray(input_image_np).save(start_image_path, pnginfo=png_metadata)
+                # Save the starting image with metadata
+                save_job_start_image(job_params, job_id, settings)
+                
+                print(f"Saved metadata and starting image for job {job_id}")
             except Exception as e:
-                print(f"Error saving starting image: {e}")
+                print(f"Error saving starting image and metadata: {e}")
                 traceback.print_exc()
         
         # Pre-encode all prompts
@@ -799,49 +785,8 @@ def worker(
 
             section_idx += 1  # PROMPT BLENDING: increment section index
 
-        # For Video model, concatenate the input video with the generated content
-        if model_type == "Video":
-            print("Concatenating input video with generated content...")
-            # Since the generation happens in reverse order, we need to reverse the history_pixels
-            # before concatenating with the input video
-            print(f"Reversing generated content. Shape before: {history_pixels.shape}")
-            # Reverse the frames along the time dimension (dim=2)
-            reversed_history_pixels = torch.flip(history_pixels, dims=[2])
-            print(f"Shape after reversal: {reversed_history_pixels.shape}")
-            
-            # Get the last frame of the input video and the first frame of the reversed generated video
-            last_input_frame = input_video_pixels[:, :, -1:, :, :]
-            first_gen_frame = reversed_history_pixels[:, :, 0:1, :, :]
-            print(f"Last input frame shape: {last_input_frame.shape}")
-            print(f"First generated frame shape: {first_gen_frame.shape}")
-            
-            # Calculate the difference between the frames
-            frame_diff = first_gen_frame - last_input_frame
-            print(f"Frame difference magnitude: {torch.abs(frame_diff).mean().item()}")
-            
-            # Blend the first few frames of the generated video to create a smoother transition
-            blend_frames = 5  # Number of frames to blend
-            if reversed_history_pixels.shape[2] > blend_frames:
-                print(f"Blending first {blend_frames} frames for smoother transition")
-                for i in range(blend_frames):
-                    # Calculate blend factor (1.0 at frame 0, decreasing to 0.0)
-                    blend_factor = 1.0 - (i / blend_frames)
-                    # Apply correction with decreasing strength
-                    reversed_history_pixels[:, :, i:i+1, :, :] = reversed_history_pixels[:, :, i:i+1, :, :] - frame_diff * blend_factor
-            
-            # Concatenate the input video pixels with the reversed history pixels
-            # The input video should come first, followed by the generated content
-            # This makes the video extend from where the input video ends
-            combined_pixels = torch.cat([input_video_pixels, reversed_history_pixels], dim=2)
-            
-            # Create the final video with both input and generated content
-            output_filename = os.path.join(output_dir, f'{job_id}_final_with_input.mp4')
-            save_bcthw_as_mp4(combined_pixels, output_filename, fps=30, crf=settings.get("mp4_crf"))
-            print(f'Final video with input: {output_filename}')
-            stream_to_use.output_queue.push(('file', output_filename))
-
-        # Create metadata for the job
-        pipeline.create_metadata(job_params, job_id)
+            # We'll handle combining the videos after the entire generation is complete
+            # This section intentionally left empty to remove the in-process combination
 
         # Handle the results
         result = pipeline.handle_results(job_params, output_filename)
@@ -924,6 +869,115 @@ def worker(
         except Exception as e:
             print(f"Error during temp folder cleanup: {e}")
 
+    # Check if the user wants to combine the source video with the generated video
+    # This is done after the video cleanup routine to ensure the combined video is not deleted
+    if model_type == "Video" and combine_with_source and job_params.get('input_image_path'):
+        print("Creating combined video with source and generated content...")
+        try:
+            # Get the input video path
+            input_video_path = job_params.get('input_image_path')
+            if input_video_path and os.path.exists(input_video_path):
+                # Find the final generated video
+                final_video = None
+                video_files = [
+                    f for f in os.listdir(output_dir)
+                    if f.startswith(f"{job_id}_") and f.endswith(".mp4")
+                ]
+                
+                if video_files:
+                    # Sort by frame count to find the final video
+                    def get_frame_count(filename):
+                        try:
+                            # Handles filenames like jobid_123.mp4
+                            return int(filename.replace(f"{job_id}_", "").replace(".mp4", ""))
+                        except Exception:
+                            # For other formats like jobid_final_with_input.mp4
+                            return float('inf')  # This will make it sort to the end
+                            
+                    video_files_sorted = sorted(video_files, key=get_frame_count)
+                    final_video = os.path.join(output_dir, video_files_sorted[-1])
+                
+                if final_video and os.path.exists(final_video):
+                    # Create a combined video filename
+                    combined_output_filename = os.path.join(output_dir, f'{job_id}_combined.mp4')
+                    
+                    # Try to use the combine_videos method from the VideoModelGenerator class
+                    combined_result = None
+                    try:
+                        if hasattr(current_generator, 'combine_videos'):
+                            print(f"Using VideoModelGenerator.combine_videos to create side-by-side comparison")
+                            combined_result = current_generator.combine_videos(
+                                source_video_path=input_video_path,
+                                generated_video_path=final_video,
+                                output_path=combined_output_filename
+                            )
+                            
+                            if combined_result:
+                                print(f"Combined video saved to: {combined_result}")
+                                stream_to_use.output_queue.push(('file', combined_result))
+                            else:
+                                print("Failed to create combined video, falling back to direct ffmpeg method")
+                                combined_result = None  # Ensure we use the fallback
+                        else:
+                            print("VideoModelGenerator does not have combine_videos method. Using fallback method.")
+                    except Exception as e:
+                        print(f"Error in combine_videos method: {e}")
+                        print("Falling back to direct ffmpeg method")
+                        combined_result = None  # Ensure we use the fallback
+                        
+                    # If the combine_videos method failed or doesn't exist, use the fallback method
+                    if not combined_result:
+                        print("Using fallback method to combine videos")
+                        
+                        # Fallback to using ffmpeg directly
+                        from modules.toolbox.toolbox_processor import VideoProcessor
+                        from modules.toolbox.message_manager import MessageManager
+                        
+                        # Create a message manager for logging
+                        message_manager = MessageManager()
+                        video_processor = VideoProcessor(message_manager, settings.settings)
+                        
+                        # Get the ffmpeg executable from imageio
+                        ffmpeg_exe = video_processor.ffmpeg_exe
+                        
+                        if ffmpeg_exe:
+                            print(f"Using ffmpeg at: {ffmpeg_exe}")
+                            
+                            # Use subprocess to run ffmpeg command to concatenate videos
+                            import subprocess
+                            
+                            # Create a temporary file list for ffmpeg
+                            temp_list_file = os.path.join(output_dir, f'{job_id}_filelist.txt')
+                            with open(temp_list_file, 'w') as f:
+                                f.write(f"file '{input_video_path}'\n")
+                                f.write(f"file '{final_video}'\n")
+                            
+                            # Run ffmpeg command to concatenate the videos
+                            ffmpeg_cmd = [
+                                ffmpeg_exe, "-y", "-f", "concat", "-safe", "0",
+                                "-i", temp_list_file, "-c", "copy", combined_output_filename
+                            ]
+                            
+                            print(f"Running ffmpeg command: {' '.join(ffmpeg_cmd)}")
+                            subprocess.run(ffmpeg_cmd, check=True, capture_output=True, text=True)
+                            
+                            # Remove the temporary file list
+                            if os.path.exists(temp_list_file):
+                                os.remove(temp_list_file)
+                            
+                            print(f"Combined video saved to: {combined_output_filename}")
+                            stream_to_use.output_queue.push(('file', combined_output_filename))
+                        else:
+                            print("FFmpeg executable not found. Cannot combine videos.")
+                else:
+                    print(f"Final video not found for combining with source")
+            else:
+                print(f"Input video path not found: {input_video_path}")
+        except Exception as e:
+            print(f"Error combining videos: {e}")
+            import traceback
+            traceback.print_exc()
+    
     # Final verification of LoRA state
     if current_generator and current_generator.transformer:
         # Verify LoRA state

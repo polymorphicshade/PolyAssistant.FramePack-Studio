@@ -381,7 +381,8 @@ def create_interface(
                             combine_with_source = gr.Checkbox(
                                 label="Combine with source video",
                                 value=True,
-                                info="If checked, the source video will be combined with the generated video"
+                                info="If checked, the source video will be combined with the generated video",
+                                interactive=True
                             )
                     
                         # Create a group for XY Plot controls, initially hidden
@@ -526,7 +527,7 @@ def create_interface(
                                 use_teacache.change(lambda enabled: (gr.update(visible=enabled), gr.update(visible=enabled)), inputs=use_teacache, outputs=[teacache_num_steps, teacache_rel_l1_thresh])
 
                             with gr.Row():
-                                seed = gr.Number(label="Seed", value=31337, precision=0)
+                                seed = gr.Number(label="Seed", value=2500, precision=0)
                                 randomize_seed = gr.Checkbox(label="Randomize", value=True, info="Generate a new random seed for each job")
 
                         with gr.Accordion("Advanced Parameters", open=False):
@@ -1502,13 +1503,29 @@ def create_interface(
             if model_type == "Original with Endframe" or model_type == "F1 with Endframe" or model_type == "Video":
                 actual_end_frame_image_for_backend = end_frame_image_original # Use the unpacked value
                 actual_end_frame_strength_for_backend = end_frame_strength_original # Use the unpacked value
+            
+            # For Video model, check if combine_with_source is checked
+            combine_with_source_value = None
+            if model_type == "Video":
+                # Access the combine_with_source checkbox directly
+                try:
+                    combine_with_source_value = combine_with_source.value
+                except:
+                    print("Warning: Could not access combine_with_source checkbox value")
+            
+            # Get the input video path for Video model
+            input_image_path = None
+            if model_type == "Video" and input_video is not None:
+                # For Video model, input_video contains the path to the video file
+                input_image_path = input_video
 
             # Use the current seed value as is for this job
             # Call the process function with all arguments
             # Pass the model_type and the ORIGINAL prompt_text string to the backend process function
             result = process_fn(model_type, input_data, actual_end_frame_image_for_backend, actual_end_frame_strength_for_backend, prompt_text, n_prompt, seed_value, total_second_length, # Pass original prompt_text string
                             latent_window_size, steps, cfg, gs, rs,
-                            use_teacache, teacache_num_steps, teacache_rel_l1_thresh, blend_sections, latent_type, clean_up_videos, selected_loras, resolutionW, resolutionH, *lora_args)
+                            use_teacache, teacache_num_steps, teacache_rel_l1_thresh, blend_sections, latent_type, clean_up_videos, selected_loras, resolutionW, resolutionH, 
+                            input_image_path=input_image_path, combine_with_source=combine_with_source_value, *lora_args)
 
             # If randomize_seed is checked, generate a new random seed for the next job
             new_seed_value = None
@@ -1527,15 +1544,19 @@ def create_interface(
 
                 # Add the new seed value to the results if randomize is checked
                 if new_seed_value is not None:
-                    return [result[0], job_id, result[2], result[3], result[4], result[5], button_update, queue_status_data, new_seed_value]
+                    # Use result[6] directly for end_button to preserve its value
+                    return [result[0], job_id, result[2], result[3], result[4], result[5], result[6], queue_status_data, new_seed_value]
                 else:
-                    return [result[0], job_id, result[2], result[3], result[4], result[5], button_update, queue_status_data, gr.update()]
+                    # Use result[6] directly for end_button to preserve its value
+                    return [result[0], job_id, result[2], result[3], result[4], result[5], result[6], queue_status_data, gr.update()]
 
             # If no job ID was created, still return the new seed if randomize is checked
             if new_seed_value is not None:
-                return result + [button_update, update_queue_status_fn(), new_seed_value]
+                # Make sure to preserve the end_button update from result[6]
+                return [result[0], result[1], result[2], result[3], result[4], result[5], result[6], update_queue_status_fn(), new_seed_value]
             else:
-                return result + [button_update, update_queue_status_fn(), gr.update()]
+                # Make sure to preserve the end_button update from result[6]
+                return [result[0], result[1], result[2], result[3], result[4], result[5], result[6], update_queue_status_fn(), gr.update()]
 
         # Custom end process function that ensures the queue is updated and changes button text
         def end_process_with_update():
@@ -1544,7 +1565,8 @@ def create_interface(
             # Don't try to get the new job ID immediately after cancellation
             # The monitor_job function will handle the transition to the next job
             
-            # Change the cancel button text to "Cancelling..."
+            # Change the cancel button text to "Cancelling..." and make it non-interactive
+            # This ensures the button stays in this state until the job is fully cancelled
             return queue_status_data, gr.update(value="Cancelling...", interactive=False), gr.update()
 
         # --- NEW EVENT HANDLER for "Send to Post-processing" button ---

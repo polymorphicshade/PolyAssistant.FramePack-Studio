@@ -60,6 +60,11 @@ class VideoPipeline(BasePipeline):
         if not job_params.get('input_image'):
             return False, "Input video is required for Video model"
         
+        # Check if combine_with_source is provided (optional)
+        combine_with_source = job_params.get('combine_with_source')
+        if combine_with_source is not None and not isinstance(combine_with_source, bool):
+            return False, "combine_with_source must be a boolean value"
+        
         return True, None
     
     def preprocess_inputs(self, job_params):
@@ -97,6 +102,11 @@ class VideoPipeline(BasePipeline):
         #    history_latents = video_latents
         #    print(f"Initialized history_latents with video context. Shape: {history_latents.shape}")
         processed_inputs['input_files_dir'] = job_params.get('input_files_dir')
+        
+        # Pass through the combine_with_source parameter if it exists
+        if 'combine_with_source' in job_params:
+            processed_inputs['combine_with_source'] = job_params.get('combine_with_source')
+            print(f"Video pipeline: combine_with_source = {processed_inputs['combine_with_source']}")
         
         # Get resolution parameters
         resolutionW = job_params.get('resolutionW', 640)
