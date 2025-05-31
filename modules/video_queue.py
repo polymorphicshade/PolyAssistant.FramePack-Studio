@@ -228,7 +228,33 @@ class VideoJobQueue:
             queue_images_dir = "queue_images"
             os.makedirs(queue_images_dir, exist_ok=True)
             
-            # Serialize jobs outside the lock using metadata_utils
+            # First, ensure all images are saved
+            for job_id in job_ids:
+                job = self.get_job(job_id)
+                if job:
+                    # Save input image to disk if it exists and hasn't been saved yet
+                    if 'input_image' in job.params and isinstance(job.params['input_image'], np.ndarray) and not job.input_image_saved:
+                        input_image_path = os.path.join(queue_images_dir, f"{job_id}_input.png")
+                        try:
+                            Image.fromarray(job.params['input_image']).save(input_image_path)
+                            print(f"Saved input image for job {job_id} to {input_image_path}")
+                            # Mark the image as saved
+                            job.input_image_saved = True
+                        except Exception as e:
+                            print(f"Error saving input image for job {job_id}: {e}")
+                    
+                    # Save end frame image to disk if it exists and hasn't been saved yet
+                    if 'end_frame_image' in job.params and isinstance(job.params['end_frame_image'], np.ndarray) and not job.end_frame_image_saved:
+                        end_frame_image_path = os.path.join(queue_images_dir, f"{job_id}_end_frame.png")
+                        try:
+                            Image.fromarray(job.params['end_frame_image']).save(end_frame_image_path)
+                            print(f"Saved end frame image for job {job_id} to {end_frame_image_path}")
+                            # Mark the end frame image as saved
+                            job.end_frame_image_saved = True
+                        except Exception as e:
+                            print(f"Error saving end frame image for job {job_id}: {e}")
+            
+            # Now serialize jobs with the updated image saved flags
             serialized_jobs = {}
             for job_id in job_ids:
                 job = self.get_job(job_id)
@@ -250,41 +276,16 @@ class VideoJobQueue:
                             "queue_position": job.queue_position,
                         })
                         
-                        # Only save images if the job is running or completed
-                        if job.status in [JobStatus.RUNNING, JobStatus.COMPLETED]:
-                            # Save input image to disk if it exists and hasn't been saved yet
-                            if 'input_image' in job.params and isinstance(job.params['input_image'], np.ndarray) and not job.input_image_saved:
-                                input_image_path = os.path.join(queue_images_dir, f"{job_id}_input.png")
-                                try:
-                                    Image.fromarray(job.params['input_image']).save(input_image_path)
-                                    metadata["saved_input_image_path"] = input_image_path
-                                    print(f"Saved input image for job {job_id} to {input_image_path}")
-                                    # Mark the image as saved
-                                    job.input_image_saved = True
-                                except Exception as e:
-                                    print(f"Error saving input image for job {job_id}: {e}")
-                            elif 'input_image' in job.params and isinstance(job.params['input_image'], np.ndarray) and job.input_image_saved:
-                                # If the image has already been saved, just add the path to metadata
-                                input_image_path = os.path.join(queue_images_dir, f"{job_id}_input.png")
-                                if os.path.exists(input_image_path):
-                                    metadata["saved_input_image_path"] = input_image_path
-                            
-                            # Save end frame image to disk if it exists and hasn't been saved yet
-                            if 'end_frame_image' in job.params and isinstance(job.params['end_frame_image'], np.ndarray) and not job.end_frame_image_saved:
-                                end_frame_image_path = os.path.join(queue_images_dir, f"{job_id}_end_frame.png")
-                                try:
-                                    Image.fromarray(job.params['end_frame_image']).save(end_frame_image_path)
-                                    metadata["saved_end_frame_image_path"] = end_frame_image_path
-                                    print(f"Saved end frame image for job {job_id} to {end_frame_image_path}")
-                                    # Mark the end frame image as saved
-                                    job.end_frame_image_saved = True
-                                except Exception as e:
-                                    print(f"Error saving end frame image for job {job_id}: {e}")
-                            elif 'end_frame_image' in job.params and isinstance(job.params['end_frame_image'], np.ndarray) and job.end_frame_image_saved:
-                                # If the end frame image has already been saved, just add the path to metadata
-                                end_frame_image_path = os.path.join(queue_images_dir, f"{job_id}_end_frame.png")
-                                if os.path.exists(end_frame_image_path):
-                                    metadata["saved_end_frame_image_path"] = end_frame_image_path
+                        # Add image paths to metadata if they've been saved
+                        if job.input_image_saved:
+                            input_image_path = os.path.join(queue_images_dir, f"{job_id}_input.png")
+                            if os.path.exists(input_image_path):
+                                metadata["saved_input_image_path"] = input_image_path
+                        
+                        if job.end_frame_image_saved:
+                            end_frame_image_path = os.path.join(queue_images_dir, f"{job_id}_end_frame.png")
+                            if os.path.exists(end_frame_image_path):
+                                metadata["saved_end_frame_image_path"] = end_frame_image_path
                         
                         serialized_jobs[job_id] = metadata
                     except Exception as e:
@@ -292,38 +293,149 @@ class VideoJobQueue:
                         # Fall back to the old serialization method
                         serialized_jobs[job_id] = self.serialize_job(job)
             
-            # Clean up images that are no longer in the queue
-            # First, get a list of all expected image files based on current jobs
-            expected_image_files = set()
-            for job_id in job_ids:
-                expected_image_files.add(f"{job_id}_input.png")
-                expected_image_files.add(f"{job_id}_end_frame.png")
-            
-            # Then check all files in the queue_images directory and remove any that aren't expected
-            if os.path.exists(queue_images_dir):
-                for filename in os.listdir(queue_images_dir):
-                    if filename not in expected_image_files:
-                        file_path = os.path.join(queue_images_dir, filename)
-                        try:
-                            # Check if it's a file (not a directory) and has a job ID format
-                            if os.path.isfile(file_path) and (filename.endswith("_input.png") or filename.endswith("_end_frame.png")):
-                                # Extract job ID from filename
-                                job_id = filename.split("_")[0] if "_" in filename else None
-                                
-                                # Only delete if the job ID is not in our current jobs
-                                if job_id and job_id not in job_ids:
-                                    os.remove(file_path)
-                                    print(f"Removed orphaned image file: {file_path}")
-                        except Exception as e:
-                            print(f"Error removing orphaned image file {file_path}: {e}")
-            
             # Save to file
             with open("queue.json", "w") as f:
                 json.dump(serialized_jobs, f, indent=2)
+            
+            # Clean up images for jobs that no longer exist
+            self.cleanup_orphaned_images(job_ids)
                 
             print(f"Saved {len(serialized_jobs)} jobs to queue.json")
         except Exception as e:
             print(f"Error saving queue to JSON: {e}")
+    
+    def cleanup_orphaned_images(self, current_job_ids):
+        """
+        Remove image files for jobs that no longer exist in the queue.
+        
+        Args:
+            current_job_ids: List of job IDs currently in the queue
+        """
+        try:
+            queue_images_dir = "queue_images"
+            if not os.path.exists(queue_images_dir):
+                return
+            
+            # Convert to set for faster lookups
+            current_job_ids = set(current_job_ids)
+            
+            # Check all files in the queue_images directory
+            removed_count = 0
+            for filename in os.listdir(queue_images_dir):
+                # Only process PNG files with our naming pattern
+                if filename.endswith(".png") and ("_input.png" in filename or "_end_frame.png" in filename):
+                    # Extract job ID from filename
+                    parts = filename.split("_")
+                    if len(parts) >= 2:
+                        job_id = parts[0]
+                        
+                        # If job ID is not in current jobs, remove the file
+                        if job_id not in current_job_ids:
+                            file_path = os.path.join(queue_images_dir, filename)
+                            try:
+                                os.remove(file_path)
+                                removed_count += 1
+                                print(f"Removed orphaned image: {filename}")
+                            except Exception as e:
+                                print(f"Error removing orphaned image {filename}: {e}")
+            
+            if removed_count > 0:
+                print(f"Cleaned up {removed_count} orphaned images")
+        except Exception as e:
+            print(f"Error cleaning up orphaned images: {e}")
+
+    
+    def synchronize_queue_images(self):
+        """
+        Synchronize the queue_images directory with the current jobs in the queue.
+        This ensures all necessary images are saved and only images for removed jobs are deleted.
+        """
+        try:
+            queue_images_dir = "queue_images"
+            os.makedirs(queue_images_dir, exist_ok=True)
+            
+            # Get all current job IDs
+            with self.lock:
+                current_job_ids = set(self.jobs.keys())
+            
+            # Get all image files in the queue_images directory
+            existing_image_files = set()
+            if os.path.exists(queue_images_dir):
+                for filename in os.listdir(queue_images_dir):
+                    if filename.endswith(".png") and ("_input.png" in filename or "_end_frame.png" in filename):
+                        existing_image_files.add(filename)
+            
+            # Extract job IDs from filenames
+            file_job_ids = set()
+            for filename in existing_image_files:
+                # Extract job ID from filename (format: "{job_id}_input.png" or "{job_id}_end_frame.png")
+                parts = filename.split("_")
+                if len(parts) >= 2:
+                    job_id = parts[0]
+                    file_job_ids.add(job_id)
+            
+            # Find job IDs in files that are no longer in the queue
+            removed_job_ids = file_job_ids - current_job_ids
+            
+            # Delete images for jobs that have been removed from the queue
+            removed_count = 0
+            for job_id in removed_job_ids:
+                input_image_path = os.path.join(queue_images_dir, f"{job_id}_input.png")
+                end_frame_image_path = os.path.join(queue_images_dir, f"{job_id}_end_frame.png")
+                
+                if os.path.exists(input_image_path):
+                    try:
+                        os.remove(input_image_path)
+                        removed_count += 1
+                        print(f"Removed image for deleted job: {input_image_path}")
+                    except Exception as e:
+                        print(f"Error removing image {input_image_path}: {e}")
+                
+                if os.path.exists(end_frame_image_path):
+                    try:
+                        os.remove(end_frame_image_path)
+                        removed_count += 1
+                        print(f"Removed image for deleted job: {end_frame_image_path}")
+                    except Exception as e:
+                        print(f"Error removing image {end_frame_image_path}: {e}")
+            
+            # Now ensure all current jobs have their images saved
+            saved_count = 0
+            with self.lock:
+                for job_id, job in self.jobs.items():
+                    # Only save images for running or completed jobs
+                    if job.status in [JobStatus.RUNNING, JobStatus.COMPLETED]:
+                        # Save input image if it exists and hasn't been saved yet
+                        if 'input_image' in job.params and isinstance(job.params['input_image'], np.ndarray) and not job.input_image_saved:
+                            input_image_path = os.path.join(queue_images_dir, f"{job_id}_input.png")
+                            try:
+                                Image.fromarray(job.params['input_image']).save(input_image_path)
+                                job.input_image_saved = True
+                                saved_count += 1
+                                print(f"Saved input image for job {job_id}")
+                            except Exception as e:
+                                print(f"Error saving input image for job {job_id}: {e}")
+                        
+                        # Save end frame image if it exists and hasn't been saved yet
+                        if 'end_frame_image' in job.params and isinstance(job.params['end_frame_image'], np.ndarray) and not job.end_frame_image_saved:
+                            end_frame_image_path = os.path.join(queue_images_dir, f"{job_id}_end_frame.png")
+                            try:
+                                Image.fromarray(job.params['end_frame_image']).save(end_frame_image_path)
+                                job.end_frame_image_saved = True
+                                saved_count += 1
+                                print(f"Saved end frame image for job {job_id}")
+                            except Exception as e:
+                                print(f"Error saving end frame image for job {job_id}: {e}")
+            
+            # Save the queue to ensure the image paths are properly referenced
+            self.save_queue_to_json()
+            
+            if removed_count > 0 or saved_count > 0:
+                print(f"Queue image synchronization: removed {removed_count} images, saved {saved_count} images")
+            
+        except Exception as e:
+            print(f"Error synchronizing queue images: {e}")
+
     
     def add_job(self, params):
         """Add a job to the queue and return its ID"""
@@ -442,6 +554,10 @@ class VideoJobQueue:
             except Exception as e:
                 print(f"Error saving queue state: {e}")
             
+            # Synchronize queue images after clearing the queue
+            if cancelled_count > 0:
+                self.synchronize_queue_images()
+            
             print(f"Cleared {cancelled_count} jobs from the queue")
             return cancelled_count
         except Exception as e:
@@ -475,6 +591,10 @@ class VideoJobQueue:
                 self.save_queue_to_json()
             except Exception as e:
                 print(f"Error saving queue state: {e}")
+            
+            # Synchronize queue images after removing completed jobs
+            if removed_count > 0:
+                self.synchronize_queue_images()
             
             print(f"Removed {removed_count} completed/cancelled jobs from the queue")
             return removed_count
@@ -775,6 +895,9 @@ class VideoJobQueue:
                                 traceback.print_exc()
                         
                         loaded_count += 1
+            
+            # Synchronize queue images after loading the queue
+            self.synchronize_queue_images()
             
             print(f"Loaded {loaded_count} pending jobs from {file_path}")
             return loaded_count
