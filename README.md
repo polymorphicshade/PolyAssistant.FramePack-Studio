@@ -17,6 +17,15 @@ FramePack Studio is an AI video generation application based on FramePack that s
 - **I2V and T2V**: Works with or without an input image to allow for more flexibility when working with standard LoRAs
 - **Latent Image Options**: When using T2V you can generate based on a black, white, green screen or pure noise image
 
+## Planned Features
+- **Upscaling and Post-processing**
+- **Generation Improvements**
+- **Video Extension**
+- **Audio Generation + TTS**
+- **Lipsyncing**
+- **Basic Editing**
+- **Additional Models**
+
 
 ## Fresh Installation
 
