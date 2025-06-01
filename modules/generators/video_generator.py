@@ -56,6 +56,10 @@ class VideoModelGenerator(VideoBaseModelGenerator):
         Returns:
             A tuple of (clean_latent_indices, latent_indices, clean_latent_2x_indices, clean_latent_4x_indices, clean_latents, clean_latents_2x, clean_latents_4x)
         """
+        # Get num_cleaned_frames from job_params if available, otherwise use default value of 5
+        num_clean_frames = num_cleaned_frames if num_cleaned_frames is not None else 5
+
+
         # HACK SOME STUFF IN THAT SHOULD NOT BE HERE
         # Placeholders for end frame processing
         # Colin, I'm only leaving them for the moment in case you want separate models for
