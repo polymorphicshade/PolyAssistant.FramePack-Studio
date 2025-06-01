@@ -1,13 +1,13 @@
-# FramePack Studio
-
-FramePack Studio is an enhanced version of the FramePack demo script, designed to create intricate video scenes with improved prompt adherence. This is very much a work in progress, expect some bugs and broken features. 
+<h1 align="center">FramePack Studio</h1>
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/colinurbs/FramePack-Studio)
+
+FramePack Studio is an AI video generation application based on FramePack that strives to provide everything you need to create high quality AI generated video projects. 
 
 ## Current Features
 
 - **F1 and Original FramePack Models**: Run both in a single queue
-- **End Frame Control for 'Original' Model**: Run both in a single queue
+- **End Frame Control for 'Original' Model**: Provides greater control over generations
 - **Timestamped Prompts**: Define different prompts for specific time segments in your video
 - **Prompt Blending**: Define the blending time between timestamped prompts
 - **LoRA Support**: Works with most (all?) hunyuan LoRAs
@@ -23,6 +23,7 @@ FramePack Studio is an enhanced version of the FramePack demo script, designed t
 
 - Python 3.10+
 - CUDA-compatible GPU with at least 8GB VRAM (16GB+ recommended)
+- 16GB System Memory (32GB+ strongly recommended) 
 
 ### Setup
 
