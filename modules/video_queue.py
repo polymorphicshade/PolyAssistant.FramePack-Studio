@@ -767,6 +767,7 @@ class VideoJobQueue:
                             print(f"Loading input image from {input_image_path}")
                             input_image = np.array(Image.open(input_image_path))
                             params['input_image'] = input_image
+                            params['input_image_path'] = input_image_path  # Store the path for reference
                             params['has_input_image'] = True
                         except Exception as e:
                             print(f"Error loading input image for job {job_id}: {e}")
@@ -778,6 +779,12 @@ class VideoJobQueue:
                             print(f"Loading end frame image from {end_frame_image_path}")
                             end_frame_image = np.array(Image.open(end_frame_image_path))
                             params['end_frame_image'] = end_frame_image
+                            params['end_frame_image_path'] = end_frame_image_path  # Store the path for reference
+                            # Make sure end_frame_strength is set if this is an endframe model
+                            if params['model_type'] == "Original with Endframe" or params['model_type'] == "F1 with Endframe":
+                                if 'end_frame_strength' not in params or params['end_frame_strength'] is None:
+                                    params['end_frame_strength'] = job_data.get('end_frame_strength', 1.0)
+                                    print(f"Set end_frame_strength to {params['end_frame_strength']} for job {job_id}")
                         except Exception as e:
                             print(f"Error loading end frame image for job {job_id}: {e}")
                     
@@ -930,6 +937,46 @@ class VideoJobQueue:
                     if os.path.isfile(src_path):
                         shutil.copy2(src_path, dst_path)
                         print(f"Copied {src_path} to {dst_path}")
+                
+                # Update paths in the queue.json file to reflect the new location of the images
+                try:
+                    with open(queue_json_path, 'r') as f:
+                        queue_data = json.load(f)
+                    
+                    # Update paths for each job
+                    for job_id, job_data in queue_data.items():
+                        # Check for files with job_id in the name to identify input and end frame images
+                        input_image_filename = f"{job_id}_input.png"
+                        end_frame_image_filename = f"{job_id}_end_frame.png"
+                        
+                        # Check if these files exist in the target directory
+                        input_image_path = os.path.join(target_queue_images_dir, input_image_filename)
+                        end_frame_image_path = os.path.join(target_queue_images_dir, end_frame_image_filename)
+                        
+                        # Update paths in job_data
+                        if os.path.exists(input_image_path):
+                            job_data["saved_input_image_path"] = input_image_path
+                            print(f"Updated input image path for job {job_id}: {input_image_path}")
+                        elif "saved_input_image_path" in job_data:
+                            # Fallback to updating the existing path
+                            job_data["saved_input_image_path"] = os.path.join(target_queue_images_dir, os.path.basename(job_data["saved_input_image_path"]))
+                            print(f"Updated existing input image path for job {job_id}")
+                        
+                        if os.path.exists(end_frame_image_path):
+                            job_data["saved_end_frame_image_path"] = end_frame_image_path
+                            print(f"Updated end frame image path for job {job_id}: {end_frame_image_path}")
+                        elif "saved_end_frame_image_path" in job_data:
+                            # Fallback to updating the existing path
+                            job_data["saved_end_frame_image_path"] = os.path.join(target_queue_images_dir, os.path.basename(job_data["saved_end_frame_image_path"]))
+                            print(f"Updated existing end frame image path for job {job_id}")
+                    
+                    # Write the updated queue.json back to the file
+                    with open(queue_json_path, 'w') as f:
+                        json.dump(queue_data, f, indent=2)
+                    
+                    print(f"Updated image paths in queue.json to reflect new location")
+                except Exception as e:
+                    print(f"Error updating paths in queue.json: {e}")
             
             # Load the queue from the extracted queue.json
             loaded_count = self.load_queue_from_json(queue_json_path)
