@@ -87,11 +87,225 @@ class Job:
                 self.thumbnail = f"data:image/png;base64,{base64.b64encode(buffered.getvalue()).decode()}"
             elif isinstance(self.input_image, str):
                 # Handle string (video path)
-                # Create a generic video thumbnail
-                img = Image.new('RGB', (100, 100), (0, 0, 128))  # Blue for video
-                buffered = io.BytesIO()
-                img.save(buffered, format="PNG")
-                self.thumbnail = f"data:image/png;base64,{base64.b64encode(buffered.getvalue()).decode()}"
+                try:
+                    print(f"Attempting to extract thumbnail from video: {self.input_image}")
+                    # Try to extract frames from the video using imageio
+                    import imageio
+                    
+                    # Check if the file exists
+                    if not os.path.exists(self.input_image):
+                        print(f"Video file not found: {self.input_image}")
+                        raise FileNotFoundError(f"Video file not found: {self.input_image}")
+                    
+                    # Create outputs directory if it doesn't exist
+                    os.makedirs("outputs", exist_ok=True)
+                    
+                    # Try to open the video file
+                    try:
+                        reader = imageio.get_reader(self.input_image)
+                        print(f"Successfully opened video file with imageio")
+                    except Exception as e:
+                        print(f"Failed to open video with imageio: {e}")
+                        raise
+                    
+                    # Get the total number of frames
+                    num_frames = None
+                    try:
+                        # Try to get the number of frames from metadata
+                        meta_data = reader.get_meta_data()
+                        print(f"Video metadata: {meta_data}")
+                        num_frames = meta_data.get('nframes')
+                        if num_frames is None or num_frames == float('inf'):
+                            print("Number of frames not available in metadata")
+                            # If not available, try to count frames
+                            if hasattr(reader, 'count_frames'):
+                                print("Trying to count frames...")
+                                num_frames = reader.count_frames()
+                                print(f"Counted {num_frames} frames")
+                    except Exception as e:
+                        print(f"Error getting frame count: {e}")
+                        num_frames = None
+                    
+                    # If we couldn't determine the number of frames, read the last frame by iterating
+                    if num_frames is None or num_frames == float('inf'):
+                        print("Reading frames by iteration to find the last one")
+                        # Read frames until we reach the end
+                        frame_count = 0
+                        first_frame = None
+                        last_frame = None
+                        try:
+                            for frame in reader:
+                                if frame_count == 0:
+                                    first_frame = frame
+                                last_frame = frame
+                                frame_count += 1
+                                # Print progress every 100 frames
+                                if frame_count % 100 == 0:
+                                    print(f"Read {frame_count} frames...")
+                            print(f"Finished reading {frame_count} frames")
+                            
+                            # Save the first frame if available
+                            if first_frame is not None:
+                                print(f"Found first frame with shape: {first_frame.shape}")
+                                debug_output_path = os.path.join("outputs", f"debug_first_frame_{self.id}.png")
+                                try:
+                                    debug_img = Image.fromarray(first_frame)
+                                    debug_img.save(debug_output_path)
+                                    print(f"DEBUG: Saved first frame to {debug_output_path}")
+                                except Exception as e:
+                                    print(f"DEBUG: Error saving first frame to outputs: {e}")
+                        except Exception as e:
+                            print(f"Error reading frames: {e}")
+                        
+                        if last_frame is not None:
+                            print(f"Found last frame with shape: {last_frame.shape}")
+                            
+                            # Save the last frame to the outputs folder for debugging
+                            debug_output_path = os.path.join("outputs", f"debug_last_frame_{self.id}.png")
+                            try:
+                                debug_img = Image.fromarray(last_frame)
+                                debug_img.save(debug_output_path)
+                                print(f"DEBUG: Saved last frame to {debug_output_path}")
+                            except Exception as e:
+                                print(f"DEBUG: Error saving last frame to outputs: {e}")
+                            
+                            # Use the last frame for the thumbnail
+                            img = Image.fromarray(last_frame)
+                            img.thumbnail((100, 100))
+                            buffered = io.BytesIO()
+                            img.save(buffered, format="PNG")
+                            self.thumbnail = f"data:image/png;base64,{base64.b64encode(buffered.getvalue()).decode()}"
+                            print("Successfully created thumbnail from last frame")
+                        else:
+                            print("No frames were read, using red thumbnail")
+                            # Fallback to red thumbnail if no frames were read - more visible for debugging
+                            img = Image.new('RGB', (100, 100), (255, 0, 0))  # Red for video
+                            buffered = io.BytesIO()
+                            img.save(buffered, format="PNG")
+                            self.thumbnail = f"data:image/png;base64,{base64.b64encode(buffered.getvalue()).decode()}"
+                    else:
+                        print(f"Getting frames for debugging (total frames: {num_frames})")
+                        # If we know the number of frames, try to get multiple frames for debugging
+                        try:
+                            # Try to get the first frame
+                            first_frame = None
+                            try:
+                                first_frame = reader.get_data(0)
+                                print(f"Got first frame with shape: {first_frame.shape}")
+                                
+                                # Save the first frame to the outputs folder for debugging
+                                debug_first_frame_path = os.path.join("outputs", f"debug_first_frame_{self.id}.png")
+                                try:
+                                    debug_first_img = Image.fromarray(first_frame)
+                                    debug_first_img.save(debug_first_frame_path)
+                                    print(f"DEBUG: Saved first frame to {debug_first_frame_path}")
+                                except Exception as e:
+                                    print(f"DEBUG: Error saving first frame to outputs: {e}")
+                            except Exception as e:
+                                print(f"Error getting first frame: {e}")
+                            
+                            # Try to get a middle frame
+                            middle_frame = None
+                            try:
+                                middle_frame_idx = int(num_frames / 2)
+                                middle_frame = reader.get_data(middle_frame_idx)
+                                print(f"Got middle frame (frame {middle_frame_idx}) with shape: {middle_frame.shape}")
+                                
+                                # Save the middle frame to the outputs folder for debugging
+                                debug_middle_frame_path = os.path.join("outputs", f"debug_middle_frame_{self.id}.png")
+                                try:
+                                    debug_middle_img = Image.fromarray(middle_frame)
+                                    debug_middle_img.save(debug_middle_frame_path)
+                                    print(f"DEBUG: Saved middle frame to {debug_middle_frame_path}")
+                                except Exception as e:
+                                    print(f"DEBUG: Error saving middle frame to outputs: {e}")
+                            except Exception as e:
+                                print(f"Error getting middle frame: {e}")
+                            
+                            # Try to get the last frame
+                            last_frame = None
+                            try:
+                                last_frame_idx = int(num_frames) - 1
+                                last_frame = reader.get_data(last_frame_idx)
+                                print(f"Got last frame (frame {last_frame_idx}) with shape: {last_frame.shape}")
+                                
+                                # Save the last frame to the outputs folder for debugging
+                                debug_last_frame_path = os.path.join("outputs", f"debug_last_frame_{self.id}.png")
+                                try:
+                                    debug_last_img = Image.fromarray(last_frame)
+                                    debug_last_img.save(debug_last_frame_path)
+                                    print(f"DEBUG: Saved last frame to {debug_last_frame_path}")
+                                except Exception as e:
+                                    print(f"DEBUG: Error saving last frame to outputs: {e}")
+                            except Exception as e:
+                                print(f"Error getting last frame: {e}")
+                            
+                            # If we couldn't get the last frame directly, try to get it by iterating
+                            if last_frame is None:
+                                print("Trying to get last frame by iterating through all frames")
+                                try:
+                                    for frame in reader:
+                                        last_frame = frame
+                                    
+                                    if last_frame is not None:
+                                        print(f"Got last frame by iteration with shape: {last_frame.shape}")
+                                        
+                                        # Save the last frame to the outputs folder for debugging
+                                        debug_last_frame_path = os.path.join("outputs", f"debug_last_frame_iter_{self.id}.png")
+                                        try:
+                                            debug_last_img = Image.fromarray(last_frame)
+                                            debug_last_img.save(debug_last_frame_path)
+                                            print(f"DEBUG: Saved last frame (from iteration) to {debug_last_frame_path}")
+                                        except Exception as e:
+                                            print(f"DEBUG: Error saving last frame (from iteration) to outputs: {e}")
+                                except Exception as e:
+                                    print(f"Error getting last frame by iteration: {e}")
+                            
+                            # Use the last frame for the thumbnail if available, otherwise use the middle or first frame
+                            frame_for_thumbnail = last_frame if last_frame is not None else (middle_frame if middle_frame is not None else first_frame)
+                            
+                            if frame_for_thumbnail is not None:
+                                # Convert to PIL Image and create a thumbnail
+                                img = Image.fromarray(frame_for_thumbnail)
+                                img.thumbnail((100, 100))
+                                buffered = io.BytesIO()
+                                img.save(buffered, format="PNG")
+                                self.thumbnail = f"data:image/png;base64,{base64.b64encode(buffered.getvalue()).decode()}"
+                                print("Successfully created thumbnail from frame")
+                            else:
+                                print("No frames were extracted, using blue thumbnail")
+                                # Fallback to blue thumbnail if no frames were extracted
+                                img = Image.new('RGB', (100, 100), (0, 0, 255))  # Blue for video
+                                buffered = io.BytesIO()
+                                img.save(buffered, format="PNG")
+                                self.thumbnail = f"data:image/png;base64,{base64.b64encode(buffered.getvalue()).decode()}"
+                        except Exception as e:
+                            print(f"Error extracting frames for debugging: {e}")
+                            import traceback
+                            traceback.print_exc()
+                            # Fallback to blue thumbnail on error
+                            img = Image.new('RGB', (100, 100), (0, 0, 255))  # Blue for video
+                            buffered = io.BytesIO()
+                            img.save(buffered, format="PNG")
+                            self.thumbnail = f"data:image/png;base64,{base64.b64encode(buffered.getvalue()).decode()}"
+                    
+                    # Close the reader
+                    try:
+                        reader.close()
+                        print("Successfully closed video reader")
+                    except Exception as e:
+                        print(f"Error closing reader: {e}")
+                    
+                except Exception as e:
+                    print(f"Error extracting thumbnail from video: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    # Fallback to bright green thumbnail on error to make it more visible
+                    img = Image.new('RGB', (100, 100), (0, 255, 0))  # Bright green for error
+                    buffered = io.BytesIO()
+                    img.save(buffered, format="PNG")
+                    self.thumbnail = f"data:image/png;base64,{base64.b64encode(buffered.getvalue()).decode()}"
+                    print("Created bright green fallback thumbnail")
             else:
                 # Handle other types
                 self.thumbnail = None
