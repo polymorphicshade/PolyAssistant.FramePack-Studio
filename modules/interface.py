@@ -1300,6 +1300,7 @@ def create_interface(
                     return video_path, json.dumps(info_content, indent=2, ensure_ascii=False), gr.update(visible=True)
 
                 gallery_items_state = gr.State(get_gallery_items())
+                selected_original_video_path_state = gr.State(None) # Holds the ORIGINAL, UNPROCESSED path
                 with gr.Row():
                     with gr.Column(scale=2):
                         thumbs = gr.Gallery(
@@ -1311,7 +1312,7 @@ def create_interface(
                         )
                         refresh_button = gr.Button("Update")
                     with gr.Column(scale=5):
-                        video_out = gr.Video(sources=[], autoplay=True, loop=True, visible=False, elem_id="non-mirrored-video")
+                        video_out = gr.Video(sources=[], autoplay=True, loop=True, visible=False)
                     with gr.Column(scale=1):
                         info_out = gr.Textbox(label="Generation info", visible=False)
                         send_to_toolbox_btn = gr.Button("➡️ Send to Post-processing", visible=False)  # Added new send_to_toolbox_btn
@@ -1321,27 +1322,25 @@ def create_interface(
                     refresh_button.click(fn=refresh_gallery, outputs=[thumbs, gallery_items_state])
                     
                     # MODIFIED: on_select now handles visibility of the new button
-                    def on_select(evt: gr.SelectData, gallery_items): # Using original FPS parameter names
+                    def on_select(evt: gr.SelectData, gallery_items):
                         if evt.index is None or not gallery_items or evt.index >= len(gallery_items):
-                            # Handle invalid selection: hide video, info, and new button
-                            return gr.update(visible=False), gr.update(visible=False), gr.update(visible=False)
-                        
-                        prefix = gallery_items[evt.index][1]
-                        # load_video_and_info_from_prefix now returns three items
-                        video_path, info_string, button_visibility_update = load_video_and_info_from_prefix(prefix)
-                        
-                        # Determine visibility for video and info based on whether video_path was found
-                        video_player_update = gr.update(value=video_path, visible=bool(video_path))
-                        info_textbox_update = gr.update(value=info_string, visible=bool(video_path))
-                        
-                        # button_visibility_update is already a gr.update object from load_video_and_info_from_prefix
-                        return video_player_update, info_textbox_update, button_visibility_update
+                            return gr.update(visible=False), gr.update(visible=False), gr.update(visible=False), None
 
-                    # Original FPS thumbs.select, MODIFIED outputs
+                        prefix = gallery_items[evt.index][1]
+                        # original_video_path is e.g., "outputs/my_actual_video.mp4"
+                        original_video_path, info_string, button_visibility_update = load_video_and_info_from_prefix(prefix)
+
+                        # Determine visibility for video and info based on whether video_path was found
+                        video_out_update = gr.update(value=original_video_path, visible=bool(original_video_path))
+                        info_out_update = gr.update(value=info_string, visible=bool(original_video_path))
+
+                        # IMPORTANT: Store the ORIGINAL, UNPROCESSED path in the gr.State
+                        return video_out_update, info_out_update, button_visibility_update, original_video_path
+
                     thumbs.select(
-                        fn=on_select, 
-                        inputs=[gallery_items_state], 
-                        outputs=[video_out, info_out, send_to_toolbox_btn] # Added send_to_toolbox_btn
+                        fn=on_select,
+                        inputs=[gallery_items_state],
+                        outputs=[video_out, info_out, send_to_toolbox_btn, selected_original_video_path_state] # Output original path to State
                     )
             with gr.Tab("Post-processing", id="toolbox_tab"):          
                 # Call the function from toolbox_app.py to build the Toolbox UI
@@ -1579,25 +1578,23 @@ def create_interface(
             # This ensures the button stays in this state until the job is fully cancelled
             return queue_status_data, gr.update(value="Cancelling...", interactive=False), gr.update()
 
-        # --- NEW EVENT HANDLER for "Send to Post-processing" button ---
-        def handle_send_video_to_toolbox(selected_video_from_outputs_tab):
-            # Check if the input is a valid file path (Gradio Video component value is the path)
-            if selected_video_from_outputs_tab and isinstance(selected_video_from_outputs_tab, str) and os.path.exists(selected_video_from_outputs_tab):
-                print(f"Sending video to Post-processing {selected_video_from_outputs_tab}")
-                return gr.update(value=selected_video_from_outputs_tab), gr.update(selected="toolbox_tab")
-            else:
-                print(f"No valid video path from Outputs tab to send to Post-processing. Path received: {selected_video_from_outputs_tab}")
-                return gr.update(), gr.update() # No change
+        # MODIFIED handle_send_video_to_toolbox:
+        def handle_send_video_to_toolbox(original_path_from_state): # Input is now the original path from gr.State
+            print(f"Button clicked. Sending ORIGINAL video path (from State) to Post-processing: {original_path_from_state}")
 
-        # Connect the button (defined in Outputs tab) to its handler
-        # This assumes send_to_toolbox_btn, video_out, tb_target_video_input, 
-        # and main_tabs_component are all accessible here.
+            if original_path_from_state and isinstance(original_path_from_state, str) and os.path.exists(original_path_from_state):
+                # tb_target_video_input will now process the ORIGINAL path (e.g., "outputs/my_actual_video.mp4").
+                return gr.update(value=original_path_from_state), gr.update(selected="toolbox_tab")
+            else:
+                print(f"No valid original video path from State to send. Path: {original_path_from_state}")
+                return gr.update(), gr.update()
+
         send_to_toolbox_btn.click(
             fn=handle_send_video_to_toolbox,
-            inputs=[video_out],  # Input is the video_out component from the Outputs tab
+            inputs=[selected_original_video_path_state], # INPUT IS NOW THE gr.State holding the ORIGINAL path
             outputs=[
-                tb_target_video_input,  # Output to the Toolbox's input video component
-                main_tabs_component     # Output to the main gr.Tabs component to switch selected tab
+                tb_target_video_input, # This is tb_input_video_component from toolbox_app.py
+                main_tabs_component
             ]
         )
         
