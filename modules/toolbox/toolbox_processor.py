@@ -1009,7 +1009,8 @@ class VideoProcessor:
             ffmpeg_cmd = [
                 self.ffmpeg_exe, "-y", "-loglevel", "error", "-i", resolved_video_path,
                 "-vf", ",".join(filters), 
-                "-c:v", "libx264", "-preset", "medium", "-crf", "20", # Example video codec options
+                "-c:v", "libx264", "-preset", "medium", "-crf", "20",
+                "-pix_fmt", "yuv420p",
                 "-map", "0:v:0" 
             ]
             if original_video_has_audio:
