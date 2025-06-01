@@ -3,7 +3,7 @@
 
 [![Discord](https://img.shields.io/badge/Discord-%235865F2.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/MtuM7gFJ3V)[![Patreon](https://img.shields.io/badge/Patreon-F96854?style=for-the-badge&logo=patreon&logoColor=white)](https://www.patreon.com/ColinU)[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/colinurbs/FramePack-Studio)
 
-FramePack Studio is an AI video generation application based on FramePack that strives to provide everything you need to create high quality AI generated video projects. 
+FramePack Studio is an AI video generation application based on FramePack that strives to provide everything you need to create high quality video projects. 
 
 ## Current Features
 
