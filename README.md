@@ -35,7 +35,8 @@ FramePack Studio is an AI video generation application based on FramePack that s
 
 - Python 3.10+
 - CUDA-compatible GPU with at least 8GB VRAM (16GB+ recommended)
-- 16GB System Memory (32GB+ strongly recommended) 
+- 16GB System Memory (32GB+ strongly recommended)
+- 80GB+ of storage (for models)
 
 ### Setup
 
