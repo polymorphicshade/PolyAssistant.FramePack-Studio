@@ -780,7 +780,7 @@ def worker(
 
             if not high_vram:
                 if selected_loras:
-                    current_generator.move_lora_adapters_to_device(cpu)
+                    studio_module.current_generator.move_lora_adapters_to_device(cpu)
                 offload_model_from_device_for_memory_preservation(studio_module.current_generator.transformer, target_device=gpu, preserved_memory_gb=8)
                 load_model_as_complete(vae, target_device=gpu)
 
@@ -845,7 +845,7 @@ def worker(
             # Ensure all models including the potentially active transformer are unloaded on error
             unload_complete_models(
                 text_encoder, text_encoder_2, image_encoder, vae, 
-                studio_module.current_generator.transformer if current_generator else None
+                studio_module.current_generator.transformer if studio_module.current_generator else None
             )
 
     if settings.get("clean_up_videos"):
