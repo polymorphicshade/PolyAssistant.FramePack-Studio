@@ -61,6 +61,7 @@ Additional command line options:
 - `--server`: Specify the server address (default: 0.0.0.0)
 - `--port`: Specify a custom port
 - `--inbrowser`: Automatically open the interface in your browser
+- `--offline`: Disable HF model checks to allow use without internet
 
 ## LoRAs
 
