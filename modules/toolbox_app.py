@@ -18,7 +18,12 @@ from modules.toolbox.message_manager import MessageManager
 from modules.toolbox.system_monitor import SystemMonitor
 from modules.settings import Settings
 
-from diffusers_helper.memory import unload_complete_models, cpu, offload_model_from_device_for_memory_preservation
+try:
+    from diffusers_helper.memory import cpu
+except ImportError:
+    print("WARNING: Could not import cpu from diffusers_helper.memory. Falling back to torch.device('cpu')")
+    cpu = torch.device('cpu')
+
 
 tb_message_mgr = MessageManager()
 settings_instance = Settings()
@@ -164,58 +169,134 @@ def tb_handle_upscale_video(video_path, upscale_factor, progress=gr.Progress()):
     output_video = tb_processor.tb_upscale_video(video_path, upscale_factor, progress)
     return output_video, tb_update_messages()
 
-def tb_handle_unload_studio_models():
+def tb_handle_delete_studio_transformer():
     tb_message_mgr.clear()
-    print("Attempting to unload the main Transformer model...")
-    tb_message_mgr.add_message("Attempting to unload the main Transformer model...")
+    tb_message_mgr.add_message("Attempting to directly access and delete Studio transformer...")
+    print("Attempting to directly access and delete Studio transformer...")
+    log_messages_from_action = [] # This will store detailed steps for the UI log
 
-    studio_scope = None
-    try:
-        if '__main__' in sys.modules and hasattr(sys.modules['__main__'], 'current_generator'):
-            studio_scope = sys.modules['__main__']
-        elif 'studio' in sys.modules and hasattr(sys.modules['studio'], 'current_generator'): # If studio was imported
-             studio_scope = sys.modules['studio']
-        else: # Last resort, try to import it if not already
-            try:
-                import studio as studio_module_direct_import
-                if hasattr(studio_module_direct_import, 'current_generator'):
-                    studio_scope = studio_module_direct_import
-            except ImportError: pass
+    studio_module_instance = None
+    # Check __main__ first
+    if '__main__' in sys.modules and hasattr(sys.modules['__main__'], 'current_generator'):
+        studio_module_instance = sys.modules['__main__']
+        print("Found studio context in __main__.") # Console log only
+    elif 'studio' in sys.modules and hasattr(sys.modules['studio'], 'current_generator'):
+        studio_module_instance = sys.modules['studio']
+        print("Found studio context in sys.modules['studio'].") # Console log only
+    else:
+        print("ERROR: Could not find the 'studio' module's active context.")
+        # Add error messages directly for UI, as log_messages_from_action won't be normally processed
+        tb_message_mgr.add_message("ERROR: Could not find the 'studio' module's active context in sys.modules.")
+        tb_message_mgr.add_error("Deletion Failed: Studio module context not found.")
+        return tb_update_messages()
+
+    generator_object_to_delete = getattr(studio_module_instance, 'current_generator', None)
+    print(f"Direct access: generator_object_to_delete is {type(generator_object_to_delete)}, id: {id(generator_object_to_delete)}")
+
+    if generator_object_to_delete is not None:
+        model_name_str = "Unknown Model"
+        try:
+            if hasattr(generator_object_to_delete, 'get_model_name') and callable(generator_object_to_delete.get_model_name):
+                model_name_str = generator_object_to_delete.get_model_name()
+            elif hasattr(generator_object_to_delete, 'transformer') and generator_object_to_delete.transformer is not None:
+                model_name_str = generator_object_to_delete.transformer.__class__.__name__
+            else:
+                model_name_str = generator_object_to_delete.__class__.__name__
+        except Exception:
+            pass # model_name_str remains "Unknown Model"
         
-        if not studio_scope:
-            tb_message_mgr.add_error("Unload Failed: Scope inaccessible.")
-            return tb_update_messages()
-
-        _cg = getattr(studio_scope, 'current_generator', None)
-        if not (_cg and hasattr(_cg, 'transformer') and _cg.transformer):
-            tb_message_mgr.add_message("No active Transformer found to unload.")
-            print("No active transformer to unload.")
-            return tb_update_messages()
-
-        _trans_name = _cg.transformer.__class__.__name__ # Get name before it's gone
-        _trans = _cg.transformer
+        tb_message_mgr.add_message(f" Deletion of '{model_name_str}' initiated.")
         
-        if hasattr(_cg, 'unload_loras'): _cg.unload_loras()
-        
-        if hasattr(_trans, 'to') and getattr(_trans, 'device', cpu) != cpu:
-            try: _trans.to(cpu)
-            except Exception as e_cpu: print(f"Transformer to CPU failed: {e_cpu}") # Log but continue
+        log_messages_from_action.append(f" Found active generator: {model_name_str}. Preparing for deletion.")
+        print(f"Found active generator: {model_name_str}. Preparing for deletion.")
 
-        _cg.transformer = None
-        setattr(studio_scope, 'current_generator', None)
+        try:
+            # Step 1: Unload LoRAs
+            if hasattr(generator_object_to_delete, 'unload_loras') and callable(generator_object_to_delete.unload_loras):
+                print("   - LoRAs: Unloading from transformer...")
+                generator_object_to_delete.unload_loras()
+            else:
+                log_messages_from_action.append("    - LoRAs: No unload method found or not applicable.")
 
-        del _trans
-        del _cg
-        gc.collect()
-        devicetorch.empty_cache(torch) 
+            # Step 2: Operate on the transformer object
+            if hasattr(generator_object_to_delete, 'transformer') and generator_object_to_delete.transformer is not None:
+                transformer_object_ref = generator_object_to_delete.transformer
+                transformer_name_for_log = transformer_object_ref.__class__.__name__ # Still useful for detailed prints/errors
+                print(f"   - Transformer ({transformer_name_for_log}): Preparing for memory operations.")
 
-        print(f"Transformer '{_trans_name}' unload process completed.")
-        tb_message_mgr.add_success(f"Success: Transformer '{_trans_name}' unloaded.")
+                moved_to_cpu_successfully = False
+                if hasattr(transformer_object_ref, 'device') and transformer_object_ref.device != cpu:
+                    if hasattr(transformer_object_ref, 'to') and callable(transformer_object_ref.to):
+                        try:
+                            print(f"   - Transformer ({transformer_name_for_log}): Moving to CPU...")
+                            transformer_object_ref.to(cpu)
+                            # ℹ️    - Transformer moved to CPU.
+                            log_messages_from_action.append("    - Transformer moved to CPU.")
+                            print(f"   - Transformer ({transformer_name_for_log}): Moved to CPU.")
+                            moved_to_cpu_successfully = True
+                        except Exception as e_cpu:
+                            error_msg_cpu = f"    - Transformer ({transformer_name_for_log}): Move to CPU FAILED: {e_cpu}"
+                            log_messages_from_action.append(error_msg_cpu)
+                            print(error_msg_cpu) # Keep detailed error for console
+                    else:
+                        log_messages_from_action.append(f"    - Transformer ({transformer_name_for_log}): Cannot move to CPU, 'to' method not found.")
+                        print(f"   - Transformer ({transformer_name_for_log}): Cannot move to CPU, 'to' method not found.")
+                elif hasattr(transformer_object_ref, 'device') and transformer_object_ref.device == cpu:
+                     log_messages_from_action.append("    - Transformer already on CPU.")
+                     print(f"   - Transformer ({transformer_name_for_log}): Already on CPU.")
+                     moved_to_cpu_successfully = True # Considered successful for deletion purposes
+                else: # No device attribute or other case
+                    log_messages_from_action.append("    - Transformer: Could not determine device or move to CPU.")
+                    print(f"   - Transformer ({transformer_name_for_log}): Could not determine device or move to CPU.")
+                
+                print(f"   - Transformer ({transformer_name_for_log}): Removing attribute from generator...")
+                generator_object_to_delete.transformer = None
+                print(f"   - Transformer ({transformer_name_for_log}): Deleting Python reference...")
+                del transformer_object_ref
+                # ℹ️    - Transformer reference deleted.
+                log_messages_from_action.append("    - Transformer reference deleted.")
+                print(f"   - Transformer ({transformer_name_for_log}): Reference deleted.")
+            else:
+                log_messages_from_action.append("    - Transformer: Not found or already unloaded.")
+                print("   - Transformer: Not found or already unloaded.")
 
-    except Exception as e:
-        print(f"Transformer Unload FAILED. Error:\n{traceback.format_exc()}")
-        tb_message_mgr.add_error(f"Unload FAILED: Error. Check console. ({type(e).__name__})")
-    
+            # Step 3: Nullify the global reference in studio module
+            generator_class_name_for_log = generator_object_to_delete.__class__.__name__
+            print(f"   - Model Generator ({generator_class_name_for_log}): Setting global reference to None...")
+            setattr(studio_module_instance, 'current_generator', None)
+            log_messages_from_action.append("    - 'current_generator' in studio module set to None.")
+            print("   - Global 'current_generator' in studio module successfully set to None.")
+
+            # Step 4: Delete our Python reference to the generator object itself
+            print(f"   - Model Generator ({generator_class_name_for_log}): Deleting local Python reference...")
+            del generator_object_to_delete # Actual deletion
+            print(f"   - Model Generator ({generator_class_name_for_log}): Python reference deleted.")
+
+            # Step 5: System Cleanup
+            print("   - System: Performing garbage collection and CUDA cache clearing.")
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            log_messages_from_action.append("    - GC and CUDA cache cleared.")
+            print("   - System: GC and CUDA cache clear completed.")
+            
+            log_messages_from_action.append(f"✅ Deletion of '{model_name_str}' completed successfully from toolbox.")
+            tb_message_mgr.add_success(f"Deletion of '{model_name_str}' initiated from toolbox.")
+
+        except Exception as e_del:
+            error_msg_del = f"Error during deletion process: {e_del}"
+            log_messages_from_action.append(f"    - {error_msg_del}") # Add error to detailed log
+            print(f"   - {error_msg_del}")
+            traceback.print_exc()
+            tb_message_mgr.add_error(f"Deletion Error: {e_del}")
+    else:
+        tb_message_mgr.add_message("ℹ️ No active generator found. Nothing to delete.") # Direct UI message
+        print("No active generator found via direct access. Nothing to delete.")
+
+    # Add all collected detailed log messages to the UI
+    for msg_item in log_messages_from_action:
+        tb_message_mgr.add_message(msg_item)
+
     return tb_update_messages()
 
 def tb_handle_manually_save_video(temp_video_path_from_component):
@@ -307,7 +388,7 @@ def tb_create_video_toolbox_ui():
                     interactive=False,
                 )
                 with gr.Row():
-                    tb_unload_studio_models_btn = gr.Button(
+                    tb_delete_studio_transformer_btn = gr.Button(
                         "📤 Unload Studio Models", variant="stop")
                     gr.Markdown(
                         "Studio will automatically reload models when you start a new video generation. "
@@ -535,8 +616,8 @@ def tb_create_video_toolbox_ui():
             outputs=[tb_resource_monitor_output],
         )
         # ADDED: Event handler for the new unload button
-        tb_unload_studio_models_btn.click(
-            fn=tb_handle_unload_studio_models,
+        tb_delete_studio_transformer_btn.click(
+            fn=tb_handle_delete_studio_transformer,
             inputs=[], # No Gradio inputs for this action
             outputs=[tb_message_output] # Update the toolbox's message console
         )
