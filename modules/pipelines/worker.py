@@ -196,7 +196,9 @@ def worker(
             'resolutionH': resolutionH,
             'lora_loaded_names': lora_loaded_names,
             'input_image_path': input_image_path,
-            'end_frame_image_path': end_frame_image_path
+            'end_frame_image_path': end_frame_image_path,
+            'combine_with_source': combine_with_source,
+            'num_cleaned_frames': num_cleaned_frames
         }
         
         # Validate parameters
