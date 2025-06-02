@@ -320,9 +320,10 @@ def process(
         selected_loras,
         resolutionW,
         resolutionH,
+        input_image_path,
+        combine_with_source,
+        num_cleaned_frames,
         *lora_args,
-        input_image_path=None,
-        combine_with_source=None
     ):
     
     # Create a blank black image if no 
@@ -420,12 +421,9 @@ def process(
         'resolutionW': resolutionW, # Add resolution parameter
         'resolutionH': resolutionH,
         'lora_loaded_names': lora_loaded_names,
-        'combine_with_source': combine_with_source  # Add combine_with_source parameter
+        'combine_with_source': combine_with_source,  # Add combine_with_source parameter
+        'num_cleaned_frames': num_cleaned_frames,
     }
-    
-    # Add num_cleaned_frames parameter if this is a Video or Video F1 model
-    if model_type == "Video" or model_type == "Video F1":
-        job_params['num_cleaned_frames'] = num_cleaned_frames if 'num_cleaned_frames' in locals() else 5
     
     # Print teacache parameters for debugging
     print(f"Teacache parameters: use_teacache={use_teacache}, teacache_num_steps={teacache_num_steps}, teacache_rel_l1_thresh={teacache_rel_l1_thresh}")

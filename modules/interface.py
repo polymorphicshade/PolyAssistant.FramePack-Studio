@@ -729,11 +729,23 @@ def create_interface(
                                     v["model_type"], v["input_image"], v["input_video"], v["end_frame_image_original"], 
                                     v["end_frame_strength_original"], v["prompt"], v["n_prompt"],
                                     v["seed"], v["total_second_length"], v["latent_window_size"], v["steps"],
-                                    v["cfg"], v["gs"], v["rs"], v["gpu_memory_preservation"],
-                                    v["use_teacache"], v["teacache_num_steps"], v["teacache_rel_l1_thresh"], v["mp4_crf"], v["randomize_seed_checked"], v["save_metadata_checked"],
-                                    v["blend_sections"], v["latent_type"], v["clean_up_videos"], v["selected_loras"],
-                                    v["resolutionW"], v["resolutionH"], v["lora_loaded_names"], v["lora_values"]
-                                )
+                                v["cfg"], v["gs"], v["rs"], 
+                                # gpu_memory_preservation is a global setting, not passed directly here
+                                v["use_teacache"], v["teacache_num_steps"], v["teacache_rel_l1_thresh"], 
+                                # mp4_crf is a global setting
+                                v["randomize_seed_checked"], 
+                                # save_metadata_checked is a global setting
+                                v["blend_sections"], v["latent_type"], v["clean_up_videos"], 
+                                v["selected_loras"], v["resolutionW"], v["resolutionH"],
+                                # Add combine_with_source and num_cleaned_frames for XY plot calls,
+                                # using default values as XY plot UI doesn't have these.
+                                # These need to be present if process_with_queue_update expects them.
+                                # Defaulting to False and 5, adjust if other defaults are better for XY.
+                                False, # combine_with_source for XY plot
+                                5,     # num_cleaned_frames for XY plot
+                                v["lora_loaded_names"], # This becomes lora_names_states_arg
+                                *v["lora_values"]       # This becomes *lora_slider_values_tuple
+                            )
                         output_generator_vars[i]["job_id"] = xy_plot_new_job[1]
                     # Monitor jobs and update preview window
                     while True:
@@ -1497,49 +1509,72 @@ def create_interface(
         # Connect the main process function (wrapper for adding to queue)
         def process_with_queue_update(model_type, *args):
             # Extract all arguments (ensure order matches inputs lists)
-            input_image, input_video, end_frame_image_original, end_frame_strength_original, prompt_text, n_prompt, seed_value, total_second_length, latent_window_size, steps, cfg, gs, rs, gpu_memory_preservation, use_teacache, teacache_num_steps, teacache_rel_l1_thresh, mp4_crf, randomize_seed_checked, save_metadata_checked, blend_sections, latent_type, clean_up_videos, selected_loras, resolutionW, resolutionH, *lora_args = args
-
+            # The order here MUST match the order in the `ips` list.
+            # RT_BORG: Global settings gpu_memory_preservation, mp4_crf, save_metadata removed from direct args.
+            (input_image_arg,
+             input_video_arg,
+             end_frame_image_original_arg,
+             end_frame_strength_original_arg,
+             prompt_text_arg,
+             n_prompt_arg,
+             seed_arg,
+             total_second_length_arg,
+             latent_window_size_arg,
+             steps_arg,
+             cfg_arg, 
+             gs_arg,
+             rs_arg,
+             use_teacache_arg,
+             teacache_num_steps_arg,
+             teacache_rel_l1_thresh_arg,
+             randomize_seed_arg,
+             blend_sections_arg,
+             latent_type_arg,
+             clean_up_videos_arg, # UI checkbox from Generate tab
+             selected_loras_arg,
+             resolutionW_arg, resolutionH_arg,
+             combine_with_source_arg, # <<<< Correctly unpacked
+             num_cleaned_frames_arg,  # <<<< Correctly unpacked
+             lora_names_states_arg,   # This is from lora_names_states (gr.State)
+             *lora_slider_values_tuple # Remaining args are LoRA slider values
+            ) = args
             # DO NOT parse the prompt here. Parsing happens once in the worker.
 
             # Use the appropriate input based on model type
-            input_data = input_video if model_type == "Video" or model_type == "Video F1" else input_image
+            input_data = input_video_arg if model_type == "Video" or model_type == "Video F1" else input_image_arg
             
             # Define actual end_frame params to pass to backend
             actual_end_frame_image_for_backend = None
             actual_end_frame_strength_for_backend = 1.0  # Default strength
 
             if model_type == "Original with Endframe" or model_type == "F1 with Endframe" or model_type == "Video" or model_type == "Video F1":
-                actual_end_frame_image_for_backend = end_frame_image_original # Use the unpacked value
-                actual_end_frame_strength_for_backend = end_frame_strength_original # Use the unpacked value
-            
-            # For Video models, check if combine_with_source is checked and get num_cleaned_frames
-            combine_with_source_value = None
-            num_cleaned_frames_value = None
-            if model_type == "Video" or model_type == "Video F1":
-                # Access the combine_with_source checkbox directly
-                try:
-                    combine_with_source_value = combine_with_source.value
-                    num_cleaned_frames_value = num_cleaned_frames.value
-                except:
-                    print("Warning: Could not access combine_with_source or num_cleaned_frames value")
+                actual_end_frame_image_for_backend = end_frame_image_original_arg
+                actual_end_frame_strength_for_backend = end_frame_strength_original_arg
             
             # Get the input video path for Video model
             input_image_path = None
-            if model_type == "Video" and input_video is not None:
-                # For Video model, input_video contains the path to the video file
-                input_image_path = input_video
+            if (model_type == "Video" or model_type == "Video F1") and input_video_arg is not None:
+                # For Video models, input_video contains the path to the video file
+                input_image_path = input_video_arg
 
             # Use the current seed value as is for this job
             # Call the process function with all arguments
             # Pass the model_type and the ORIGINAL prompt_text string to the backend process function
-            result = process_fn(model_type, input_data, actual_end_frame_image_for_backend, actual_end_frame_strength_for_backend, prompt_text, n_prompt, seed_value, total_second_length, # Pass original prompt_text string
-                            latent_window_size, steps, cfg, gs, rs,
-                            use_teacache, teacache_num_steps, teacache_rel_l1_thresh, blend_sections, latent_type, clean_up_videos, selected_loras, resolutionW, resolutionH, 
-                            input_image_path=input_image_path, combine_with_source=combine_with_source_value, *lora_args)
-
+            result = process_fn(model_type, input_data, actual_end_frame_image_for_backend, actual_end_frame_strength_for_backend,
+                                prompt_text_arg, n_prompt_arg, seed_arg, total_second_length_arg,
+                                latent_window_size_arg, steps_arg, cfg_arg, gs_arg, rs_arg,
+                                use_teacache_arg, teacache_num_steps_arg, teacache_rel_l1_thresh_arg,
+                                blend_sections_arg, latent_type_arg, clean_up_videos_arg, # clean_up_videos_arg is from UI
+                                selected_loras_arg, resolutionW_arg, resolutionH_arg, 
+                                input_image_path, 
+                                combine_with_source_arg,
+                                num_cleaned_frames_arg,
+                                lora_names_states_arg,
+                                *lora_slider_values_tuple
+                               )
             # If randomize_seed is checked, generate a new random seed for the next job
             new_seed_value = None
-            if randomize_seed_checked:
+            if randomize_seed_arg:
                 new_seed_value = random.randint(0, 21474)
                 print(f"Generated new seed for next job: {new_seed_value}")
 
@@ -1604,33 +1639,32 @@ def create_interface(
         # --- Inputs Lists ---
         # --- Inputs for all models ---
         ips = [
-            input_image,
-            input_video,
-            end_frame_image_original,    # NEW
-            end_frame_strength_original, # NEW
-            prompt,
-            n_prompt,
-            seed,
-            total_second_length,
-            latent_window_size,
-            steps,
-            cfg,
-            gs,
-            rs,
-            gpu_memory_preservation,
-            use_teacache,
-            teacache_num_steps,
-            teacache_rel_l1_thresh,
-            mp4_crf,
-            randomize_seed,
-            save_metadata,
-            blend_sections,
-            latent_type,
-            clean_up_videos,
-            lora_selector,
-            resolutionW,
-            resolutionH,
-            lora_names_states
+            input_image,                # Corresponds to input_image_arg
+            input_video,                # Corresponds to input_video_arg
+            end_frame_image_original,   # Corresponds to end_frame_image_original_arg
+            end_frame_strength_original,# Corresponds to end_frame_strength_original_arg
+            prompt,                     # Corresponds to prompt_text_arg
+            n_prompt,                   # Corresponds to n_prompt_arg
+            seed,                       # Corresponds to seed_arg
+            total_second_length,        # Corresponds to total_second_length_arg
+            latent_window_size,         # Corresponds to latent_window_size_arg
+            steps,                      # Corresponds to steps_arg
+            cfg,                        # Corresponds to cfg_arg
+            gs,                         # Corresponds to gs_arg
+            rs,                         # Corresponds to rs_arg
+            use_teacache,               # Corresponds to use_teacache_arg
+            teacache_num_steps,         # Corresponds to teacache_num_steps_arg
+            teacache_rel_l1_thresh,     # Corresponds to teacache_rel_l1_thresh_arg
+            randomize_seed,             # Corresponds to randomize_seed_arg
+            blend_sections,             # Corresponds to blend_sections_arg
+            latent_type,                # Corresponds to latent_type_arg
+            clean_up_videos,            # Corresponds to clean_up_videos_arg (UI checkbox)
+            lora_selector,              # Corresponds to selected_loras_arg
+            resolutionW,                # Corresponds to resolutionW_arg
+            resolutionH,                # Corresponds to resolutionH_arg
+            combine_with_source,        # Corresponds to combine_with_source_arg
+            num_cleaned_frames,         # Corresponds to num_cleaned_frames_arg
+            lora_names_states           # Corresponds to lora_names_states_arg
         ]
         # Add LoRA sliders to the input list
         ips.extend([lora_sliders[lora] for lora in lora_names])
