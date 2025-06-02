@@ -334,14 +334,14 @@ def create_interface(
                 with gr.Row():
                     with gr.Column(scale=2):
                         model_type = gr.Radio(
-                            choices=["Original", "Original with Endframe", "F1", "Video", "Video F1"],
+                            choices=["Original", "Original with Endframe", "F1", "Video", "Video with Endframe", "Video F1"],
                             value="Original",
                             label="Generation Type"
                         )
                         # Default visibility: True because "Original" model is not "Video"
-                        with gr.Group(visible=True) as image_input_group:
+                        with gr.Group(visible=True) as image_input_group: # This group now only contains the start frame image
                             with gr.Row():
-                                with gr.Column(scale=1):
+                                with gr.Column(scale=1): # Start Frame Image Column
                                     input_image = gr.Image(
                                         sources='upload',
                                         type="numpy",
@@ -352,31 +352,7 @@ def create_interface(
                                         show_label=True, # Keep label for clarity
                                         container=True
                                     )
-                                
-                                # End Frame Column - only visible for "Original with Endframe" model
-                                with gr.Column(scale=1, visible=(model_type.value == "Original with Endframe")) as end_frame_group_original:
-                                    end_frame_image_original = gr.Image(
-                                        sources='upload',
-                                        type="numpy",
-                                        label="End Frame (Optional)", 
-                                        elem_classes="contain-image",
-                                        image_mode="RGB",
-                                        show_download_button=False,
-                                        show_label=True,
-                                        container=True
-                                    )
-                            
-                            # End Frame Influence slider - only visible for "Original with Endframe" model
-                            with gr.Group(visible=(model_type.value == "Original with Endframe")) as end_frame_slider_group:
-                                end_frame_strength_original = gr.Slider(
-                                    label="End Frame Influence",
-                                    minimum=0.05,
-                                    maximum=1.0,
-                                    value=1.0,
-                                    step=0.05,
-                                    info="Controls how strongly the end frame guides the generation. 1.0 is full influence."
-                                )
-                    
+                        
                         with gr.Group(visible=False) as video_input_group:
                             input_video = gr.Video(
                                 sources='upload',
@@ -392,7 +368,32 @@ def create_interface(
                             )
                             num_cleaned_frames = gr.Slider(label="Number of Context Frames (Adherence to Video)", minimum=2, maximum=10, value=5, step=1, interactive=True, info="Expensive. Retain more video details. Reduce if memory issues or motion too restricted (jumpcut, ignoring prompt, still).")
 
-                    
+                        
+                        # End Frame Image Input
+                        # Initial visibility is False, controlled by update_input_visibility
+                        with gr.Column(scale=1, visible=False) as end_frame_group_original:
+                            end_frame_image_original = gr.Image(
+                                sources='upload',
+                                type="numpy",
+                                label="End Frame (Optional)", 
+                                elem_classes="contain-image",
+                                image_mode="RGB",
+                                show_download_button=False,
+                                show_label=True,
+                                container=True
+                            )
+                        
+                        # End Frame Influence slider
+                        # Initial visibility is False, controlled by update_input_visibility
+                        with gr.Group(visible=False) as end_frame_slider_group:
+                            end_frame_strength_original = gr.Slider(
+                                label="End Frame Influence",
+                                minimum=0.05,
+                                maximum=1.0,
+                                value=1.0,
+                                step=0.05,
+                                info="Controls how strongly the end frame guides the generation. 1.0 is full influence."
+                            )
                         # Create a group for XY Plot controls, initially hidden
                         with gr.Group(visible=False) as xy_plot_controls_group:
                             with gr.Accordion("Plot Parameters", open=True):
@@ -414,29 +415,28 @@ def create_interface(
 
                         # Show/hide input groups based on model selection
                         def update_input_visibility(model_choice_value):
-                            is_video_model = (model_choice_value == "Video" or model_choice_value == "Video F1")
-                            is_endframe_model = (model_choice_value == "Original with Endframe" or model_choice_value == "F1 with Endframe")
+                            is_video_model_ui = (model_choice_value == "Video" or model_choice_value == "Video with Endframe" or model_choice_value == "Video F1")
+                            shows_original_end_frame_controls = (model_choice_value == "Original with Endframe" or model_choice_value == "Video with Endframe")
                             is_xy_plot_model = (model_choice_value == "XY Plot")
-                            
-                            # Visibility for image_input_group (contains start frame)
-                            image_input_grp_visible = not is_video_model and not is_xy_plot_model # Visible for "Original", "Original with Endframe", "F1", and "F1 with Endframe"
+
+                            image_input_grp_visible = not is_video_model_ui and not is_xy_plot_model
 
                             # Visibility for video_input_group
-                            video_input_grp_visible = is_video_model
+                            video_input_grp_visible = is_video_model_ui
 
                             # Visibility for end frame column and slider
-                            end_frame_grp_visible = is_endframe_model # Visible for "Original with Endframe" and "F1 with Endframe" models
-                            end_frame_slider_visible = is_endframe_model # Visible for "Original with Endframe" and "F1 with Endframe" models
-                            
+                            end_frame_grp_original_visible = shows_original_end_frame_controls
+                            end_frame_slider_grp_visible = shows_original_end_frame_controls
+
                             # Visibility for XY Plot controls
                             xy_plot_controls_visible = is_xy_plot_model
 
                             return (
-                                gr.update(visible=image_input_grp_visible),    # For image_input_group
-                                gr.update(visible=video_input_grp_visible),    # For video_input_group
-                                gr.update(visible=end_frame_grp_visible),      # For end_frame_group_original
-                                gr.update(visible=end_frame_slider_visible),   # For end_frame_slider_group
-                                gr.update(visible=xy_plot_controls_visible)    # For xy_plot_controls_group
+                                gr.update(visible=image_input_grp_visible),        # For image_input_group
+                                gr.update(visible=video_input_grp_visible),        # For video_input_group
+                                gr.update(visible=end_frame_grp_original_visible), # For end_frame_group_original
+                                gr.update(visible=end_frame_slider_grp_visible),   # For end_frame_slider_group
+                                gr.update(visible=xy_plot_controls_visible)        # For xy_plot_controls_group
                             )
 
                         # Function to handle XY Plot processing in the Generate tab
@@ -1506,7 +1506,7 @@ def create_interface(
         # --- Event Handlers and Connections (Now correctly indented) ---
 
         # Connect the main process function (wrapper for adding to queue)
-        def process_with_queue_update(model_type, *args):
+        def process_with_queue_update(model_type_arg, *args):
             # Extract all arguments (ensure order matches inputs lists)
             # The order here MUST match the order in the `ips` list.
             # RT_BORG: Global settings gpu_memory_preservation, mp4_crf, save_metadata removed from direct args.
@@ -1539,27 +1539,33 @@ def create_interface(
             ) = args
             # DO NOT parse the prompt here. Parsing happens once in the worker.
 
+            # Determine the model type to send to the backend
+            backend_model_type = model_type_arg # model_type_arg is the UI selection
+            if model_type_arg == "Video with Endframe":
+                backend_model_type = "Video" # The backend "Video" model_type handles with and without endframe
+
             # Use the appropriate input based on model type
-            input_data = input_video_arg if model_type == "Video" or model_type == "Video F1" else input_image_arg
-            
+            is_ui_video_model = (model_type_arg == "Video" or model_type_arg == "Video with Endframe" or model_type_arg == "Video F1")
+            input_data = input_video_arg if is_ui_video_model else input_image_arg
+
             # Define actual end_frame params to pass to backend
             actual_end_frame_image_for_backend = None
             actual_end_frame_strength_for_backend = 1.0  # Default strength
 
-            if model_type == "Original with Endframe" or model_type == "F1 with Endframe" or model_type == "Video" or model_type == "Video F1":
+            if model_type_arg == "Original with Endframe" or model_type_arg == "F1 with Endframe" or model_type_arg == "Video with Endframe":
                 actual_end_frame_image_for_backend = end_frame_image_original_arg
                 actual_end_frame_strength_for_backend = end_frame_strength_original_arg
-            
+
             # Get the input video path for Video model
             input_image_path = None
-            if (model_type == "Video" or model_type == "Video F1") and input_video_arg is not None:
+            if is_ui_video_model and input_video_arg is not None:
                 # For Video models, input_video contains the path to the video file
                 input_image_path = input_video_arg
 
             # Use the current seed value as is for this job
             # Call the process function with all arguments
-            # Pass the model_type and the ORIGINAL prompt_text string to the backend process function
-            result = process_fn(model_type, input_data, actual_end_frame_image_for_backend, actual_end_frame_strength_for_backend,
+            # Pass the backend_model_type and the ORIGINAL prompt_text string to the backend process function
+            result = process_fn(backend_model_type, input_data, actual_end_frame_image_for_backend, actual_end_frame_strength_for_backend,
                                 prompt_text_arg, n_prompt_arg, seed_arg, total_second_length_arg,
                                 latent_window_size_arg, steps_arg, cfg_arg, gs_arg, rs_arg,
                                 use_teacache_arg, teacache_num_steps_arg, teacache_rel_l1_thresh_arg,
