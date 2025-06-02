@@ -5,6 +5,7 @@ import torch
 import devicetorch
 import traceback
 import gc
+import psutil
 
 # patch fix for basicsr
 from torchvision.transforms.functional import rgb_to_grayscale
@@ -32,7 +33,7 @@ tb_processor = VideoProcessor(tb_message_mgr, settings_instance) # Pass settings
 def tb_update_messages():
     return tb_message_mgr.get_messages()
 
-def tb_handle_update_monitor():
+def tb_handle_update_monitor(): # This updates the TOOLBOX TAB's monitor
     return SystemMonitor.get_system_info()
 
 def tb_handle_analyze_video(video_path):
@@ -333,13 +334,65 @@ def tb_handle_clear_temp_files():
         tb_message_mgr.add_warning("Issue during temporary file cleanup. Check messages.")
 
     return None, tb_update_messages() # Clear tb_processed_video_output, update messages
+
+# This function IS EXPORTED and used by interface.py
+def tb_get_formatted_toolbar_stats():
+    """Fetches and formats System RAM, NVIDIA VRAM, Temp, and Load for the main toolbar textboxes."""
+    vram_full_str = "VRAM: N/A"
+    gpu_full_str = "GPU: N/A"
+    ram_full_str = "RAM: N/A" 
     
+    vram_component_visible = False 
+    gpu_component_visible = False
+
+    try:
+        ram_info_psutil = psutil.virtual_memory() 
+        ram_used_gb = ram_info_psutil.used / (1024**3)
+        ram_total_gb = ram_info_psutil.total / (1024**3)
+        ram_full_str = f"RAM: {ram_used_gb:.1f}/{ram_total_gb:.1f}GB ({ram_info_psutil.percent}%)"
+
+        if torch.cuda.is_available(): 
+            _, nvidia_metrics, _ = SystemMonitor.get_nvidia_gpu_info()
+            if nvidia_metrics:
+                vram_used = nvidia_metrics.get('memory_used_gb', 0.0)
+                vram_total = nvidia_metrics.get('memory_total_gb', 0.0)
+                vram_full_str = f"VRAM: {vram_used:.1f}/{vram_total:.1f}GB"
+                vram_component_visible = True
+                
+                temp = nvidia_metrics.get('temperature', 0.0)
+                load = nvidia_metrics.get('utilization', 0.0)
+                gpu_full_str = f"GPU: {temp:.0f}°C {load:.0f}%"
+                gpu_component_visible = True
+        
+    except Exception as e:
+        print(f"Error getting system stats values for toolbar (from toolbox_app.py): {e}")
+        ram_full_str = "RAM: Error"
+        is_nvidia_expected = torch.cuda.is_available()
+        if is_nvidia_expected:
+            vram_full_str = "VRAM: Error"
+            gpu_full_str = "GPU: Error"
+            vram_component_visible = True 
+            gpu_component_visible = True
+        else:
+            vram_full_str = "VRAM: N/A" 
+            gpu_full_str = "GPU: N/A"
+            vram_component_visible = False
+            gpu_component_visible = False
+        
+    # If a component is not visible, we can send an empty string or its "N/A" string,
+    # as the `visible` flag in gr.update will handle hiding it.
+    # For consistency, let's send the appropriate string even if it's about to be hidden.
+    
+    return (
+        gr.update(value=ram_full_str), 
+        gr.update(value=vram_full_str, visible=vram_component_visible),
+        gr.update(value=gpu_full_str, visible=gpu_component_visible)
+    )
+
+   
 # --- Gradio Interface ---
 
 def tb_create_video_toolbox_ui():
-    # Determine initial autosave state.
-    # You can make "toolbox_autosave_enabled" a persistent setting if desired.
-    # For now, it defaults to True if not found in settings.
     initial_autosave_state = settings_instance.get("toolbox_autosave_enabled", True)
     tb_processor.set_autosave_mode(initial_autosave_state)
     
@@ -361,18 +414,17 @@ def tb_create_video_toolbox_ui():
                 )
                 with gr.Row():
                     tb_use_processed_as_input_btn = gr.Button("🔄 Use Processed as Input", scale=3)
-                    tb_manual_save_btn = gr.Button( # Assign to global for tb_handle_autosave_toggle
+                    tb_manual_save_btn = gr.Button( 
                         "💾 Save to Permanent Folder", 
                         variant="secondary", 
                         scale=3, 
-                        visible=False # Autosave is off by default
+                        visible=not initial_autosave_state
                     )
                     tb_autosave_checkbox = gr.Checkbox(
                         label="Autosave", 
                         value=initial_autosave_state,
                         scale=1
                     )
-
         with gr.Row():
             with gr.Column(scale=1):
                 tb_video_analysis_output = gr.Textbox(
@@ -389,7 +441,7 @@ def tb_create_video_toolbox_ui():
                 )
                 with gr.Row():
                     tb_delete_studio_transformer_btn = gr.Button(
-                        "📤 Unload Studio Models", variant="stop")
+                        "📤 Unload Studio Model", variant="stop")
                     gr.Markdown(
                         "Studio will automatically reload models when you start a new video generation. "
                     )
@@ -646,5 +698,7 @@ def tb_create_video_toolbox_ui():
             fn=tb_handle_clear_temp_files,
             inputs=None, # No inputs needed
             outputs=[tb_processed_video_output, tb_message_output] # Clear video output, update messages
-        )        
-    return tb_toolbox_ui_main_container, tb_input_video_component
+        )
+    # MODIFIED RETURN SIGNATURE: Only return what's needed by interface.py
+    # The toolbar Markdown components are no longer created or returned here.
+    return tb_toolbox_ui_main_container, tb_input_video_component 

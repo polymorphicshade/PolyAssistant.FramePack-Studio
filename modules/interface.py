@@ -28,7 +28,7 @@ from diffusers_helper.gradio.progress_bar import make_progress_bar_css, make_pro
 from diffusers_helper.bucket_tools import find_nearest_bucket
 from modules.xy_plot_wrapper import xy_plot_process_wrapper
 
-from modules.toolbox_app import tb_create_video_toolbox_ui
+from modules.toolbox_app import tb_create_video_toolbox_ui, tb_get_formatted_toolbar_stats
 
 # XY Plot axis options and helper functions
 xy_plot_axis_options = {
@@ -290,12 +290,13 @@ def create_interface(
         }
     }
     
+    /* control sizing for tb_input_video_component */    
     .video-size video {
         max-height: 60vh;
         min-height: 300px !important;
         object-fit: contain;
     }
-   
+
     /* hide the gr.Video source selection bar for tb_input_video_component */
     #toolbox-video-player .source-selection {
         display: none !important;
@@ -303,9 +304,35 @@ def create_interface(
     
     .analysis-box {
     }
-    
+
     .message-box {
-    }    
+    } 
+
+    /* Styling for Textboxes used as stat displays in the toolbar */
+    .toolbar-stat-textbox {
+        /* Reset Gradio Textbox defaults */
+        border: none !important;
+        background-color: transparent !important;
+        box-shadow: none !important;
+        padding: 0px 4px !important; /* Minimal padding */
+        min-height: unset !important; /* Allow it to be as short as text */
+        height: auto !important;
+    }
+
+    .toolbar-stat-textbox textarea { /* Target the actual textarea element */
+        color: white !important;
+        font-family: inherit !important; /* Inherit from parent */
+        font-size: 0.75rem !important; /* Match .toolbar-text or desired */
+        line-height: 1.2 !important;   /* Adjust for vertical alignment */
+        padding: 0px !important;      /* Remove internal padding of textarea */
+        white-space: nowrap !important;
+        overflow: hidden !important; /* Hide scrollbars if any */
+        resize: none !important; /* Disable textarea resizing */
+        text-align: center !important;  /* Ensure text centered*/
+        min-height: unset !important;
+        height: auto !important;
+        background-color: transparent !important;
+    }
     """
 
     # Get the theme from settings
@@ -314,20 +341,54 @@ def create_interface(
 
     with block:
         with gr.Row(elem_id="fixed-toolbar"):
-            with gr.Column(scale=0, min_width=400):
+            with gr.Column(scale=0, min_width=400): # Title/Patreon
                 gr.HTML("""
                 <div style="display: flex; align-items: center;">
                     <h1 class='toolbar-title'>FramePack Studio</h1>
                     <p class='toolbar-patreon'><a href='https://patreon.com/Colinu' target='_blank'>Support on Patreon</a></p>
                 </div>
                 """)
-            with gr.Column(scale=1, min_width=180):
-                queue_stats_display = gr.Markdown("<p style='margin:0;color:white;' class='toolbar-text'>Queue: 0 | Running: 0 | Completed: 0</p>")
-            with gr.Column(scale=0, min_width=50):
-                version_display = gr.Markdown(f"<p style='margin:0;color:white;' class='toolbar-text'>{APP_VERSION_DISPLAY}</p>")
             with gr.Column(scale=0, min_width=40):
-                refresh_stats_btn = gr.Button("⟳", elem_id="refresh-stats-btn", elem_classes="narrow-button")
-
+                refresh_stats_btn = gr.Button("⟳", elem_id="refresh-stats-btn", elem_classes="narrow-button")  
+            with gr.Column(scale=1, min_width=180): # Queue Stats
+                queue_stats_display = gr.Markdown("<p style='margin:0;color:white;' class='toolbar-text'>Queue: 0 | Running: 0 | Completed: 0</p>")
+                
+            # --- System Stats Display - Single gr.Textbox per stat ---
+            with gr.Column(scale=0, min_width=205): # RAM Column
+                toolbar_ram_display_component = gr.Textbox(
+                    value="RAM: N/A", 
+                    interactive=False, 
+                    lines=1, 
+                    max_lines=1,
+                    show_label=False,
+                    elem_classes="toolbar-stat-textbox"
+                )
+            with gr.Column(scale=0, min_width=160): # VRAM Column
+                toolbar_vram_display_component = gr.Textbox(
+                    value="VRAM: N/A", 
+                    interactive=False, 
+                    lines=1, 
+                    max_lines=1,
+                    show_label=False,
+                    elem_classes="toolbar-stat-textbox"
+                    # Visibility controlled by tb_get_formatted_toolbar_stats
+                )
+            with gr.Column(scale=0, min_width=140): # GPU Column
+                toolbar_gpu_display_component = gr.Textbox(
+                    value="GPU: N/A", 
+                    interactive=False, 
+                    lines=1, 
+                    max_lines=1,
+                    show_label=False,                     
+                    elem_classes="toolbar-stat-textbox"
+                    # Visibility controlled by tb_get_formatted_toolbar_stats
+                )
+            # --- End of System Stats Display ---
+            
+            with gr.Column(scale=0, min_width=50):
+                version_display = gr.Markdown(f"<p style='margin:0;color:white;' class='toolbar-text'>{APP_VERSION_DISPLAY}</p>")   
+            # --- End of Toolbar ---
+            
         # Essential to capture main_tabs_component for later use by send_to_toolbox_btn
         with gr.Tabs(elem_id="main_tabs") as main_tabs_component:
             with gr.Tab("Generate", id="generate_tab"):
@@ -1356,11 +1417,8 @@ def create_interface(
                     )
             with gr.Tab("Post-processing", id="toolbox_tab"):          
                 # Call the function from toolbox_app.py to build the Toolbox UI
-                # It returns the UI layout and the input video component for Toolbox
+                # The toolbox_ui_layout (e.g., a gr.Column) is automatically placed here.                
                 toolbox_ui_layout, tb_target_video_input = tb_create_video_toolbox_ui()
-                # The toolbox_ui_layout (e.g., a gr.Column) is automatically placed here.
-                # tb_target_video_input is the gr.Video component from the Toolbox's UI that
-                # FPS will send its output to.("Toolbox", id="toolbox_tab"):  
                 
             with gr.Tab("Settings"):
                 with gr.Row():
@@ -1806,7 +1864,19 @@ def create_interface(
             outputs=[lora_sliders[lora] for lora in lora_names] # Assumes lora_sliders keys match lora_names
         )
 
-
+        # --- Auto-refresh for Toolbar System Stats Monitor (Timer) ---
+        main_toolbar_system_stats_timer = gr.Timer(2, active=True) 
+        
+        main_toolbar_system_stats_timer.tick(
+            fn=tb_get_formatted_toolbar_stats, # Function imported from toolbox_app.py
+            inputs=None, 
+            outputs=[ # Target the Textbox components
+                toolbar_ram_display_component,
+                toolbar_vram_display_component,
+                toolbar_gpu_display_component 
+            ]
+        )
+        
         # --- Connect Metadata Loading ---
         # Function to load metadata from JSON file
         def load_metadata_from_json(json_path):
