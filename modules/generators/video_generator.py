@@ -45,7 +45,7 @@ class VideoModelGenerator(VideoBaseModelGenerator):
         else:
             return list(reversed(range(total_latent_sections)))
 
-    def video_prepare_clean_latents_and_indices(self, end_latent, end_frame_weight, end_clip_embedding, end_of_input_video_embedding, latent_paddings, latent_padding, latent_padding_size, latent_window_size, video_latents, history_latents, num_cleaned_frames=5):
+    def video_prepare_clean_latents_and_indices(self, end_frame_output_dimensions_latent, end_frame_weight, end_clip_embedding, end_of_input_video_embedding, latent_paddings, latent_padding, latent_padding_size, latent_window_size, video_latents, history_latents, num_cleaned_frames=5):
         """
         Combined method to prepare clean latents and indices for the Video model.
         
@@ -95,7 +95,7 @@ class VideoModelGenerator(VideoBaseModelGenerator):
         # post_frames: frames after the generated section
         # num_2x_frames, num_4x_frames: frames for lower resolution context
         # 20250511 pftq: Dynamically adjust post_frames based on clean_latents_post
-        post_frames = 1 if is_end_of_video and end_latent is not None else effective_clean_frames  # 20250511 pftq: Single frame for end_latent, otherwise padding causes still image
+        post_frames = 1 if is_end_of_video and end_frame_output_dimensions_latent is not None else effective_clean_frames  # 20250511 pftq: Single frame for end_latent, otherwise padding causes still image
         indices = torch.arange(0, clean_latent_pre_frames + latent_padding_size + latent_window_size + post_frames + num_2x_frames + num_4x_frames).unsqueeze(0)
         clean_latent_indices_pre, blank_indices, latent_indices, clean_latent_indices_post, clean_latent_2x_indices, clean_latent_4x_indices = indices.split(
             [clean_latent_pre_frames, latent_padding_size, latent_window_size, post_frames, num_2x_frames, num_4x_frames], dim=1
@@ -134,7 +134,7 @@ class VideoModelGenerator(VideoBaseModelGenerator):
         
         # RT_BORG: end_of_input_video_embedding and end_clip_embedding shouldn't need to be checked, since they should
         # always be provided if end_latent is provided. But bulletproofing before the release since test time will be short.
-        if end_latent is not None and end_of_input_video_embedding is not None and end_clip_embedding is not None:
+        if end_frame_output_dimensions_latent is not None and end_of_input_video_embedding is not None and end_clip_embedding is not None:
             # image_encoder_last_hidden_state: Weighted average of CLIP embedding of first input frame and end frame's CLIP embedding
             # This guides the overall content to transition towards the end frame.
             image_encoder_last_hidden_state = (1 - end_frame_weight) * end_of_input_video_embedding + end_clip_embedding * end_frame_weight
@@ -142,7 +142,7 @@ class VideoModelGenerator(VideoBaseModelGenerator):
             
             if is_end_of_video:
                 # For the very first generated segment, the "post" part is the end_latent itself.
-                clean_latents_post = end_latent.to(history_latents)[:, :, :1, :, :] # Ensure single frame
+                clean_latents_post = end_frame_output_dimensions_latent.to(history_latents)[:, :, :1, :, :] # Ensure single frame
             
         # Pad clean_latents_pre/post if they have fewer frames than specified by clean_latent_pre_frames/post_frames
         if clean_latents_pre.shape[2] < clean_latent_pre_frames:

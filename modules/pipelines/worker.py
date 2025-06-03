@@ -8,7 +8,7 @@ import torch
 import datetime
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
-from diffusers_helper.utils import save_bcthw_as_mp4, generate_timestamp
+from diffusers_helper.utils import save_bcthw_as_mp4, generate_timestamp, resize_and_center_crop
 from diffusers_helper.memory import cpu, gpu, move_model_to_device_with_memory_preservation, offload_model_from_device_for_memory_preservation, fake_diffusers_current_device, unload_complete_models, load_model_as_complete
 from diffusers_helper.thread_utils import AsyncStream
 from diffusers_helper.gradio.progress_bar import make_progress_bar_html
@@ -395,17 +395,12 @@ def worker(
 
         # VAE encode end_frame_image if provided
         end_frame_latent = None
+        # VAE encode end_frame_image resized to output dimensions, if provided
+        end_frame_output_dimensions_latent = None 
+        end_clip_embedding = None # Video model end frame CLIP Vision embedding
+        end_of_input_video_embedding = None # Video model end frame CLIP Vision embedding
 
-        # RT_BORG: Remove this
-        # Not useful after gradio is set up to pass endframes without my HACK
-        # Until then, it's helpful to see end_frame_image got set up properly. 
-        if job_params.get('end_frame_image') is not None:
-            print(f"================== Received end frame for {model_type} model... ")
-        else:
-            print(f"================== No end frame provided for {model_type} model")
-        
-        # RT_BORG: Include end_frame_image processing for Video model.
-        # Colin, this needs to change if you decide on a "Video with Endframe" model instead.
+        # Models with end_frame_image processing
         if (model_type == "Original with Endframe" or model_type == "Video") and job_params.get('end_frame_image') is not None:
             print(f"Processing end frame for {model_type} model...")
             end_frame_image = job_params['end_frame_image']
@@ -431,12 +426,16 @@ def worker(
                 if not high_vram: load_model_as_complete(vae, target_device=gpu) # Ensure VAE is loaded
                 from diffusers_helper.hunyuan import vae_encode
                 end_frame_latent = vae_encode(end_frame_pt, vae)
+
+                # end_frame_output_dimensions_latent is sized like the start_latent and generated latents
+                end_frame_output_dimensions_np = resize_and_center_crop(end_frame_np, width, height)
+                end_frame_output_dimensions_pt = torch.from_numpy(end_frame_output_dimensions_np).float() / 127.5 - 1
+                end_frame_output_dimensions_pt = end_frame_output_dimensions_pt.permute(2, 0, 1)[None, :, None] # VAE expects [B, C, F, H, W]
+                end_frame_output_dimensions_latent = vae_encode(end_frame_output_dimensions_pt, vae)
+
                 print("End frame VAE encoded.")
 
-                # RT_BORG: Video Mode CLIP Vision encoding for end frame
-                # Colin, sorry, I don't know the python way to forward declare the end_clip_embedding variable in case we didn't take this path.
-                # I'll check if it exists where it's used and set it to None if I have to, but I'm sure that's terrible.
-                # Again, if you decide on a "Video with Endframe" model, this will need to change.
+                # Video Mode CLIP Vision encoding for end frame
                 if model_type == "Video":
                     if not high_vram: # Ensure image_encoder is on GPU for this operation
                         load_model_as_complete(image_encoder, target_device=gpu)
@@ -541,8 +540,6 @@ def worker(
             segment_hint = f'Sampling {current_step}/{steps}  ETA {fmt_eta(segment_eta)}'
             total_hint = f'Total {total_steps_done}/{total_steps}  ETA {fmt_eta(total_eta)}'
 
-            # RT_BORG: NOT SURE HOW TO HANDLE THIS FOR "Video F1" MODEL
-            #
             # For Video model, add the input video frame count when calculating current position
             if model_type == "Video":
                 # Calculate the time position including the input video frames
@@ -603,9 +600,6 @@ def worker(
                 stream_to_use.output_queue.push(('end', None))
                 return
 
-            # RT_BORG: I don't know what to do here for "Video F1" model.
-            # total_generated_latent_frames is different for "Video F1" model (it counts input video frames)
-            #
             # Calculate the current time position
             if model_type == "Video":
                 # For Video model, add the input video time to the current position
@@ -709,16 +703,10 @@ def worker(
             
             # Video models use combined methods to prepare clean latents and indices
             if model_type == "Video":
-                # RT_BORG: Colin, as I said above, I'm sure this it terrible. Please forgive me (and fix my python).
-                if not 'end_clip_embedding' in locals():
-                    end_clip_embedding = None
-                if not 'end_of_input_video_embedding' in locals():
-                    end_of_input_video_embedding = None
-
                 # Get num_cleaned_frames from job_params if available, otherwise use default value of 5
                 num_cleaned_frames = job_params.get('num_cleaned_frames', 5)
                 clean_latent_indices, latent_indices, clean_latent_2x_indices, clean_latent_4x_indices, clean_latents, clean_latents_2x, clean_latents_4x = \
-                studio_module.current_generator.video_prepare_clean_latents_and_indices(end_frame_latent, end_frame_strength, end_clip_embedding, end_of_input_video_embedding, latent_paddings, latent_padding, latent_padding_size, latent_window_size, video_latents, history_latents, num_cleaned_frames)
+                studio_module.current_generator.video_prepare_clean_latents_and_indices(end_frame_output_dimensions_latent, end_frame_strength, end_clip_embedding, end_of_input_video_embedding, latent_paddings, latent_padding, latent_padding_size, latent_window_size, video_latents, history_latents, num_cleaned_frames)
             elif model_type == "Video F1":
                 # Get num_cleaned_frames from job_params if available, otherwise use default value of 5
                 num_cleaned_frames = job_params.get('num_cleaned_frames', 5)
@@ -1006,9 +994,6 @@ def worker(
                 print(f"Input video path not found: {input_video_path}")
         except Exception as e:
             print(f"Error combining videos: {e}")
-            # RT_BORG: Colin, traceback is imported at the top of the file.
-            # Importing redundantly caused a scoping problem reporting an exception.
-            # import traceback
             traceback.print_exc()
     
     # Final verification of LoRA state
