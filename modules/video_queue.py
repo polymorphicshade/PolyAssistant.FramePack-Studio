@@ -909,6 +909,11 @@ class VideoJobQueue:
             int: Number of jobs loaded
         """
         try:
+            # Import required modules
+            import os
+            import json
+            from pathlib import PurePath
+            
             # Use default path if none provided
             if file_path is None:
                 file_path = "queue.json"
@@ -1009,6 +1014,32 @@ class VideoJobQueue:
                         lora_values = list(lora_data.values())
                         params['selected_loras'] = selected_loras
                         params['lora_values'] = lora_values
+                        
+                        # Ensure the selected LoRAs are also in lora_loaded_names
+                        # This is critical for metadata_utils.create_metadata to find the LoRAs
+                        from modules.settings import Settings
+                        settings = Settings()
+                        lora_dir = settings.get("lora_dir", "loras")
+                        
+                        # Get the current lora_loaded_names from the system
+                        import os
+                        from pathlib import PurePath
+                        current_lora_names = []
+                        if os.path.isdir(lora_dir):
+                            for root, _, files in os.walk(lora_dir):
+                                for file in files:
+                                    if file.endswith('.safetensors') or file.endswith('.pt'):
+                                        lora_relative_path = os.path.relpath(os.path.join(root, file), lora_dir)
+                                        lora_name = str(PurePath(lora_relative_path).with_suffix(''))
+                                        current_lora_names.append(lora_name)
+                        
+                        # Combine the selected LoRAs with the current lora_loaded_names
+                        # This ensures that all selected LoRAs are in lora_loaded_names
+                        combined_lora_names = list(set(current_lora_names + selected_loras))
+                        params['lora_loaded_names'] = combined_lora_names
+                        
+                        print(f"Loaded LoRA data for job {job_id}: {lora_data}")
+                        print(f"Combined lora_loaded_names: {combined_lora_names}")
                     
                     # Get settings for output_dir and metadata_dir
                     settings = Settings()
