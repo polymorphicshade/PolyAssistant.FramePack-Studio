@@ -141,9 +141,9 @@ def worker(
     stream_to_use.output_queue.push(('job_id', job_id))
     stream_to_use.output_queue.push(('monitor_job', job_id))
     
-    # Also push to the main stream if using a job-specific stream
+    # Always push to the main stream to ensure the UI is updated
     from __main__ import stream as main_stream
-    if job_stream is not None and stream_to_use != main_stream:
+    if main_stream:  # Always push to main stream regardless of whether it's the same as stream_to_use
         print(f"Pushing initial progress update to main stream for job {job_id}")
         main_stream.output_queue.push(('progress', (dummy_preview, 'Starting job...', make_progress_bar_html(0, 'Starting job...'))))
         
@@ -571,7 +571,7 @@ def worker(
                 'html': make_progress_bar_html(percentage, segment_hint) + make_progress_bar_html(total_percentage, total_hint)
             }
             
-            # Store progress data in the job object
+            # Store progress data in the job object if using a job stream
             if job_stream is not None:
                 try:
                     from __main__ import job_queue
@@ -587,8 +587,13 @@ def worker(
             # Always push to the main stream to ensure the UI is updated
             # This is especially important for resumed jobs
             from __main__ import stream as main_stream
-            if main_stream and stream_to_use != main_stream:
+            if main_stream:  # Always push to main stream regardless of whether it's the same as stream_to_use
                 main_stream.output_queue.push(('progress', (preview, desc, make_progress_bar_html(percentage, segment_hint) + make_progress_bar_html(total_percentage, total_hint))))
+                
+            # Also push job ID to main stream to ensure monitoring connection
+            if main_stream:
+                main_stream.output_queue.push(('job_id', job_id))
+                main_stream.output_queue.push(('monitor_job', job_id))
 
         # --- Main generation loop ---
         # `i_section_loop` will be our loop counter for applying end_frame_latent
