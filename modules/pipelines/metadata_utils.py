@@ -251,7 +251,7 @@ def create_metadata(job_params, job_id, settings, save_placeholder=False):
     lora_values = job_params.get('lora_values', [])
     lora_loaded_names = job_params.get('lora_loaded_names', [])
     
-    if selected_loras and len(selected_loras) > 0:
+    if isinstance(selected_loras, list) and len(selected_loras) > 0:
         lora_data = {}
         for lora_name in selected_loras:
             try:

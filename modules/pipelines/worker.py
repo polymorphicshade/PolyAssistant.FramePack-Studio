@@ -635,7 +635,12 @@ def worker(
             next_prompt = current_prompt
 
             # Only try to blend if blend_sections > 0 and we have prompt change indices and multiple sections
-            if blend_sections > 0 and prompt_change_indices and len(prompt_sections) > 1:
+            try:
+                blend_sections_int = int(blend_sections)
+            except ValueError:
+                blend_sections_int = 0 # Default to 0 if conversion fails, effectively disabling blending
+                print(f"Warning: blend_sections ('{blend_sections}') is not a valid integer. Disabling prompt blending for this section.")
+            if blend_sections_int > 0 and prompt_change_indices and len(prompt_sections) > 1:
                 for i, (change_idx, prompt) in enumerate(prompt_change_indices):
                     if section_idx < change_idx:
                         prev_prompt = prompt_change_indices[i - 1][1] if i > 0 else prompt

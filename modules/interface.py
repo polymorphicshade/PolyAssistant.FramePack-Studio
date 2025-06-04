@@ -1567,14 +1567,14 @@ def create_interface(
              teacache_num_steps_arg,
              teacache_rel_l1_thresh_arg,
              randomize_seed_arg,
-             save_metadata_checked_arg, # NEW: Extract save_metadata_checked parameter
+             # save_metadata_checked_arg was here, removed to fix misalignment
              blend_sections_arg,
              latent_type_arg,
              clean_up_videos_arg, # UI checkbox from Generate tab
              selected_loras_arg,
              resolutionW_arg, resolutionH_arg,
-             combine_with_source_arg, # <<<< Correctly unpacked
-             num_cleaned_frames_arg,  # <<<< Correctly unpacked
+             combine_with_source_arg, 
+             num_cleaned_frames_arg,
              lora_names_states_arg,   # This is from lora_names_states (gr.State)
              *lora_slider_values_tuple # Remaining args are LoRA slider values
             ) = args
@@ -1606,6 +1606,8 @@ def create_interface(
             # Use the current seed value as is for this job
             # Call the process function with all arguments
             # Pass the backend_model_type and the ORIGINAL prompt_text string to the backend process function
+            # Removed save_metadata_checked=save_metadata_checked_arg from the call below
+            # studio.process will use its default for save_metadata_checked
             result = process_fn(backend_model_type, input_data, actual_end_frame_image_for_backend, actual_end_frame_strength_for_backend,
                                 prompt_text_arg, n_prompt_arg, seed_arg, total_second_length_arg,
                                 latent_window_size_arg, steps_arg, cfg_arg, gs_arg, rs_arg,
@@ -1616,8 +1618,8 @@ def create_interface(
                                 combine_with_source_arg,
                                 num_cleaned_frames_arg,
                                 lora_names_states_arg,
-                                *lora_slider_values_tuple,
-                                save_metadata_checked=save_metadata_checked_arg # NEW: Pass save_metadata_checked parameter
+                                *lora_slider_values_tuple
+                                # save_metadata_checked was passed here, now removed.
                                )
             # If randomize_seed is checked, generate a new random seed for the next job
             new_seed_value = None

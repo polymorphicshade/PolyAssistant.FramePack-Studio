@@ -240,50 +240,54 @@ class BaseModelGenerator(ABC):
         self.unload_loras()
         
         # Load each selected LoRA
-        for lora_name in selected_loras:
-            try:
-                idx = lora_loaded_names.index(lora_name)
-                lora_file = None
-                for ext in [".safetensors", ".pt"]:
-                    candidate_path_relative = f"{lora_name}{ext}"
-                    candidate_path_full = os.path.join(lora_folder, candidate_path_relative)
-                    if os.path.isfile(candidate_path_full):
-                        lora_file = candidate_path_relative
-                        break
+        if isinstance(selected_loras, list):
+            for lora_name in selected_loras:
+                try:
+                    idx = lora_loaded_names.index(lora_name)
+                    lora_file = None
+                    for ext in [".safetensors", ".pt"]:
+                        candidate_path_relative = f"{lora_name}{ext}"
+                        candidate_path_full = os.path.join(lora_folder, candidate_path_relative)
+                        if os.path.isfile(candidate_path_full):
+                            lora_file = candidate_path_relative
+                            break
+                            
+                    if lora_file:
+                        print(f"Loading LoRA '{lora_file}' to {self.get_model_name()} model")
+                        self.transformer = lora_utils.load_lora(self.transformer, lora_folder, lora_file)
                         
-                if lora_file:
-                    print(f"Loading LoRA '{lora_file}' to {self.get_model_name()} model")
-                    self.transformer = lora_utils.load_lora(self.transformer, lora_folder, lora_file)
-                    
-                    # Set LoRA strength if provided
-                    if lora_values and idx < len(lora_values):
-                        lora_strength = float(lora_values[idx])
-                        print(f"Setting LoRA '{lora_name}' strength to {lora_strength}")
-                        
-                        # Set scaling for this LoRA by iterating through modules
-                        for name, module in self.transformer.named_modules():
-                            if hasattr(module, 'scaling'):
-                                if isinstance(module.scaling, dict):
-                                    # Handle ModuleDict case (PEFT implementation)
-                                    if lora_name in module.scaling:
-                                        if isinstance(module.scaling[lora_name], torch.Tensor):
-                                            module.scaling[lora_name] = torch.tensor(
-                                                lora_strength, device=module.scaling[lora_name].device
+                        # Set LoRA strength if provided
+                        if lora_values and idx < len(lora_values):
+                            lora_strength = float(lora_values[idx])
+                            print(f"Setting LoRA '{lora_name}' strength to {lora_strength}")
+                            
+                            # Set scaling for this LoRA by iterating through modules
+                            for name, module in self.transformer.named_modules():
+                                if hasattr(module, 'scaling'):
+                                    if isinstance(module.scaling, dict):
+                                        # Handle ModuleDict case (PEFT implementation)
+                                        if lora_name in module.scaling:
+                                            if isinstance(module.scaling[lora_name], torch.Tensor):
+                                                module.scaling[lora_name] = torch.tensor(
+                                                    lora_strength, device=module.scaling[lora_name].device
+                                                )
+                                            else:
+                                                module.scaling[lora_name] = lora_strength
+                                    else:
+                                        # Handle direct attribute case for scaling if needed
+                                        if isinstance(module.scaling, torch.Tensor):
+                                            module.scaling = torch.tensor(
+                                                lora_strength, device=module.scaling.device
                                             )
                                         else:
-                                            module.scaling[lora_name] = lora_strength
-                                else:
-                                    # Handle direct attribute case for scaling if needed
-                                    if isinstance(module.scaling, torch.Tensor):
-                                        module.scaling = torch.tensor(
-                                            lora_strength, device=module.scaling.device
-                                        )
-                                    else:
-                                        module.scaling = lora_strength
-                else:
-                    print(f"LoRA file for {lora_name} not found!")
-            except Exception as e:
-                print(f"Error loading LoRA {lora_name}: {e}")
+                                            module.scaling = lora_strength
+                    else:
+                        print(f"LoRA file for {lora_name} not found!")
+                except Exception as e:
+                    print(f"Error loading LoRA {lora_name}: {e}")
+        else:
+            print(f"Warning: selected_loras is not a list (type: {type(selected_loras)}), skipping LoRA loading.")
         
         # Verify LoRA state after loading
         self.verify_lora_state("After loading LoRAs")
+# with the `if` condition and the `for` loop, and then I will provide the *entire rest of the function*
