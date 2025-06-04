@@ -6,7 +6,7 @@ import json
 import os
 import shutil
 from typing import List, Dict, Any, Optional
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import base64
 import io
@@ -570,78 +570,221 @@ def create_interface(
                                 # print("------ GENERATED VIDS VARS END ------")
 
                                 # -------------------------- connect with settings --------------------------
-                                output_dir = 'outputs'
+                                # Ensure settings is available in this scope or passed in.
+                                # Assuming 'settings' object is available from create_interface's scope.
+                                output_dir_setting = settings.get("output_dir", "outputs")
+                                mp4_crf_setting = settings.get("mp4_crf", 16) # Default CRF if not in settings
                                 # -------------------------- connect with settings --------------------------
 
-                                # ---------------------------- what about linux? ----------------------------
-                                fontfile = "C\\\\:/Windows/Fonts/arial.ttf"
-                                # ---------------------------- what about linux? ----------------------------
+                                font_path = None
+                                common_font_names = ["DejaVuSans-Bold.ttf", "arial.ttf", "LiberationSans-Bold.ttf"]
+                                for fp_name in common_font_names:
+                                    try:
+                                        ImageFont.truetype(fp_name, 10) # Try loading with a small size
+                                        font_path = fp_name
+                                        print(f"XY Plot: Using font '{font_path}' for labels.")
+                                        break
+                                    except OSError:
+                                        pass # Font not found, try next
+                                
+                                if not font_path:
+                                    print("XY Plot Warning: Could not find DejaVuSans-Bold, Arial, or LiberationSans-Bold. Text labels might use a basic Pillow font or not render optimally.")
+                                    # Pillow might use a default bitmap font if path is invalid.
 
                                 timestamp_generation = generate_timestamp()
-                                output_path = output_dir + "//" + timestamp_generation + "_grid_XY.mp4"
-                                has_y = any('Y_axis_on_plot' in v for v in output_generator_vars)
-                                # has_z = any('Z_axis_on_plot' in v for v in output_generator_vars) # not for now, please....
+                                output_path = os.path.join(output_dir_setting, f"{timestamp_generation}_grid_XY.mp4")
+                                
+                                has_y_axis = any('Y_axis_on_plot' in v for v in output_generator_vars)
 
-                                # maybe needed bucket size
-                                # out_bucket_resH, out_bucket_resW = [128, 128]
-                                # if input_image is not None:
-                                #     H, W, _ = input_image.shape
-                                #     out_bucket_resH, out_bucket_resW = find_nearest_bucket(H, W, resolution=resolutionW)
-                                # else:
-                                #     out_bucket_resH, out_bucket_resW = find_nearest_bucket(resolutionH, resolutionW, (resolutionW+resolutionH)/2)
+                                x_labels_unique = []
+                                y_labels_unique = []
+                                video_grid_data = {}
 
-                                x_labels = []
-                                y_labels = []
-                                grid = {}
                                 for item in output_generator_vars:
-                                    x = item['X_axis_on_plot']
-                                    y = item.get('Y_axis_on_plot', 'single_row')  # fallback for single-row
-                                    if x not in x_labels:
-                                        x_labels.append(x)
-                                    if y not in y_labels:
-                                        y_labels.append(y)
-                                    grid[(y, x)] = item['result']
-                                inputs = []
-                                filter_complex = ''
-                                input_id = 0
-                                row_filters = []
-                                for y_index, y in enumerate(y_labels):
-                                    col_filters = []
-                                    for x_index, x in enumerate(x_labels):
-                                        path = grid.get((y, x))
-                                        if not path or not os.path.exists(path):
-                                            raise ValueError(f"Missing or invalid video for X={x}, Y={y}")
-                                        inputs.append(f"-i \"{path}\"")
-                                        label_filters = []
-                                        if y_index == 0:
-                                            label_filters.append(
-                                                f"drawtext=fontfile={fontfile}:text='{x}':x=(w-text_w)/2:y=2:fontsize=14:fontcolor=white:box=1:boxcolor=black@0.5"
-                                            )
-                                        if x_index == 0 and has_y:
-                                            label_filters.append(
-                                                f"drawtext=fontfile={fontfile}:text='{y}':x=2:y=(h-text_h)/2:fontsize=14:fontcolor=white:box=1:boxcolor=black@0.5"
-                                            )
-                                        if label_filters:
-                                            filter_complex += f"[{input_id}:v]{','.join(label_filters)}[v{input_id}];"
-                                            col_filters.append(f"[v{input_id}]")
-                                        else:
-                                            col_filters.append(f"[{input_id}:v]")
-                                        input_id += 1
-                                    if len(col_filters) == 1:
-                                        row_filters.append(col_filters[0])
-                                    else:
-                                        row_label = f"row_{y_index}"
-                                        filter_complex += f"{''.join(col_filters)}hstack=inputs={len(col_filters)}[{row_label}];"
-                                        row_filters.append(f"[{row_label}]")
-                                if len(row_filters) == 1:
-                                    final_map = row_filters[0]
-                                else:
-                                    filter_complex += f"{''.join(row_filters)}vstack=inputs={len(row_filters)}[out]"
-                                    final_map = "[out]"
-                                ffmpeg_command = f"ffmpeg {' '.join(inputs)} -filter_complex \"{filter_complex}\" -map {final_map} -y \"{output_path}\""
-                                # print("Running FFmpeg with labels:")
-                                # print(ffmpeg_command)
-                                subprocess.run(ffmpeg_command, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                    x_val = str(item['X_axis_on_plot'])
+                                    y_val = str(item.get('Y_axis_on_plot', 'single_row'))
+                                    if x_val not in x_labels_unique:
+                                        x_labels_unique.append(x_val)
+                                    if y_val not in y_labels_unique:
+                                        y_labels_unique.append(y_val)
+                                    video_grid_data[(y_val, x_val)] = item['result']
+
+                                if not output_generator_vars or not video_grid_data:
+                                    return "No videos generated for XY plot.", gr.update(visible=False)
+
+                                first_video_path = next(iter(video_grid_data.values()), None)
+                                if not first_video_path or not os.path.exists(first_video_path):
+                                    return f"First video for grid base parameters not found: {first_video_path}", gr.update(visible=False)
+
+                                default_fps = 10 # Fallback FPS
+                                frame_height, frame_width = resolutionH, resolutionW # Use UI resolution as fallback
+                                try:
+                                    with imageio.get_reader(first_video_path, 'ffmpeg') as reader:
+                                        meta_data = reader.get_meta_data()
+                                        fps = meta_data.get('fps', default_fps)
+                                        if reader.count_frames() > 0 : # Check if count_frames is valid
+                                            first_frame_shape = reader.get_data(0).shape
+                                            frame_height, frame_width = first_frame_shape[0], first_frame_shape[1]
+                                        else: # Fallback if count_frames is 0 or not available
+                                            print(f"Warning: Could not get frame dimensions from {first_video_path}, using UI resolution {frame_width}x{frame_height}")
+
+                                except Exception as e:
+                                    print(f"XY Plot Error: Could not read first video {first_video_path} for metadata: {e}. Using UI defaults.")
+                                    fps = default_fps
+
+
+                                num_cols = len(x_labels_unique)
+                                num_rows = len(y_labels_unique)
+                                if num_rows == 1 and y_labels_unique[0] == 'single_row':
+                                    has_y_axis = False
+
+                                video_readers = {}
+                                min_total_frames = float('inf')
+                                video_paths_for_readers = {}
+
+                                for y_label_val in y_labels_unique:
+                                    for x_label_val in x_labels_unique:
+                                        path = video_grid_data.get((y_label_val, x_label_val))
+                                        video_paths_for_readers[(y_label_val, x_label_val)] = path # Store for deferred opening
+
+                                # Determine min_total_frames by checking all videos first
+                                for (y_label_val, x_label_val), path in video_paths_for_readers.items():
+                                    if not path or not os.path.exists(path):
+                                        print(f"XY Plot Warning: Missing video for X={x_label_val}, Y={y_label_val}. Will use black frames.")
+                                        # Assume it contributes 0 frames to min_total_frames effectively, or handle later
+                                        continue
+                                    try:
+                                        with imageio.get_reader(path, 'ffmpeg') as r:
+                                            n_frames = r.count_frames()
+                                            if n_frames == float('inf') or n_frames == 0: # Handle streaming or unknown length
+                                                duration = r.get_meta_data().get('duration')
+                                                if duration: n_frames = int(duration * fps)
+                                                else: n_frames = int(total_second_length * fps) # Fallback to UI length
+                                            if n_frames < min_total_frames:
+                                                min_total_frames = n_frames
+                                    except Exception as e:
+                                        print(f"XY Plot Error: Could not get frame count for {path}: {e}")
+                                
+                                if min_total_frames == float('inf') or min_total_frames == 0:
+                                    min_total_frames = int(total_second_length * fps) # Fallback if no video had countable frames
+                                    print(f"XY Plot Warning: Could not determine minimum frame count. Defaulting to {min_total_frames} based on UI video length.")
+                                min_total_frames = int(min_total_frames)
+
+
+                                font_size = 20 # Increased font size
+                                text_color = (255, 255, 255)
+                                box_color = (0, 0, 0, 180) # Slightly more opaque box
+                                pil_font = None
+                                if font_path: # font_path is the name found earlier e.g. "arial.ttf"
+                                    try:
+                                        pil_font = ImageFont.truetype(font_path, font_size)
+                                    except Exception as e:
+                                        print(f"XY Plot Warning: Error loading font '{font_path}' with Pillow: {e}. Text may not render well.")
+                                if not pil_font: # Fallback if specific font failed or wasn't found
+                                    try: pil_font = ImageFont.load_default() # Pillow's built-in basic font
+                                    except: pass # Should not fail, but just in case
+                                    print("XY Plot Warning: Using Pillow's default bitmap font for labels.")
+
+
+                                def draw_text_on_frame(numpy_frame_array, text_str, is_x_label):
+                                    if not pil_font or not text_str: return numpy_frame_array
+                                    img_pil = Image.fromarray(numpy_frame_array)
+                                    draw = ImageDraw.Draw(img_pil, "RGBA")
+                                    
+                                    try:
+                                        text_bbox = draw.textbbox((0,0), text_str, font=pil_font)
+                                        text_w, text_h = text_bbox[2] - text_bbox[0], text_bbox[3] - text_bbox[1]
+                                    except Exception as e:
+                                        print(f"XY Plot Warning: Could not get text dimensions for '{text_str}': {e}")
+                                        return numpy_frame_array
+
+                                    padding = 5
+                                    if is_x_label: # Top-center for X labels
+                                        x = (img_pil.width - text_w) // 2
+                                        y = padding - text_bbox[1] # Adjust for precise vertical alignment from bbox
+                                        rect_coords = [x - padding, padding, x + text_w + padding, padding + text_h + padding]
+                                    else: # Center-left for Y labels
+                                        x = padding
+                                        y = (img_pil.height - text_h) // 2 - text_bbox[1] # Adjust for precise vertical alignment
+                                        rect_coords = [padding, (img_pil.height - text_h) // 2 - padding, padding + text_w + padding, (img_pil.height + text_h) // 2 + padding]
+                                    
+                                    draw.rectangle(rect_coords, fill=box_color)
+                                    draw.text((x, y), text_str, font=pil_font, fill=text_color)
+                                    return np.array(img_pil.convert("RGB"))
+
+                                black_frame_template = np.zeros((frame_height, frame_width, 3), dtype=np.uint8)
+
+                                try:
+                                    with imageio.get_writer(output_path, 'ffmpeg', fps=fps, quality=mp4_crf_setting, macro_block_size=1) as writer: # Added macro_block_size for some ffmpeg versions
+                                        for frame_num in range(min_total_frames):
+                                            grid_row_strips = []
+                                            for y_idx, y_label_val in enumerate(y_labels_unique):
+                                                current_row_frames = []
+                                                for x_idx, x_label_val in enumerate(x_labels_unique):
+                                                    reader_key = (y_label_val, x_label_val)
+                                                    current_frame = None
+                                                    
+                                                    if reader_key not in video_readers: # Open reader on demand
+                                                        path_to_open = video_paths_for_readers.get(reader_key)
+                                                        if path_to_open and os.path.exists(path_to_open):
+                                                            try:
+                                                                video_readers[reader_key] = imageio.get_reader(path_to_open, 'ffmpeg')
+                                                            except Exception as e:
+                                                                print(f"XY Plot Error: Failed to open reader for {path_to_open}: {e}")
+                                                                video_readers[reader_key] = None # Mark as failed
+                                                        else:
+                                                            video_readers[reader_key] = None # No path or not exists
+
+                                                    active_reader = video_readers.get(reader_key)
+                                                    if active_reader:
+                                                        try:
+                                                            current_frame = active_reader.get_data(frame_num)
+                                                            # Ensure frame is correct shape/type
+                                                            if current_frame.shape[0] != frame_height or current_frame.shape[1] != frame_width:
+                                                                # Basic resize if needed, though ideally all inputs are consistent
+                                                                pil_img_temp = Image.fromarray(current_frame).resize((frame_width, frame_height))
+                                                                current_frame = np.array(pil_img_temp)
+                                                            if current_frame.dtype != np.uint8:
+                                                                current_frame = current_frame.astype(np.uint8)
+
+                                                        except IndexError: # Frame out of bounds for this specific video
+                                                            current_frame = black_frame_template.copy()
+                                                        except Exception as e:
+                                                            print(f"XY Plot Error: Reading frame {frame_num} from video for X={x_label_val}, Y={y_label_val}: {e}")
+                                                            current_frame = black_frame_template.copy()
+                                                    else: # Reader failed or no video
+                                                        current_frame = black_frame_template.copy()
+
+                                                    # Apply labels
+                                                    if y_idx == 0: # Top row videos get X-axis labels
+                                                        current_frame = draw_text_on_frame(current_frame, x_label_val, is_x_label=True)
+                                                    if x_idx == 0 and has_y_axis: # First column videos get Y-axis labels
+                                                        current_frame = draw_text_on_frame(current_frame, y_label_val, is_x_label=False)
+                                                    
+                                                    current_row_frames.append(current_frame)
+                                                
+                                                if current_row_frames:
+                                                    grid_row_strips.append(np.hstack(current_row_frames))
+                                            
+                                            if grid_row_strips:
+                                                final_frame_for_video = np.vstack(grid_row_strips)
+                                                writer.append_data(final_frame_for_video)
+                                            
+                                            if frame_num % int(fps * 5) == 0: # Log every 5 seconds of video
+                                                 print(f"XY Plot Grid: Assembled frame {frame_num + 1}/{min_total_frames}")
+                                
+                                except Exception as e:
+                                    import traceback
+                                    tb_str = traceback.format_exc()
+                                    err_msg = f"XY Plot Error: Failed during imageio grid creation: {e}\nTraceback:\n{tb_str}"
+                                    print(err_msg)
+                                    return err_msg, gr.update(visible=False)
+                                finally:
+                                    for r in video_readers.values():
+                                        if r and hasattr(r, 'close'):
+                                            r.close()
+                                
+                                print(f"XY Plot grid video successfully saved to: {output_path}")
                                 return "", gr.update(value=output_path, visible=True)
 
                             with gr.Row():
