@@ -747,7 +747,7 @@ def create_interface(
                                 black_frame_template = np.zeros((frame_height, frame_width, 3), dtype=np.uint8)
 
                                 try:
-                                    with imageio.get_writer(output_path, 'ffmpeg', fps=fps, quality=mp4_crf_setting, macro_block_size=1) as writer: # Added macro_block_size for some ffmpeg versions
+                                    with imageio.get_writer(output_path, 'ffmpeg', fps=fps, quality=1, macro_block_size=1) as writer: # Set quality to 1 (highest for imageio-ffmpeg)
                                         for frame_num in range(min_total_frames):
                                             grid_row_strips = []
                                             for y_idx, y_label_val in enumerate(y_labels_unique):
