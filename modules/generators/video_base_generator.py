@@ -109,6 +109,7 @@ class VideoBaseModelGenerator(BaseModelGenerator):
             - target_width: Target width of the video
             - input_video_pixels: Video frames as tensor
             - end_of_input_video_image_np: Last frame as numpy array
+            - input_frames_resized_np: All input frames resized and center cropped as numpy array (T, H, W, C)
         """
         if device is None:
             device = self.gpu
@@ -180,21 +181,21 @@ class VideoBaseModelGenerator(BaseModelGenerator):
             else:
                 print(f"Using native resolution without resizing: {target_width}x{target_height}")
 
-            # Preprocess frames to match original image processing
-            processed_frames = []
+            # Preprocess input frames to match desired resolution
+            input_frames_resized_np = []
             for i, frame in enumerate(frames):
                 frame_np = resize_and_center_crop(frame, target_width=target_width, target_height=target_height)
-                processed_frames.append(frame_np)
-            processed_frames = np.stack(processed_frames)  # Shape: (num_real_frames, height, width, channels)
-            print(f"Frames preprocessed: {processed_frames.shape}")
+                input_frames_resized_np.append(frame_np)
+            input_frames_resized_np = np.stack(input_frames_resized_np)  # Shape: (num_real_frames, height, width, channels)
+            print(f"Frames preprocessed: {input_frames_resized_np.shape}")
 
             # Save first frame for CLIP vision encoding
-            input_image_np = processed_frames[0]
-            end_of_input_video_image_np = processed_frames[-1]
+            input_image_np = input_frames_resized_np[0]
+            end_of_input_video_image_np = input_frames_resized_np[-1]
 
             # Convert to tensor and normalize to [-1, 1]
             print("Converting frames to tensor...")
-            frames_pt = torch.from_numpy(processed_frames).float() / 127.5 - 1
+            frames_pt = torch.from_numpy(input_frames_resized_np).float() / 127.5 - 1
             frames_pt = frames_pt.permute(0, 3, 1, 2)  # Shape: (num_real_frames, channels, height, width)
             frames_pt = frames_pt.unsqueeze(0)  # Shape: (1, num_real_frames, channels, height, width)
             frames_pt = frames_pt.permute(0, 2, 1, 3, 4)  # Shape: (1, channels, num_real_frames, height, width)
@@ -250,7 +251,7 @@ class VideoBaseModelGenerator(BaseModelGenerator):
                 torch.cuda.empty_cache()
                 print("VAE moved back to CPU, CUDA cache cleared")
 
-            return start_latent, input_image_np, history_latents, fps, target_height, target_width, input_video_pixels, end_of_input_video_image_np
+            return start_latent, input_image_np, history_latents, fps, target_height, target_width, input_video_pixels, end_of_input_video_image_np, input_frames_resized_np
 
         except Exception as e:
             print(f"Error in video_encode: {str(e)}")
