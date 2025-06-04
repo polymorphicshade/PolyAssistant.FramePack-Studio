@@ -263,8 +263,37 @@ def create_interface(
         text-align: center !important;  /* Ensure text centered*/
         min-height: unset !important;
         height: auto !important;
-        background-color: transparent !important;
+        background-color: transparent !important; /* Make textarea background transparent */
+        position: relative; /* Ensure text is on top of the bar */
+        z-index: 2; /* Text on top */
+        font-weight: bold;
+        text-shadow: 1px 1px 2px rgba(0,0,0,0.7); /* Add shadow for better readability */
     }
+
+    /* Styling for Stat Bar Graphs */
+    .toolbar-stat-textbox {
+        position: relative; /* Needed for absolute positioning of the bar */
+        background-color: #555 !important; /* Darker background for the track */
+        border-radius: 3px;
+        overflow: hidden; /* Clip the bar */
+    }
+
+    .stat-bar {
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        background-color: #4CAF50; /* Default bar color (greenish) */
+        width: var(--stat-percentage, 0%); /* Controlled by JS */
+        z-index: 1; /* Bar is behind the text */
+        transition: width 0.3s ease-out;
+        border-radius: 3px 0 0 3px; /* Rounded on the left if bar is not full */
+    }
+
+    /* Specific bar colors (optional) */
+    #toolbar-ram-stat .stat-bar { background-color: #2196F3; } /* Blue for RAM */
+    #toolbar-vram-stat .stat-bar { background-color: #FF9800; } /* Orange for VRAM */
+    #toolbar-gpu-stat .stat-bar { background-color: #E91E63; } /* Pink for GPU */
     """
 
     # Get the theme from settings
@@ -293,6 +322,7 @@ def create_interface(
                     lines=1, 
                     max_lines=1,
                     show_label=False,
+                    elem_id="toolbar-ram-stat",
                     elem_classes="toolbar-stat-textbox"
                 )
             with gr.Column(scale=0, min_width=160): # VRAM Column
@@ -302,6 +332,7 @@ def create_interface(
                     lines=1, 
                     max_lines=1,
                     show_label=False,
+                    elem_id="toolbar-vram-stat",
                     elem_classes="toolbar-stat-textbox"
                     # Visibility controlled by tb_get_formatted_toolbar_stats
                 )
@@ -312,6 +343,7 @@ def create_interface(
                     lines=1, 
                     max_lines=1,
                     show_label=False,                     
+                    elem_id="toolbar-gpu-stat",
                     elem_classes="toolbar-stat-textbox"
                     # Visibility controlled by tb_get_formatted_toolbar_stats
                 )
@@ -1725,24 +1757,31 @@ def create_interface(
 
         #putting this here for now because this file is way too big
         def on_model_type_change(selected_model):
-            if selected_model == "XY Plot":
-                # If 'XY Plot' is selected, make standard_generation_group invisible
-                return (
-                    gr.update(visible=False),  # standard_generation_group
-                    gr.update(visible=True)   # xy_group
-                )
-            else:
-                # For any other model type, make standard_generation_group visible
-                 return (
-                    gr.update(visible=True),  # standard_generation_group
-                    gr.update(visible=False)   # xy_group
-                )
+            is_xy_plot = selected_model == "XY Plot"
+            is_video_model = selected_model in ["Video", "Video with Endframe", "Video F1"]
+            shows_end_frame = selected_model in ["Original with Endframe", "Video with Endframe"] # F1 with Endframe is not a direct option
+
+            return (
+                gr.update(visible=not is_xy_plot),  # standard_generation_group
+                gr.update(visible=is_xy_plot),      # xy_group
+                gr.update(visible=not is_xy_plot and not is_video_model),  # image_input_group
+                gr.update(visible=not is_xy_plot and is_video_model),      # video_input_group
+                gr.update(visible=not is_xy_plot and shows_end_frame),     # end_frame_group_original
+                gr.update(visible=not is_xy_plot and shows_end_frame)      # end_frame_slider_group
+            )
 
         # Model change listener
         model_type.change(
             fn=on_model_type_change,
             inputs=model_type,
-            outputs=[standard_generation_group, xy_group]
+            outputs=[
+                standard_generation_group, 
+                xy_group,
+                image_input_group,
+                video_input_group,
+                end_frame_group_original,
+                end_frame_slider_group
+            ]
         )
 
         
@@ -1967,6 +2006,157 @@ def create_interface(
                 """)
 
         # Add CSS for footer
+
+        gr.HTML("""
+            <script>
+            (function() {
+                "use strict";
+                console.log("Stat Bar Script: Initializing");
+
+                const statConfig = {
+                    ram: { selector: '#toolbar-ram-stat', regex: /\((\d+)%\)/, valueIndex: 1, isRawPercentage: true },
+                    vram: { selector: '#toolbar-vram-stat', regex: /VRAM: (\d+\.?\d+)\/(\d+\.?\d+)GB/, usedIndex: 1, totalIndex: 2, isRawPercentage: false },
+                    gpu: { selector: '#toolbar-gpu-stat', regex: /GPU: \d+°C (\d+)%/, valueIndex: 1, isRawPercentage: true }
+                };
+
+                function setBarPercentage(statElement, percentage) {
+                    if (!statElement) {
+                        console.warn("Stat Bar Script: setBarPercentage called with no element.");
+                        return;
+                    }
+                    let bar = statElement.querySelector('.stat-bar');
+                    if (!bar) {
+                        console.log("Stat Bar Script: Creating .stat-bar for", statElement.id);
+                        bar = document.createElement('div');
+                        bar.className = 'stat-bar';
+                        statElement.insertBefore(bar, statElement.firstChild);
+                    }
+                    const clampedPercentage = Math.min(100, Math.max(0, parseFloat(percentage)));
+                    statElement.style.setProperty('--stat-percentage', clampedPercentage + '%');
+                    // console.log("Stat Bar Script: Updated", statElement.id, "to", clampedPercentage + "%");
+                }
+
+                function updateSingleStatVisual(key, config) {
+                    try {
+                        const container = document.querySelector(config.selector);
+                        if (!container) {
+                            // console.warn("Stat Bar Script: Container not found for", key, config.selector);
+                            return false; // Element not ready
+                        }
+                        const textarea = container.querySelector('textarea');
+                        if (!textarea) {
+                            // console.warn("Stat Bar Script: Textarea not found for", key);
+                            return false; // Element not ready
+                        }
+
+                        const textValue = textarea.value;
+                        if (textValue === "RAM: N/A" || textValue === "VRAM: N/A" || textValue === "GPU: N/A") {
+                             setBarPercentage(container, 0); // Set to 0 if N/A
+                             return true;
+                        }
+
+                        const match = textValue.match(config.regex);
+                        if (match) {
+                            let percentage = 0;
+                            if (config.isRawPercentage) {
+                                percentage = parseInt(match[config.valueIndex]);
+                            } else { // VRAM case
+                                const used = parseFloat(match[config.usedIndex]);
+                                const total = parseFloat(match[config.totalIndex]);
+                                percentage = (total > 0) ? (used / total) * 100 : 0;
+                            }
+                            setBarPercentage(container, percentage);
+                        } else {
+                            // console.warn("Stat Bar Script: Regex mismatch for", key, "-", textValue);
+                             setBarPercentage(container, 0); // Default to 0 on mismatch after initial load
+                        }
+                        return true; // Processed or N/A
+                    } catch (error) {
+                        console.error("Stat Bar Script: Error updating visual for", key, error);
+                        return true; // Assume processed to avoid retry loops on error
+                    }
+                }
+                
+                function updateAllStatVisuals() {
+                    let allReady = true;
+                    for (const key in statConfig) {
+                        if (!updateSingleStatVisual(key, statConfig[key])) {
+                            allReady = false;
+                        }
+                    }
+                    return allReady;
+                }
+
+                function initStatBars() {
+                    console.log("Stat Bar Script: initStatBars called");
+                    if (updateAllStatVisuals()) {
+                        console.log("Stat Bar Script: All stats initialized. Setting up MutationObserver.");
+                        setupMutationObservers();
+                    } else {
+                        console.log("Stat Bar Script: Elements not ready, retrying init in 250ms.");
+                        setTimeout(initStatBars, 250); // Retry if not all elements were ready
+                    }
+                }
+
+                function setupMutationObservers() {
+                    const observer = new MutationObserver((mutationsList) => {
+                        // Use a Set to avoid redundant updates if multiple mutations point to the same stat
+                        const changedStats = new Set();
+
+                        for (const mutation of mutationsList) {
+                            let targetElement = mutation.target;
+                            // Traverse up to find the .toolbar-stat-textbox parent if mutation is deep
+                            while(targetElement && !targetElement.matches('.toolbar-stat-textbox')) {
+                                targetElement = targetElement.parentElement;
+                            }
+
+                            if (targetElement && targetElement.matches('.toolbar-stat-textbox')) {
+                                for (const key in statConfig) {
+                                    if (targetElement.id === statConfig[key].selector.substring(1)) {
+                                        changedStats.add(key);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if (changedStats.size > 0) {
+                           // console.log("Stat Bar Script: MutationObserver detected changes for:", Array.from(changedStats));
+                           changedStats.forEach(key => updateSingleStatVisual(key, statConfig[key]));
+                        }
+                    });
+
+                    for (const key in statConfig) {
+                        const container = document.querySelector(statConfig[key].selector);
+                        if (container) {
+                            // Observe the container for changes to its children (like textarea value)
+                            // and the textarea itself if it exists.
+                            observer.observe(container, { childList: true, subtree: true, characterData: true });
+                            console.log("Stat Bar Script: Observer attached to", container.id);
+                        } else {
+                            console.warn("Stat Bar Script: Could not attach observer, container not found for", key);
+                        }
+                    }
+                }
+
+                // More robust DOM ready check
+                if (document.readyState === "complete" || (document.readyState !== "loading" && !document.documentElement.doScroll)) {
+                    console.log("Stat Bar Script: DOM already ready.");
+                    initStatBars();
+                } else {
+                    document.addEventListener("DOMContentLoaded", () => {
+                        console.log("Stat Bar Script: DOMContentLoaded event.");
+                        initStatBars();
+                    });
+                }
+                 // Fallback for Gradio's dynamic loading, if DOMContentLoaded isn't enough
+                 window.addEventListener('gradio.rendered', () => {
+                    console.log('Stat Bar Script: Gradio rendered event detected.');
+                    initStatBars();
+                });
+
+            })();
+            </script>
+        """)
 
         return block
 
