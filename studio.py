@@ -569,7 +569,6 @@ def monitor_job(job_id=None):
             current_job = job_queue.current_job
             if current_job and current_job.id != job_id and current_job.status == JobStatus.RUNNING:
                 # Always switch to the current running job
-                print(f"DEBUG: Switching to current running job {current_job.id} from {job_id}")
                 job_id = current_job.id
                 waiting_for_transition = False
                 force_update = True
@@ -583,14 +582,12 @@ def monitor_job(job_id=None):
             # If we've been waiting too long, stop waiting
             if current_time - transition_start_time > max_transition_wait:
                 waiting_for_transition = False
-                print(f"DEBUG: Transition wait timeout exceeded for job {job_id}")
                 
                 # Check one more time for a current job
                 with job_queue.lock:
                     current_job = job_queue.current_job
                     if current_job and current_job.status == JobStatus.RUNNING:
                         # Switch to whatever job is currently running
-                        print(f"DEBUG: After timeout, switching to current job {current_job.id}")
                         job_id = current_job.id
                         force_update = True
                         yield last_video, job_id, gr.update(visible=True), '', 'Switching to current job...', gr.update(interactive=True), gr.update(value="Cancel Current Job", visible=True)

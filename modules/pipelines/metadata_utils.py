@@ -57,28 +57,21 @@ def save_job_start_image(job_params, job_id, settings):
     actual_start_image_target_path = os.path.join(output_dir_path, f'{job_id}.png')
     actual_input_image_np = job_params.get('input_image')
 
-    print(f"[JOB_START_IMG_DEBUG] Job ID: {job_id} - Attempting to save starting image.")
-    print(f"[JOB_START_IMG_DEBUG] Target path: {actual_start_image_target_path}")
-    print(f"[JOB_START_IMG_DEBUG] Type of job_params['input_image']: {type(actual_input_image_np)}")
-
     # Create comprehensive metadata dictionary
     metadata_dict = create_metadata(job_params, job_id, settings)
     
     # Save JSON metadata with the same job_id
     json_metadata_path = os.path.join(metadata_dir_path, f'{job_id}.json')
-    print(f"[METADATA_DEBUG] Saving JSON metadata to: {json_metadata_path}")
+ 
     try:
         with open(json_metadata_path, 'w') as f:
             import json
             json.dump(metadata_dict, f, indent=2)
-        print(f"[METADATA_SUCCESS] Saved JSON metadata to {json_metadata_path}")
     except Exception as e:
-        print(f"[METADATA_ERROR] Error saving JSON metadata to {json_metadata_path}: {e}")
         traceback.print_exc()
 
     # Save the input image if it's a numpy array
     if actual_input_image_np is not None and isinstance(actual_input_image_np, np.ndarray):
-        print(f"[JOB_START_IMG_DEBUG] input_image is a NumPy array. Shape: {actual_input_image_np.shape}, Dtype: {actual_input_image_np.dtype}.")
         try:
             # Create PNG metadata
             png_metadata = PngInfo()
@@ -94,32 +87,18 @@ def save_job_start_image(job_params, job_id, settings):
             # Convert image if needed
             image_to_save_np = actual_input_image_np
             if actual_input_image_np.dtype != np.uint8:
-                print(f"[JOB_START_IMG_DEBUG] Warning: input_image dtype is {actual_input_image_np.dtype}, attempting conversion to uint8.")
                 if actual_input_image_np.max() <= 1.0 and actual_input_image_np.min() >= -1.0 and actual_input_image_np.dtype in [np.float32, np.float64]:
                      image_to_save_np = ((actual_input_image_np + 1.0) / 2.0 * 255.0).clip(0, 255).astype(np.uint8)
-                     print(f"[JOB_START_IMG_DEBUG] Converted float image from [-1,1] range to uint8.")
                 elif actual_input_image_np.max() <= 1.0 and actual_input_image_np.min() >= 0.0 and actual_input_image_np.dtype in [np.float32, np.float64]:
                      image_to_save_np = (actual_input_image_np * 255.0).clip(0,255).astype(np.uint8)
-                     print(f"[JOB_START_IMG_DEBUG] Converted float image from [0,1] range to uint8.")
                 else:
                      image_to_save_np = actual_input_image_np.clip(0, 255).astype(np.uint8)
-                     print(f"[JOB_START_IMG_DEBUG] Clipped/casted image to uint8 from dtype {actual_input_image_np.dtype}.")
-            else:
-                print(f"[JOB_START_IMG_DEBUG] input_image is already uint8. No conversion needed.")
-            
             # Save the image with metadata
             start_image_pil = Image.fromarray(image_to_save_np)
             start_image_pil.save(actual_start_image_target_path, pnginfo=png_metadata)
-            print(f"[JOB_START_IMG_SUCCESS] Saved actual starting image to {actual_start_image_target_path}")
             return True # Indicate success
         except Exception as e:
-            print(f"[JOB_START_IMG_ERROR] Error saving actual starting image to {actual_start_image_target_path}: {e}")
             traceback.print_exc()
-    elif actual_input_image_np is None:
-        print(f"[JOB_START_IMG_DEBUG] job_params['input_image'] is None. Cannot save starting image.")
-    else: # Not None, but not np.ndarray
-        print(f"[JOB_START_IMG_DEBUG] job_params['input_image'] is not a NumPy array (type: {type(actual_input_image_np)}). Cannot save starting image.")
-    
     return False # Indicate failure or inability to save
 
 def create_metadata(job_params, job_id, settings, save_placeholder=False):
@@ -273,20 +252,15 @@ def create_metadata(job_params, job_id, settings, save_placeholder=False):
                     weight_value = float(weight) if weight is not None else 1.0
                 
                 lora_data[lora_name] = weight_value
-                print(f"[METADATA_DEBUG] Saved LoRA '{lora_name}' with weight {weight_value}")
             except ValueError:
                 lora_data[lora_name] = 1.0
-                print(f"[METADATA_DEBUG] LoRA '{lora_name}' not found in loaded names, using default weight 1.0")
             except Exception as e:
                 lora_data[lora_name] = 1.0
-                print(f"[METADATA_ERROR] Error processing LoRA '{lora_name}': {e}")
                 traceback.print_exc()
         
         metadata_dict["loras"] = lora_data
-        print(f"[METADATA_DEBUG] Saved LoRA data: {lora_data}")
     else:
         metadata_dict["loras"] = {}
-        print("[METADATA_DEBUG] No LoRAs selected, saving empty loras dictionary")
 
     # This function now only creates the metadata dictionary without saving files
     # The actual saving is done by save_job_start_image() at the beginning of the generation process
@@ -295,15 +269,12 @@ def create_metadata(job_params, job_id, settings, save_placeholder=False):
     # For backward compatibility, we still create the placeholder image
     # and save it if explicitly requested
     placeholder_target_path = os.path.join(metadata_dir_path, f'{job_id}.png')
-    print(f"[METADATA_DEBUG] Job ID: {job_id} - Created metadata dictionary")
     
     # Save the placeholder image if requested
     if save_placeholder:
         try:
             placeholder_img.save(placeholder_target_path, pnginfo=metadata)
-            print(f"[METADATA_SUCCESS] Saved placeholder image to {placeholder_target_path}")
         except Exception as e:
-            print(f"[METADATA_ERROR] Error saving placeholder image to {placeholder_target_path}: {e}")
             traceback.print_exc()
         
     return metadata_dict
