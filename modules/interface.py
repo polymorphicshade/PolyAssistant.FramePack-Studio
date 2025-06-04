@@ -26,7 +26,6 @@ from modules.video_queue import JobStatus, Job
 from modules.prompt_handler import get_section_boundaries, get_quick_prompts, parse_timestamped_prompt
 from diffusers_helper.gradio.progress_bar import make_progress_bar_css, make_progress_bar_html
 from diffusers_helper.bucket_tools import find_nearest_bucket
-from modules.xy_plot_wrapper import xy_plot_process_wrapper
 
 from modules.toolbox_app import tb_create_video_toolbox_ui, tb_get_formatted_toolbar_stats
 
@@ -543,7 +542,7 @@ def create_interface(
                                                 v["end_frame_strength_original"], v["prompt"], v["n_prompt"],
                                                 v["seed"], v["total_second_length"], v["latent_window_size"], v["steps"],
                                                 v["cfg"], v["gs"], v["rs"], v["gpu_memory_preservation"],
-                                                v["use_teacache"], v["teacache_num_steps"], v["teacache_rel_l1_thresh"], v["mp4_crf"], v["randomize_seed_checked"], v["save_metadata_checked"],
+                                                v["use_teacache"], v["teacache_num_steps"], v["teacache_rel_l1_thresh"], v["mp4_crf"], v["randomize_seed_checked"], False,
                                                 v["blend_sections"], v["latent_type"], v["clean_up_videos"], v["selected_loras"],
                                                 v["resolutionW"], v["resolutionH"], v["lora_loaded_names"], v["lora_values"]
                                             )
@@ -1393,6 +1392,7 @@ def create_interface(
              teacache_num_steps_arg,
              teacache_rel_l1_thresh_arg,
              randomize_seed_arg,
+             save_metadata_checked_arg, # NEW: Extract save_metadata_checked parameter
              blend_sections_arg,
              latent_type_arg,
              clean_up_videos_arg, # UI checkbox from Generate tab
@@ -1441,7 +1441,8 @@ def create_interface(
                                 combine_with_source_arg,
                                 num_cleaned_frames_arg,
                                 lora_names_states_arg,
-                                *lora_slider_values_tuple
+                                *lora_slider_values_tuple,
+                                save_metadata_checked=save_metadata_checked_arg # NEW: Pass save_metadata_checked parameter
                                )
             # If randomize_seed is checked, generate a new random seed for the next job
             new_seed_value = None

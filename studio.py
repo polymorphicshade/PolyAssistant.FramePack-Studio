@@ -324,6 +324,7 @@ def process(
         combine_with_source,
         num_cleaned_frames,
         *lora_args,
+        save_metadata_checked=True,  # NEW: Parameter to control metadata saving
     ):
     
     # Create a blank black image if no 
@@ -423,6 +424,7 @@ def process(
         'lora_loaded_names': lora_loaded_names,
         'combine_with_source': combine_with_source,  # Add combine_with_source parameter
         'num_cleaned_frames': num_cleaned_frames,
+        'save_metadata_checked': save_metadata_checked,  # NEW: Add save_metadata_checked parameter
     }
     
     # Print teacache parameters for debugging
@@ -636,33 +638,40 @@ def monitor_job(job_id=None):
                 html = job.progress_data.get('html', '')
                 
                 # Only update the preview if it has changed or we're forcing an update
-                if preview is not None and (preview is not last_preview or force_update):
-                    last_preview = preview
+                # Ensure all components get an update
+                current_preview_value = job.progress_data.get('preview') if job.progress_data else None
+                current_desc_value = job.progress_data.get('desc', 'Processing...') if job.progress_data else 'Processing...'
+                current_html_value = job.progress_data.get('html', make_progress_bar_html(0, 'Processing...')) if job.progress_data else make_progress_bar_html(0, 'Processing...')
+
+                if current_preview_value is not None and (current_preview_value is not last_preview or force_update):
+                    last_preview = current_preview_value
+                # Always update if force_update is true, or if it's time for a periodic update
+                if force_update or update_needed:
                     last_progress_update_time = current_time
                     force_update = False
-                    yield last_video, job_id, gr.update(visible=True, value=preview), desc, html, gr.update(interactive=True), button_update
-                elif html:  # Even without a preview, update the progress bar if we have HTML
-                    last_progress_update_time = current_time
-                    force_update = False
-                    yield last_video, job_id, gr.update(visible=True), desc, html, gr.update(interactive=True), button_update
-            elif current_time - last_progress_update_time > 2.0:  # Force an update every 2 seconds even without new data
+                    yield job.result, str(job_id), last_preview, current_desc_value, current_html_value, gr.update(interactive=True), button_update
+            
+            # Fallback for periodic update if no new progress data but job is still running
+            elif current_time - last_progress_update_time > 0.5: # More frequent fallback update
                 last_progress_update_time = current_time
-                force_update = False
-                yield last_video, job_id, gr.update(visible=True), '', 'Processing...', gr.update(interactive=True), button_update
+                force_update = False # Reset force_update after a yield
+                current_desc_value = job.progress_data.get('desc', 'Processing...') if job.progress_data else 'Processing...'
+                current_html_value = job.progress_data.get('html', make_progress_bar_html(0, 'Processing...')) if job.progress_data else make_progress_bar_html(0, 'Processing...')
+                yield job.result, str(job_id), last_preview, current_desc_value, current_html_value, gr.update(interactive=True), button_update
 
         elif job.status == JobStatus.COMPLETED:
             # Show the final video and reset the button text
-            yield last_video, job_id, gr.update(visible=True), '', '', gr.update(interactive=True), gr.update(interactive=True, value="Cancel Current Job", visible=False)
+            yield job.result, str(job_id), last_preview, 'Completed', make_progress_bar_html(100, 'Completed'), gr.update(interactive=True), gr.update(interactive=True, value="Cancel Current Job", visible=False)
             break
 
         elif job.status == JobStatus.FAILED:
             # Show error and reset the button text
-            yield last_video, job_id, gr.update(visible=True), '', f'Error: {job.error}', gr.update(interactive=True), gr.update(interactive=True, value="Cancel Current Job", visible=False)
+            yield job.result, str(job_id), last_preview, f'Error: {job.error}', make_progress_bar_html(0, 'Failed'), gr.update(interactive=True), gr.update(interactive=True, value="Cancel Current Job", visible=False)
             break
 
         elif job.status == JobStatus.CANCELLED:
             # Show cancelled message and reset the button text
-            yield last_video, job_id, gr.update(visible=True), '', 'Job cancelled', gr.update(interactive=True), gr.update(interactive=True, value="Cancel Current Job", visible=False)
+            yield job.result, str(job_id), last_preview, 'Job cancelled', make_progress_bar_html(0, 'Cancelled'), gr.update(interactive=True), gr.update(interactive=True, value="Cancel Current Job", visible=False)
             break
 
         # Update last_job_status for the next iteration

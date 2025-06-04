@@ -1087,46 +1087,20 @@ class VideoJobQueue:
                         end_frame_image_saved="saved_end_frame_image_path" in job_data and os.path.exists(job_data["saved_end_frame_image_path"])
                     )
                     
-                    # Add job to the queue
+                    # Add job to the internal jobs dictionary
                     self.jobs[job_id] = job
                     
-                    # Only add pending jobs to the processing queue
+                    # If a job was marked "running" in the JSON, reset it to "pending"
+                    # and add it to the processing queue.
+                    if was_running:
+                        print(f"Job {job_id} was 'running', resetting to 'pending' and adding to queue.")
+                        job.status = JobStatus.PENDING
+                        job.started_at = None # Clear started_at for re-queued job
+                        job.progress_data = {} # Reset progress
+                    
+                    # Add all non-completed/failed/cancelled jobs (now including reset 'running' ones) to the processing queue
                     if job.status == JobStatus.PENDING:
                         self.queue.put(job_id)
-                        loaded_count += 1
-                    # If the job was running, set it as the current job
-                    elif was_running and self.current_job is None:
-                        print(f"Setting job {job_id} as current job (was running when saved)")
-                        self.current_job = job
-                        # Create a new stream for the resumed job
-                        job.stream = AsyncStream()
-                        # Initialize progress_data if it doesn't exist
-                        if not hasattr(job, 'progress_data') or job.progress_data is None:
-                            job.progress_data = {}
-                        # Mark it as running again
-                        job.status = JobStatus.RUNNING
-                        # Set started_at if not already set
-                        if not job.started_at:
-                            job.started_at = time.time()
-                        # Set is_processing flag to False to ensure the worker loop will pick it up
-                        self.is_processing = False
-                        
-                        # Instead of resuming, add the job back to the queue as a new pending job
-                        print(f"Adding previously running job {job_id} back to queue as a new pending job")
-                        job.status = JobStatus.PENDING
-                        job.started_at = None
-                        job.completed_at = None
-                        job.progress_data = {}
-                        
-                        # Add the job to the queue
-                        self.queue.put(job_id)
-                        
-                        # Set current_job to None so the worker loop will pick up the next job
-                        self.current_job = None
-                        self.is_processing = False
-                        
-                        print(f"Job {job_id} added back to queue as a new pending job")
-                        
                         loaded_count += 1
             
             # Synchronize queue images after loading the queue
@@ -1428,30 +1402,11 @@ class VideoJobQueue:
                     except Exception as e:
                         print(f"Error checking for next job: {e}")
                     
-                    # After a job completes or is cancelled, always set current_job to None first
+                    # After a job completes or is cancelled, always set current_job to None
                     self.current_job = None
                     
-                    # Then immediately check if there are pending jobs to start
-                    pending_jobs = [j for j in self.jobs.values() if j.status == JobStatus.PENDING]
-                    
-                    if pending_jobs:
-                        # If there are pending jobs, immediately start the next one
-                        pending_jobs.sort(key=lambda j: j.created_at)
-                        next_job = pending_jobs[0]
-                        print(f"DEBUG: Starting next job {next_job.id} immediately after job {job_id}")
-                        
-                        # Set the next job as current and mark it as running
-                        self.current_job = next_job
-                        next_job.status = JobStatus.RUNNING
-                        next_job.started_at = time.time()
-                        
-                        # Remove the next job from the queue
-                        # Instead of manually manipulating the queue, we'll just mark the task as done
-                        # when we process it in the next iteration
-                        print(f"DEBUG: Next job {next_job.id} will be processed in the next iteration")
-                        
-                        # We don't need to remove it from the queue here, as we've already
-                        # set it as the current job and marked it as running
+                    # The main loop's self.queue.get() will pick up the next available job.
+                    # No need to explicitly find and start the next job here.
                     
                     self.queue.task_done()
                     

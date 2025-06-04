@@ -82,7 +82,8 @@ def worker(
     lora_loaded_names=[],
     input_video=None,     # Add input_video parameter with default value of None
     combine_with_source=None,  # Add combine_with_source parameter
-    num_cleaned_frames=5  # Add num_cleaned_frames parameter with default value
+    num_cleaned_frames=5,  # Add num_cleaned_frames parameter with default value
+    save_metadata_checked=True  # Add save_metadata_checked parameter
 ):
     """
     Worker function for video generation using the pipeline architecture.
@@ -198,7 +199,8 @@ def worker(
             'input_image_path': input_image_path,
             'end_frame_image_path': end_frame_image_path,
             'combine_with_source': combine_with_source,
-            'num_cleaned_frames': num_cleaned_frames
+            'num_cleaned_frames': num_cleaned_frames,
+            'save_metadata_checked': save_metadata_checked # Ensure it's in job_params for internal use
         }
         
         # Validate parameters
@@ -258,7 +260,8 @@ def worker(
         job_params.update(processed_inputs)
         
         # Save the starting image directly to the output directory with full metadata
-        if settings.get("save_metadata") and job_params.get('input_image') is not None:
+        # Check both global settings and job-specific save_metadata_checked parameter
+        if settings.get("save_metadata") and job_params.get('save_metadata_checked', True) and job_params.get('input_image') is not None:
             try:
                 # Import the save_job_start_image function from metadata_utils
                 from modules.pipelines.metadata_utils import save_job_start_image, create_metadata
@@ -273,10 +276,11 @@ def worker(
             except Exception as e:
                 print(f"Error saving starting image and metadata: {e}")
                 traceback.print_exc()
-        
+                
         # Pre-encode all prompts
         stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'Text encoding all prompts...'))))
-
+        
+        # THE FOLLOWING CODE SHOULD BE INSIDE THE TRY BLOCK
         if not high_vram:
             fake_diffusers_current_device(text_encoder, gpu)
             load_model_as_complete(text_encoder_2, target_device=gpu)
@@ -842,188 +846,169 @@ def worker(
                 text_encoder, text_encoder_2, image_encoder, vae, 
                 studio_module.current_generator.transformer if studio_module.current_generator else None
             )
-
-    if settings.get("clean_up_videos"):
-        try:
-            video_files = [
-                f for f in os.listdir(output_dir)
-                if f.startswith(f"{job_id}_") and f.endswith(".mp4")
-            ]
-            print(f"Video files found for cleanup: {video_files}")
-            if video_files:
-                def get_frame_count(filename):
-                    try:
-                        # Handles filenames like jobid_123.mp4
-                        return int(filename.replace(f"{job_id}_", "").replace(".mp4", ""))
-                    except Exception:
-                        return -1
-                video_files_sorted = sorted(video_files, key=get_frame_count)
-                print(f"Sorted video files: {video_files_sorted}")
-                final_video = video_files_sorted[-1]
-                for vf in video_files_sorted[:-1]:
-                    full_path = os.path.join(output_dir, vf)
-                    try:
-                        os.remove(full_path)
-                        print(f"Deleted intermediate video: {full_path}")
-                    except Exception as e:
-                        print(f"Failed to delete {full_path}: {e}")
-        except Exception as e:
-            print(f"Error during video cleanup: {e}")
-    
-    # Clean up temp folder if enabled
-    if settings.get("cleanup_temp_folder"):
-        try:
-            temp_dir = settings.get("gradio_temp_dir")
-            if temp_dir and os.path.exists(temp_dir):
-                print(f"Cleaning up temp folder: {temp_dir}")
-                items = os.listdir(temp_dir)
-                removed_count = 0
-                for item in items:
-                    item_path = os.path.join(temp_dir, item)
-                    try:
-                        if os.path.isfile(item_path) or os.path.islink(item_path):
-                            os.remove(item_path)
-                            removed_count += 1
-                        elif os.path.isdir(item_path):
-                            shutil.rmtree(item_path)
-                            removed_count += 1
-                    except Exception as e:
-                        print(f"Error removing {item_path}: {e}")
-                print(f"Cleaned up {removed_count} temporary files/folders.")
-        except Exception as e:
-            print(f"Error during temp folder cleanup: {e}")
-
-    # Check if the user wants to combine the source video with the generated video
-    # This is done after the video cleanup routine to ensure the combined video is not deleted
-    if (model_type == "Video" or model_type == "Video F1") and combine_with_source and job_params.get('input_image_path'):
-        print("Creating combined video with source and generated content...")
-        try:
-            # Get the input video path
-            input_video_path = job_params.get('input_image_path')
-            if input_video_path and os.path.exists(input_video_path):
-                # Find the final generated video
-                final_video = None
+    finally:
+        # This finally block is associated with the main try block (starts around line 154)
+        if settings.get("clean_up_videos"):
+            try:
                 video_files = [
                     f for f in os.listdir(output_dir)
                     if f.startswith(f"{job_id}_") and f.endswith(".mp4")
                 ]
-                
+                print(f"Video files found for cleanup: {video_files}")
                 if video_files:
-                    # Sort by frame count to find the final video
                     def get_frame_count(filename):
                         try:
                             # Handles filenames like jobid_123.mp4
                             return int(filename.replace(f"{job_id}_", "").replace(".mp4", ""))
                         except Exception:
-                            # For other formats like jobid_final_with_input.mp4
-                            return float('inf')  # This will make it sort to the end
-                            
+                            return -1
                     video_files_sorted = sorted(video_files, key=get_frame_count)
-                    final_video = os.path.join(output_dir, video_files_sorted[-1])
-                
-                if final_video and os.path.exists(final_video):
-                    # Create a combined video filename
-                    combined_output_filename = os.path.join(output_dir, f'{job_id}_combined.mp4')
-                    
-                    # Try to use the combine_videos method from the VideoModelGenerator class
-                    combined_result = None
-                    try:
-                        if hasattr(studio_module.current_generator, 'combine_videos'):
-                            print(f"Using VideoModelGenerator.combine_videos to create side-by-side comparison")
-                            combined_result = studio_module.current_generator.combine_videos(
-                                source_video_path=input_video_path,
-                                generated_video_path=final_video,
-                                output_path=combined_output_filename
-                            )
-                            
-                            if combined_result:
-                                print(f"Combined video saved to: {combined_result}")
-                                stream_to_use.output_queue.push(('file', combined_result))
-                            else:
-                                print("Failed to create combined video, falling back to direct ffmpeg method")
-                                combined_result = None  # Ensure we use the fallback
-                        else:
-                            print("VideoModelGenerator does not have combine_videos method. Using fallback method.")
-                    except Exception as e:
-                        print(f"Error in combine_videos method: {e}")
-                        print("Falling back to direct ffmpeg method")
-                        combined_result = None  # Ensure we use the fallback
-                        
-                    # If the combine_videos method failed or doesn't exist, use the fallback method
-                    if not combined_result:
-                        print("Using fallback method to combine videos")
-                        
-                        # Fallback to using ffmpeg directly
-                        from modules.toolbox.toolbox_processor import VideoProcessor
-                        from modules.toolbox.message_manager import MessageManager
-                        
-                        # Create a message manager for logging
-                        message_manager = MessageManager()
-                        video_processor = VideoProcessor(message_manager, settings.settings)
-                        
-                        # Get the ffmpeg executable from imageio
-                        ffmpeg_exe = video_processor.ffmpeg_exe
-                        
-                        if ffmpeg_exe:
-                            print(f"Using ffmpeg at: {ffmpeg_exe}")
-                            
-                            # Use subprocess to run ffmpeg command to concatenate videos
-                            import subprocess
-                            
-                            # Create a temporary file list for ffmpeg
-                            temp_list_file = os.path.join(output_dir, f'{job_id}_filelist.txt')
-                            with open(temp_list_file, 'w') as f:
-                                f.write(f"file '{input_video_path}'\n")
-                                f.write(f"file '{final_video}'\n")
-                            
-                            # Run ffmpeg command to concatenate the videos
-                            ffmpeg_cmd = [
-                                ffmpeg_exe, "-y", "-f", "concat", "-safe", "0",
-                                "-i", temp_list_file, "-c", "copy", combined_output_filename
-                            ]
-                            
-                            print(f"Running ffmpeg command: {' '.join(ffmpeg_cmd)}")
-                            subprocess.run(ffmpeg_cmd, check=True, capture_output=True, text=True)
-                            
-                            # Remove the temporary file list
-                            if os.path.exists(temp_list_file):
-                                os.remove(temp_list_file)
-                            
-                            print(f"Combined video saved to: {combined_output_filename}")
-                            stream_to_use.output_queue.push(('file', combined_output_filename))
-                        else:
-                            print("FFmpeg executable not found. Cannot combine videos.")
-                else:
-                    print(f"Final video not found for combining with source")
-            else:
-                print(f"Input video path not found: {input_video_path}")
-        except Exception as e:
-            print(f"Error combining videos: {e}")
-            traceback.print_exc()
-    
-    # Final verification of LoRA state
-    if studio_module.current_generator and studio_module.current_generator.transformer:
-        # Verify LoRA state
-        has_loras = False
-        if hasattr(studio_module.current_generator.transformer, 'peft_config'):
-            adapter_names = list(studio_module.current_generator.transformer.peft_config.keys()) if studio_module.current_generator.transformer.peft_config else []
-            if adapter_names:
-                has_loras = True
-                print(f"Transformer has LoRAs: {', '.join(adapter_names)}")
-            else:
-                print(f"Transformer has no LoRAs in peft_config")
-        else:
-            print(f"Transformer has no peft_config attribute")
-            
-        # Check for any LoRA modules
-        for name, module in studio_module.current_generator.transformer.named_modules():
-            if hasattr(module, 'lora_A') and module.lora_A:
-                has_loras = True
-            if hasattr(module, 'lora_B') and module.lora_B:
-                has_loras = True
-                
-        if not has_loras:
-            print(f"No LoRA components found in transformer")
+                    print(f"Sorted video files: {video_files_sorted}")
+                    final_video = video_files_sorted[-1]
+                    for vf in video_files_sorted[:-1]:
+                        full_path = os.path.join(output_dir, vf)
+                        try:
+                            os.remove(full_path)
+                            print(f"Deleted intermediate video: {full_path}")
+                        except Exception as e:
+                            print(f"Failed to delete {full_path}: {e}")
+            except Exception as e:
+                print(f"Error during video cleanup: {e}")
+        
+        # Clean up temp folder if enabled
+        if settings.get("cleanup_temp_folder"):
+            try:
+                temp_dir = settings.get("gradio_temp_dir")
+                if temp_dir and os.path.exists(temp_dir): # Check if temp_dir is not None before os.path.exists
+                    print(f"Cleaning up temp folder: {temp_dir}")
+                    items = os.listdir(temp_dir)
+                    removed_count = 0
+                    for item in items:
+                        item_path = os.path.join(temp_dir, item)
+                        try:
+                            if os.path.isfile(item_path) or os.path.islink(item_path):
+                                os.remove(item_path)
+                                removed_count += 1
+                            elif os.path.isdir(item_path):
+                                import shutil # Import shutil here as it's only used in this block
+                                shutil.rmtree(item_path)
+                                removed_count += 1
+                        except Exception as e:
+                            print(f"Error removing {item_path}: {e}")
+                    print(f"Cleaned up {removed_count} temporary files/folders.")
+            except Exception as e:
+                print(f"Error during temp folder cleanup: {e}")
 
-    stream_to_use.output_queue.push(('end', None))
-    return
+        # Check if the user wants to combine the source video with the generated video
+        # This is done after the video cleanup routine to ensure the combined video is not deleted
+        if (model_type == "Video" or model_type == "Video F1") and combine_with_source and job_params.get('input_image_path'):
+            print("Creating combined video with source and generated content...")
+            try:
+                input_video_path = job_params.get('input_image_path')
+                if input_video_path and os.path.exists(input_video_path):
+                    final_video_path_for_combine = None # Use a different variable name to avoid conflict
+                    video_files_for_combine = [
+                        f for f in os.listdir(output_dir)
+                        if f.startswith(f"{job_id}_") and f.endswith(".mp4") and "combined" not in f
+                    ]
+                    
+                    if video_files_for_combine:
+                        def get_frame_count_for_combine(filename): # Renamed to avoid conflict
+                            try:
+                                return int(filename.replace(f"{job_id}_", "").replace(".mp4", ""))
+                            except Exception:
+                                return float('inf') 
+                                
+                        video_files_sorted_for_combine = sorted(video_files_for_combine, key=get_frame_count_for_combine)
+                        if video_files_sorted_for_combine: # Check if the list is not empty
+                             final_video_path_for_combine = os.path.join(output_dir, video_files_sorted_for_combine[-1])
+                    
+                    if final_video_path_for_combine and os.path.exists(final_video_path_for_combine):
+                        combined_output_filename = os.path.join(output_dir, f'{job_id}_combined.mp4')
+                        combined_result = None
+                        try:
+                            if hasattr(studio_module.current_generator, 'combine_videos'):
+                                print(f"Using VideoModelGenerator.combine_videos to create side-by-side comparison")
+                                combined_result = studio_module.current_generator.combine_videos(
+                                    source_video_path=input_video_path,
+                                    generated_video_path=final_video_path_for_combine, # Use the correct variable
+                                    output_path=combined_output_filename
+                                )
+                                
+                                if combined_result:
+                                    print(f"Combined video saved to: {combined_result}")
+                                    stream_to_use.output_queue.push(('file', combined_result))
+                                else:
+                                    print("Failed to create combined video, falling back to direct ffmpeg method")
+                                    combined_result = None 
+                            else:
+                                print("VideoModelGenerator does not have combine_videos method. Using fallback method.")
+                        except Exception as e_combine: # Use a different exception variable name
+                            print(f"Error in combine_videos method: {e_combine}")
+                            print("Falling back to direct ffmpeg method")
+                            combined_result = None 
+                            
+                        if not combined_result:
+                            print("Using fallback method to combine videos")
+                            from modules.toolbox.toolbox_processor import VideoProcessor
+                            from modules.toolbox.message_manager import MessageManager
+                            
+                            message_manager = MessageManager()
+                            # Pass settings.settings if it exists, otherwise pass the settings object
+                            video_processor_settings = settings.settings if hasattr(settings, 'settings') else settings
+                            video_processor = VideoProcessor(message_manager, video_processor_settings)
+                            ffmpeg_exe = video_processor.ffmpeg_exe
+                            
+                            if ffmpeg_exe:
+                                print(f"Using ffmpeg at: {ffmpeg_exe}")
+                                import subprocess
+                                temp_list_file = os.path.join(output_dir, f'{job_id}_filelist.txt')
+                                with open(temp_list_file, 'w') as f:
+                                    f.write(f"file '{input_video_path}'\n")
+                                    f.write(f"file '{final_video_path_for_combine}'\n") # Use the correct variable
+                                
+                                ffmpeg_cmd = [
+                                    ffmpeg_exe, "-y", "-f", "concat", "-safe", "0",
+                                    "-i", temp_list_file, "-c", "copy", combined_output_filename
+                                ]
+                                print(f"Running ffmpeg command: {' '.join(ffmpeg_cmd)}")
+                                subprocess.run(ffmpeg_cmd, check=True, capture_output=True, text=True)
+                                if os.path.exists(temp_list_file):
+                                    os.remove(temp_list_file)
+                                print(f"Combined video saved to: {combined_output_filename}")
+                                stream_to_use.output_queue.push(('file', combined_output_filename))
+                            else:
+                                print("FFmpeg executable not found. Cannot combine videos.")
+                    else:
+                        print(f"Final video not found for combining with source: {final_video_path_for_combine}")
+                else:
+                    print(f"Input video path not found: {input_video_path}")
+            except Exception as e_combine_outer: # Use a different exception variable name
+                print(f"Error combining videos: {e_combine_outer}")
+                traceback.print_exc()
+    
+        # Final verification of LoRA state
+        if studio_module.current_generator and studio_module.current_generator.transformer:
+            has_loras = False
+            if hasattr(studio_module.current_generator.transformer, 'peft_config'):
+                adapter_names = list(studio_module.current_generator.transformer.peft_config.keys()) if studio_module.current_generator.transformer.peft_config else []
+                if adapter_names:
+                    has_loras = True
+                    print(f"Transformer has LoRAs: {', '.join(adapter_names)}")
+                else:
+                    print(f"Transformer has no LoRAs in peft_config")
+            else:
+                print(f"Transformer has no peft_config attribute")
+                
+            for name, module in studio_module.current_generator.transformer.named_modules():
+                if hasattr(module, 'lora_A') and module.lora_A:
+                    has_loras = True
+                if hasattr(module, 'lora_B') and module.lora_B:
+                    has_loras = True
+                    
+            if not has_loras:
+                print(f"No LoRA components found in transformer")
+        
+        stream_to_use.output_queue.push(('end', None))
+
+    return # This return is for the worker function itself, OUTSIDE try/except/finally

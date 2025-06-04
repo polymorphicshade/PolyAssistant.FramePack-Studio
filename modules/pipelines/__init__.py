@@ -9,7 +9,6 @@ from .f1_pipeline import F1Pipeline
 from .original_with_endframe_pipeline import OriginalWithEndframePipeline
 from .video_pipeline import VideoPipeline
 from .video_f1_pipeline import VideoF1Pipeline
-from .xy_plot_pipeline import XYPlotPipeline
 
 def create_pipeline(model_type, settings):
     """
@@ -32,8 +31,6 @@ def create_pipeline(model_type, settings):
         return VideoPipeline(settings)
     elif model_type == "Video F1":
         return VideoF1Pipeline(settings)
-    elif model_type == "XY Plot":
-        return XYPlotPipeline(settings)
     else:
         raise ValueError(f"Unknown model type: {model_type}")
 
@@ -44,6 +41,5 @@ __all__ = [
     'OriginalWithEndframePipeline',
     'VideoPipeline',
     'VideoF1Pipeline',
-    'XYPlotPipeline',
     'create_pipeline'
 ]
