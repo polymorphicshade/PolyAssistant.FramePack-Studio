@@ -139,7 +139,7 @@ def create_interface(
         z-index: 1000;
         background: #333;
         color: #fff;
-        padding: 5px 10px;
+        padding: 0px 10px; /* Reduced top/bottom padding */
         display: flex;
         align-items: center;
         gap: 8px;
@@ -171,20 +171,36 @@ def create_interface(
     .toolbar-patreon a:hover {
         text-decoration: underline;
     }
+
+    /* Toolbar Version number */
+    .toolbar-version {
+        margin: 0 15px; /* Space around version */
+        color: white;
+        font-size: 0.8rem;
+        white-space: nowrap;
+        display: inline-block;
+    }
     
     /* Responsive design for screens */
     @media (max-width: 1024px) {
-        .toolbar-patreon {
+        .toolbar-patreon, .toolbar-version { /* Hide both on smaller screens */
             display: none;
         }
-        .footer-patreon {
-            display: block;
+        .footer-patreon, .footer-version { /* Show both in footer on smaller screens */
+            display: inline-block !important; /* Ensure they are shown */
+        }
+        #fixed-toolbar {
+            gap: 4px !important; /* Reduce gap for screens <= 1024px */
+        }
+        #fixed-toolbar > div:first-child { /* Target the first gr.Column (Title) */
+            min-width: fit-content !important; /* Override Python-set min-width */
+            flex-shrink: 0 !important; /* Prevent title column from shrinking too much */
         }
     }
     
     @media (min-width: 1025px) {
-        .footer-patreon {
-            display: none;
+        .footer-patreon, .footer-version { /* Hide both in footer on larger screens */
+            display: none !important;
         }
     }
     
@@ -235,18 +251,18 @@ def create_interface(
     
     /* Layout adjustments */
     body, .gradio-container {
-        padding-top: 36px !important;
+        padding-top: 26px !important; /* Adjusted for new toolbar height (36px - 10px) */
     }
     
     @media (max-width: 768px) {
         body, .gradio-container {
-            padding-top: 32px !important;
+            padding-top: 22px !important; /* Adjusted for new toolbar height (32px - 10px) */
         }
     }
     
     @media (max-width: 480px) {
         body, .gradio-container {
-            padding-top: 28px !important;
+            padding-top: 18px !important; /* Adjusted for new toolbar height (28px - 10px) */
         }
     }
     
@@ -276,7 +292,7 @@ def create_interface(
         justify-content: center !important;
         position: relative; /* Needed for absolute positioning of the stat-bar div */
         overflow: hidden; /* To clip the stat-bar div */
-        border-radius: 3px; /* Rounded corners for the container */
+        /* border-radius: 3px; /* Rounded corners for the container - REMOVED */
     }
 
     .toolbar-stat-textbox textarea { /* Target the actual textarea element */
@@ -302,7 +318,7 @@ def create_interface(
     /* .toolbar-stat-textbox {
         position: relative; 
         background-color: #555 !important; 
-        border-radius: 3px;
+        border-radius: 3px; /* This was a duplicate and also removed if present */
     } */
 
     .stat-bar {
@@ -314,7 +330,7 @@ def create_interface(
         width: var(--stat-percentage, 0%); /* Controlled by JS */
         z-index: 1; /* Bar is behind the text */
         transition: width 0.3s ease-out;
-        border-radius: 3px 0 0 3px; /* Rounded on the left if bar is not full */
+        border-radius: 3px; /* Apply to all corners of the bar itself */
     }
 
     /* Specific bar colors (optional) */
@@ -329,10 +345,11 @@ def create_interface(
 
     with block:
         with gr.Row(elem_id="fixed-toolbar"):
-            with gr.Column(scale=0, min_width=400): # Title/Patreon
-                gr.HTML("""
+            with gr.Column(scale=0, min_width=400): # Title/Version/Patreon
+                gr.HTML(f"""
                 <div style="display: flex; align-items: center;">
                     <h1 class='toolbar-title'>FramePack Studio</h1>
+                    <p class='toolbar-version'>{APP_VERSION_DISPLAY}</p>
                     <p class='toolbar-patreon'><a href='https://patreon.com/Colinu' target='_blank'>Support on Patreon</a></p>
                 </div>
                 """)
@@ -377,8 +394,7 @@ def create_interface(
                 )
             # --- End of System Stats Display ---
             
-            with gr.Column(scale=0, min_width=50):
-                version_display = gr.Markdown(f"<p style='margin:0;color:white;' class='toolbar-text'>{APP_VERSION_DISPLAY}</p>")   
+            # Removed old version_display column
             # --- End of Toolbar ---
             
         # Essential to capture main_tabs_component for later use by send_to_toolbox_btn
@@ -2014,9 +2030,10 @@ def create_interface(
         # Add footer with social links
         with gr.Row(elem_id="footer"):
             with gr.Column(scale=1):
-                gr.HTML("""
+                gr.HTML(f"""
                 <div style="text-align: center; padding: 20px; color: #666;">
                     <div style="margin-top: 10px;">
+                        <span class="footer-version" style="margin: 0 10px; color: #666;">{APP_VERSION_DISPLAY}</span>
                         <a href="https://patreon.com/Colinu" target="_blank" style="margin: 0 10px; color: #666; text-decoration: none;" class="footer-patreon">
                             <i class="fab fa-patreon"></i>Support on Patreon
                         </a>
