@@ -261,50 +261,49 @@ def create_interface(
     #toolbox-video-player .source-selection {
         display: none !important;
     }
-    
-    .analysis-box {
-    }
-
-    .message-box {
-    } 
 
     /* Styling for Textboxes used as stat displays in the toolbar */
     .toolbar-stat-textbox {
         /* Reset Gradio Textbox defaults */
         border: none !important;
-        background-color: transparent !important;
+        background-color: transparent !important; /* Will be overridden by stat bar bg */
         box-shadow: none !important;
-        padding: 0px 4px !important; /* Minimal padding */
-        min-height: unset !important; /* Allow it to be as short as text */
-        height: auto !important;
+        /* padding: 0px 4px !important; /* Padding now on textarea for text, not container */
+        min-height: 25px !important; 
+        height: 25px !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        position: relative; /* Needed for absolute positioning of the stat-bar div */
+        overflow: hidden; /* To clip the stat-bar div */
+        border-radius: 3px; /* Rounded corners for the container */
     }
 
     .toolbar-stat-textbox textarea { /* Target the actual textarea element */
         color: white !important;
         font-family: inherit !important; /* Inherit from parent */
         font-size: 0.75rem !important; /* Match .toolbar-text or desired */
-        line-height: 1.2 !important;   /* Adjust for vertical alignment */
-        padding: 0px !important;      /* Remove internal padding of textarea */
+        line-height: normal !important;   /* Allow natural line height for the font size */
+        padding: 0px 4px !important;      /* Minimal horizontal padding for text */
         white-space: nowrap !important;
         overflow: hidden !important; /* Hide scrollbars if any */
         resize: none !important; /* Disable textarea resizing */
         text-align: center !important;  /* Ensure text centered*/
-        min-height: unset !important;
-        height: auto !important;
+        /* min-height and height are removed, flex parent controls this */
         background-color: transparent !important; /* Make textarea background transparent */
         position: relative; /* Ensure text is on top of the bar */
         z-index: 2; /* Text on top */
         font-weight: bold;
         text-shadow: 1px 1px 2px rgba(0,0,0,0.7); /* Add shadow for better readability */
+        width: 100%; /* Ensure textarea takes full width for text-align to work as expected */
     }
 
-    /* Styling for Stat Bar Graphs */
-    .toolbar-stat-textbox {
-        position: relative; /* Needed for absolute positioning of the bar */
-        background-color: #555 !important; /* Darker background for the track */
+    /* Styling for Stat Bar Graphs (background color moved to the main .toolbar-stat-textbox) */
+    /* .toolbar-stat-textbox {
+        position: relative; 
+        background-color: #555 !important; 
         border-radius: 3px;
-        overflow: hidden; /* Clip the bar */
-    }
+    } */
 
     .stat-bar {
         position: absolute;
