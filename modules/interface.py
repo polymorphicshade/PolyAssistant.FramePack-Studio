@@ -1162,7 +1162,7 @@ def create_interface(
                         progress_bar = gr.HTML('', elem_classes='no-generating-animation')
 
                         with gr.Row():
-                            current_job_id = gr.Textbox(label="Current Job ID", visible=True, interactive=True)
+                            current_job_id = gr.Textbox(label="Current Job ID", value="", visible=True, interactive=True)
                             start_button = gr.Button(value="Add to Queue", variant="primary", elem_id="toolbar-add-to-queue-btn")
                             end_button = gr.Button(value="Cancel Current Job", interactive=True, visible=False)
 
@@ -1815,22 +1815,9 @@ def create_interface(
         
         # Auto-check for current job on page load
         def check_for_current_job():
-            # This function will be called when the interface loads
-            # It will check if there's a current job in the queue and update the UI
-            with job_queue.lock:
-                current_job = job_queue.current_job
-                if current_job:
-                    # Return all the necessary information to update the preview windows
-                    job_id = current_job.id
-                    result = current_job.result
-                    preview = current_job.progress_data.get('preview') if current_job.progress_data else None
-                    desc = current_job.progress_data.get('desc', '') if current_job.progress_data else ''
-                    html = current_job.progress_data.get('html', '') if current_job.progress_data else ''
-                    
-                    # Also trigger the monitor_job function to start monitoring this job
-                    print(f"Auto-check found current job {job_id}, triggering monitor_job")
-                    return job_id, result, preview, desc, html
-                return None, None, None, '', ''
+            # This function is disabled to prevent flashing on startup.
+            # Jobs from previous sessions will be re-queued and processed automatically.
+            return None, None, None, '', ''
                 
         # Connect the auto-check function to the interface load event
         block.load(
@@ -1895,56 +1882,71 @@ def create_interface(
         # --- Connect Metadata Loading ---
         # Function to load metadata from JSON file
         def load_metadata_from_json(json_path):
+            # Define the total number of output components to handle errors gracefully
+            num_outputs = 6 + len(lora_sliders)
+
             if not json_path:
-                # Return updates for all potentially affected components
-                num_orig_sliders = len(lora_sliders)
-                return [gr.update()] * (4 + num_orig_sliders)  # Updated to include total_second_length and end_frame_strength
+                # Return empty updates for all components if no file is provided
+                return [gr.update()] * num_outputs
 
             try:
                 with open(json_path, 'r') as f:
                     metadata = json.load(f)
 
+                # Extract values from metadata with defaults
                 prompt_val = metadata.get('prompt')
                 seed_val = metadata.get('seed')
-                total_second_length_val = metadata.get('total_second_length')  # Get total_second_length
-                end_frame_strength_val = metadata.get('end_frame_strength') # Load end_frame_strength if present in metadata
+                total_second_length_val = metadata.get('total_second_length')
+                end_frame_strength_val = metadata.get('end_frame_strength')
+                model_type_val = metadata.get('model_type')
+                lora_weights = metadata.get('loras', {})
                 
-                # Check for LoRA values in metadata
-                lora_weights = metadata.get('loras', {}) # Changed key to 'loras' based on studio.py worker
+                # Get the names of the selected LoRAs from the metadata
+                selected_lora_names = list(lora_weights.keys())
 
                 print(f"Loaded metadata from JSON: {json_path}")
-                print(f"Prompt: {prompt_val}, Seed: {seed_val}, Total Second Length: {total_second_length_val}")
+                print(f"Model Type: {model_type_val}, Prompt: {prompt_val}, Seed: {seed_val}, LoRAs: {selected_lora_names}")
 
-                # Update the UI components
+                # Create a list of UI updates
                 updates = [
-                    gr.update(value=prompt_val) if prompt_val else gr.update(),
+                    gr.update(value=prompt_val) if prompt_val is not None else gr.update(),
                     gr.update(value=seed_val) if seed_val is not None else gr.update(),
-                    gr.update(value=total_second_length_val) if total_second_length_val is not None else gr.update(),  # Add total_second_length update
-                    gr.update(value=end_frame_strength_val) if end_frame_strength_val is not None else gr.update(),  # Add update for end_frame_strength_original slider
+                    gr.update(value=total_second_length_val) if total_second_length_val is not None else gr.update(),
+                    gr.update(value=end_frame_strength_val) if end_frame_strength_val is not None else gr.update(),
+                    gr.update(value=model_type_val) if model_type_val else gr.update(),
+                    gr.update(value=selected_lora_names) if selected_lora_names else gr.update()
                 ]
 
-                # Update LoRA sliders if they exist in metadata
+                # Update LoRA sliders based on loaded weights
                 for lora in lora_names:
                     if lora in lora_weights:
-                        updates.append(gr.update(value=lora_weights[lora]))
+                        updates.append(gr.update(value=lora_weights[lora], visible=True))
                     else:
-                        updates.append(gr.update()) # No change if LoRA not in metadata
+                        # Hide sliders for LoRAs not in the metadata
+                        updates.append(gr.update(visible=False))
 
-                # Ensure the number of updates matches the number of outputs
-                num_orig_sliders = len(lora_sliders)
-                return updates[:4 + num_orig_sliders] # Return updates for prompt, seed, total_second_length, end_frame_strength, and sliders
+                return updates
 
             except Exception as e:
                 print(f"Error loading metadata: {e}")
-                num_orig_sliders = len(lora_sliders)
-                return [gr.update()] * (4 + num_orig_sliders)  # Updated to include total_second_length and end_frame_strength
+                import traceback
+                traceback.print_exc()
+                # Return empty updates for all components on error
+                return [gr.update()] * num_outputs
 
 
         # Connect JSON metadata loader for Original tab
         json_upload.change(
             fn=load_metadata_from_json,
             inputs=[json_upload],
-            outputs=[prompt, seed, total_second_length, end_frame_strength_original] + [lora_sliders[lora] for lora in lora_names]
+            outputs=[
+                prompt, 
+                seed, 
+                total_second_length, 
+                end_frame_strength_original,
+                model_type,
+                lora_selector
+            ] + [lora_sliders[lora] for lora in lora_names]
         )
 
 

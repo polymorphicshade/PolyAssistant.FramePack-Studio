@@ -195,6 +195,7 @@ def create_metadata(job_params, job_id, settings, save_placeholder=False):
         "resolutionW": job_params.get('resolutionW', 640),
         "resolutionH": job_params.get('resolutionH', 640),
         "model_type": model_type,
+        "generation_type": job_params.get('generation_type', model_type),
         "has_input_image": job_params.get('has_input_image', False),
         "input_image_path": job_params.get('input_image_path', None),
         
