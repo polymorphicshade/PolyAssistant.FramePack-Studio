@@ -147,28 +147,14 @@ class Job:
                             # Save the first frame if available
                             if first_frame is not None:
                                 print(f"Found first frame with shape: {first_frame.shape}")
-                                debug_output_path = os.path.join("outputs", f"debug_first_frame_{self.id}.png")
-                                try:
-                                    debug_img = Image.fromarray(first_frame)
-                                    debug_img.save(debug_output_path)
-                                    print(f"DEBUG: Saved first frame to {debug_output_path}")
-                                except Exception as e:
-                                    print(f"DEBUG: Error saving first frame to outputs: {e}")
+                                # DEBUG IMAGE SAVING REMOVED
                         except Exception as e:
                             print(f"Error reading frames: {e}")
                         
                         if last_frame is not None:
                             print(f"Found last frame with shape: {last_frame.shape}")
                             
-                            # Save the last frame to the outputs folder for debugging
-                            debug_output_path = os.path.join("outputs", f"debug_last_frame_{self.id}.png")
-                            try:
-                                debug_img = Image.fromarray(last_frame)
-                                debug_img.save(debug_output_path)
-                                print(f"DEBUG: Saved last frame to {debug_output_path}")
-                            except Exception as e:
-                                print(f"DEBUG: Error saving last frame to outputs: {e}")
-                            
+                            # DEBUG IMAGE SAVING REMOVED
                             # Use the last frame for the thumbnail
                             img = Image.fromarray(last_frame)
                             img.thumbnail((100, 100))
@@ -184,7 +170,6 @@ class Job:
                             img.save(buffered, format="PNG")
                             self.thumbnail = f"data:image/png;base64,{base64.b64encode(buffered.getvalue()).decode()}"
                     else:
-                        print(f"Getting frames for debugging (total frames: {num_frames})")
                         # If we know the number of frames, try to get multiple frames for debugging
                         try:
                             # Try to get the first frame
@@ -193,14 +178,7 @@ class Job:
                                 first_frame = reader.get_data(0)
                                 print(f"Got first frame with shape: {first_frame.shape}")
                                 
-                                # Save the first frame to the outputs folder for debugging
-                                debug_first_frame_path = os.path.join("outputs", f"debug_first_frame_{self.id}.png")
-                                try:
-                                    debug_first_img = Image.fromarray(first_frame)
-                                    debug_first_img.save(debug_first_frame_path)
-                                    print(f"DEBUG: Saved first frame to {debug_first_frame_path}")
-                                except Exception as e:
-                                    print(f"DEBUG: Error saving first frame to outputs: {e}")
+                                # DEBUG IMAGE SAVING REMOVED
                             except Exception as e:
                                 print(f"Error getting first frame: {e}")
                             
@@ -211,14 +189,7 @@ class Job:
                                 middle_frame = reader.get_data(middle_frame_idx)
                                 print(f"Got middle frame (frame {middle_frame_idx}) with shape: {middle_frame.shape}")
                                 
-                                # Save the middle frame to the outputs folder for debugging
-                                debug_middle_frame_path = os.path.join("outputs", f"debug_middle_frame_{self.id}.png")
-                                try:
-                                    debug_middle_img = Image.fromarray(middle_frame)
-                                    debug_middle_img.save(debug_middle_frame_path)
-                                    print(f"DEBUG: Saved middle frame to {debug_middle_frame_path}")
-                                except Exception as e:
-                                    print(f"DEBUG: Error saving middle frame to outputs: {e}")
+                                # DEBUG IMAGE SAVING REMOVED
                             except Exception as e:
                                 print(f"Error getting middle frame: {e}")
                             
@@ -229,14 +200,7 @@ class Job:
                                 last_frame = reader.get_data(last_frame_idx)
                                 print(f"Got last frame (frame {last_frame_idx}) with shape: {last_frame.shape}")
                                 
-                                # Save the last frame to the outputs folder for debugging
-                                debug_last_frame_path = os.path.join("outputs", f"debug_last_frame_{self.id}.png")
-                                try:
-                                    debug_last_img = Image.fromarray(last_frame)
-                                    debug_last_img.save(debug_last_frame_path)
-                                    print(f"DEBUG: Saved last frame to {debug_last_frame_path}")
-                                except Exception as e:
-                                    print(f"DEBUG: Error saving last frame to outputs: {e}")
+                                # DEBUG IMAGE SAVING REMOVED
                             except Exception as e:
                                 print(f"Error getting last frame: {e}")
                             
@@ -250,14 +214,7 @@ class Job:
                                     if last_frame is not None:
                                         print(f"Got last frame by iteration with shape: {last_frame.shape}")
                                         
-                                        # Save the last frame to the outputs folder for debugging
-                                        debug_last_frame_path = os.path.join("outputs", f"debug_last_frame_iter_{self.id}.png")
-                                        try:
-                                            debug_last_img = Image.fromarray(last_frame)
-                                            debug_last_img.save(debug_last_frame_path)
-                                            print(f"DEBUG: Saved last frame (from iteration) to {debug_last_frame_path}")
-                                        except Exception as e:
-                                            print(f"DEBUG: Error saving last frame (from iteration) to outputs: {e}")
+                                        # DEBUG IMAGE SAVING REMOVED
                                 except Exception as e:
                                     print(f"Error getting last frame by iteration: {e}")
                             
@@ -280,9 +237,6 @@ class Job:
                                 img.save(buffered, format="PNG")
                                 self.thumbnail = f"data:image/png;base64,{base64.b64encode(buffered.getvalue()).decode()}"
                         except Exception as e:
-                            print(f"Error extracting frames for debugging: {e}")
-                            import traceback
-                            traceback.print_exc()
                             # Fallback to blue thumbnail on error
                             img = Image.new('RGB', (100, 100), (0, 0, 255))  # Blue for video
                             buffered = io.BytesIO()
@@ -710,8 +664,7 @@ class VideoJobQueue:
                 
                 # Let the worker loop handle the transition to the next job
                 # This ensures the current job is fully processed before switching
-                print(f"DEBUG: Job {job_id} marked as cancelled. Worker loop will handle transition to next job.")
-                
+                # DEBUG PRINT REMOVED
                 result = True
             else:
                 result = False
