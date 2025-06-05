@@ -57,7 +57,9 @@ class VideoF1ModelGenerator(VideoBaseModelGenerator):
         # Get num_cleaned_frames from job_params if available, otherwise use default value of 5
         num_clean_frames = num_cleaned_frames if num_cleaned_frames is not None else 5
 
-        start_latent = history_latents[:, :, :1]  # Shape: (1, channels, 1, height//8, width//8)
+        # RT_BORG: Retaining this commented code for reference.
+        # start_latent = history_latents[:, :, :1]  # Shape: (1, channels, 1, height//8, width//8)
+        start_latent = video_latents[:, :, -1:]  # Shape: (1, channels, 1, height//8, width//8)
 
         available_frames = history_latents.shape[2]  # Number of latent frames
         max_pixel_frames = min(latent_window_size * 4 - 3, available_frames * 4)  # Cap at available pixel frames
