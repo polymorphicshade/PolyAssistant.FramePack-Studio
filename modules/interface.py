@@ -103,6 +103,10 @@ def create_interface(
     # Create the interface
     css = make_progress_bar_css()
     css += """
+    .short-import-box, .short-import-box > div {
+        min-height: 40px !important;
+        height: 40px !important;
+    }
     /* Image container styling - more aggressive approach */
     .contain-image, .contain-image > div, .contain-image > div > img {
         object-fit: contain !important;
@@ -1167,188 +1171,136 @@ def create_interface(
             with gr.Tab("Queue"):
                 with gr.Row():
                     with gr.Column():
-                        # Create a container for the queue status
+                        with gr.Row() as queue_controls_row:
+                            refresh_button = gr.Button("Refresh Queue")
+                            clear_queue_button = gr.Button("Cancel Queue", variant="stop")
+                            clear_complete_button = gr.Button("Clear Complete", variant="secondary")
+                            load_queue_button = gr.Button("Load Queue")
+                            queue_export_button = gr.Button("Export Queue")
+                            import_queue_file = gr.File(
+                                label="Import Queue",
+                                file_types=[".json", ".zip"],
+                                type="filepath",
+                                visible=True,
+                                elem_classes="short-import-box"
+                            )
+                        
+                        with gr.Row(visible=False) as confirm_cancel_row:
+                            gr.Markdown("### Are you sure you want to cancel all pending jobs?")
+                            confirm_cancel_yes_btn = gr.Button("Yes, Cancel All", variant="stop")
+                            confirm_cancel_no_btn = gr.Button("No, Go Back")
+
                         with gr.Row():
                             queue_status = gr.DataFrame(
                                 headers=["Job ID", "Type", "Status", "Created", "Started", "Completed", "Elapsed", "Preview"], 
                                 datatype=["str", "str", "str", "str", "str", "str", "str", "html"], 
                                 label="Job Queue"
                             )
-                        with gr.Row():
-                            refresh_button = gr.Button("Refresh Queue")
-                            clear_queue_button = gr.Button("Cancel Queue", variant="stop")
-                            clear_complete_button = gr.Button("Clear Complete", variant="secondary")
-                            load_queue_button = gr.Button("Load Queue")
-                            queue_export_button = gr.Button("Queue Export")
-                            import_queue_file = gr.File(
-                                label="Import Queue",
-                                file_types=[".json", ".zip"],
-                                type="filepath",
-                                visible=True
-                            )
-                            # Connect the refresh button (Moved inside 'with block')
-                            refresh_button.click(
-                                fn=update_stats, 
-                                inputs=[],
-                                outputs=[queue_status, queue_stats_display]
-                            )
-                            
-                            # Function to clear all jobs in the queue
-                            def clear_all_jobs():
-                                try:
-                                    # Use the clear_queue method from VideoJobQueue
-                                    cancelled_count = job_queue.clear_queue()
-                                    print(f"Cleared {cancelled_count} jobs from the queue")
-                                    
-                                    # Refresh the queue display with the current state
-                                    return update_stats()
-                                except Exception as e:
-                                    import traceback
-                                    print(f"Error in clear_all_jobs: {e}")
-                                    traceback.print_exc()
-                                    # Return empty list on error to avoid UI hanging
-                                    return [], "" # Return empty data for queue_status and empty string for queue_stats_display
-                            
-                            # Connect the clear queue button
-                            clear_queue_button.click(
-                                fn=clear_all_jobs,
-                                inputs=[],
-                                outputs=[queue_status, queue_stats_display]
-                            )
-                            
-                            # Function to clear completed and cancelled jobs
-                            def clear_completed_jobs():
-                                try:
-                                    # Use the clear_completed_jobs method from VideoJobQueue
-                                    removed_count = job_queue.clear_completed_jobs()
-                                    print(f"Removed {removed_count} completed/cancelled jobs from the queue")
-                                    
-                                    # Refresh the queue display with the current state
-                                    return update_stats()
-                                except Exception as e:
-                                    import traceback
-                                    print(f"Error in clear_completed_jobs: {e}")
-                                    traceback.print_exc()
-                                    # Return empty list on error to avoid UI hanging
-                                    return [], ""
-                            
-                            # Connect the clear complete button
-                            clear_complete_button.click(
-                                fn=clear_completed_jobs,
-                                inputs=[],
-                                outputs=[queue_status, queue_stats_display]
-                            )
-                            
-                            # Function to load queue from queue.json
-                            def load_queue_from_json():
-                                try:
-                                    # Use the load_queue_from_json method from VideoJobQueue
-                                    loaded_count = job_queue.load_queue_from_json()
-                                    print(f"Loaded {loaded_count} jobs from queue.json")
-                                    
-                                    # Refresh the queue display with the current state
-                                    return update_stats()
-                                except Exception as e:
-                                    import traceback
-                                    print(f"Error loading queue from JSON: {e}")
-                                    traceback.print_exc()
-                                    # Return empty list on error to avoid UI hanging
-                                    return [], ""
-                            
-                            # Function to import queue from a custom JSON file
-                            def import_queue_from_file(file_path):
-                                if not file_path:
-                                    return update_stats()
-                                    
-                                try:
-                                    # Use the load_queue_from_json method from VideoJobQueue with the provided file path
-                                    loaded_count = job_queue.load_queue_from_json(file_path)
-                                    print(f"Loaded {loaded_count} jobs from {file_path}")
-                                    
-                                    # Refresh the queue display with the current state
-                                    return update_stats()
-                                except Exception as e:
-                                    import traceback
-                                    print(f"Error importing queue from file: {e}")
-                                    traceback.print_exc()
-                                    # Return empty list on error to avoid UI hanging
-                                    return [], ""
-                            
-                            # Connect the load queue button
-                            load_queue_button.click(
-                                fn=load_queue_from_json,
-                                inputs=[],
-                                outputs=[queue_status, queue_stats_display]
-                            )
-                            
-                            # Function to export queue to a zip file
-                            def export_queue_to_zip():
-                                try:
-                                    # Use the export_queue_to_zip method from VideoJobQueue
-                                    zip_path = job_queue.export_queue_to_zip()
-                                    if zip_path and os.path.exists(zip_path):
-                                        print(f"Queue exported to {zip_path}")
-                                        return update_stats()
-                                    else:
-                                        print("Failed to export queue to zip")
-                                        return update_stats()
-                                except Exception as e:
-                                    import traceback
-                                    print(f"Error exporting queue to zip: {e}")
-                                    traceback.print_exc()
-                                    # Return empty list on error to avoid UI hanging
-                                    return [], ""
-                            
-                            # Connect the queue export button
-                            queue_export_button.click(
-                                fn=export_queue_to_zip,
-                                inputs=[],
-                                outputs=[queue_status, queue_stats_display]
-                            )
-                            
-                            # Connect the import queue file selector
-                            import_queue_file.change(
-                                fn=import_queue_from_file,
-                                inputs=[import_queue_file],
-                                outputs=[queue_status, queue_stats_display]
-                            )
-                        # Add documentation accordion
-                        with gr.Accordion("Queue Documentation", open=True):
+
+                        with gr.Accordion("Queue Documentation", open=False):
                             gr.Markdown("""
-                            ## Queue Tab Documentation
+                            ## Queue Tab Guide
                             
-                            The Queue tab allows you to manage your generation jobs. Here's what each button does:
+                            This tab is for managing your generation jobs.
                             
-                            ### Queue Controls
-                            
-                            - **Refresh Queue**: Updates the queue status display with the current state of all jobs.
-                            
-                            - **Cancel Queue**: Cancels all pending jobs in the queue. This will not affect jobs that are currently running.
-                            
-                            - **Clear Complete**: Removes all completed and cancelled jobs from the queue, keeping only pending and running jobs.
-                            
-                            - **Load Queue**: Loads the queue from the default `queue.json` file in the application directory. This is useful if you've restarted the application and want to restore your previous queue state.
-                            
-                            - **Queue Export**: Packages the current queue configuration (`queue.json`) and all associated images (from the `queue_images` directory) into a single zip file named `queue_export.zip`. This makes it easy to back up your queue or transfer it to another installation.
-                            
-                            - **Import Queue**: Allows you to import a queue from either:
-                              - A JSON file containing queue configuration
-                              - A ZIP file containing both queue configuration and associated images (created using Queue Export)
-                            
-                            ### Queue Table
-                            
-                            The table displays all jobs in the queue with the following information:
-                            
-                            - **Job ID**: Unique identifier for each job
-                            - **Type**: The generation model type used for the job
-                            - **Status**: Current status of the job (pending, running, completed, failed, cancelled)
-                            - **Created**: When the job was added to the queue
-                            - **Started**: When the job began processing
-                            - **Completed**: When the job finished processing
-                            - **Elapsed**: How long the job took to process
-                            - **Preview**: Thumbnail preview of the job's input image or latent type
+                            - **Refresh Queue**: Update the job list.
+                            - **Cancel Queue**: Stop all pending jobs.
+                            - **Clear Complete**: Remove finished, failed, or cancelled jobs from the list.
+                            - **Load Queue**: Load jobs from the default `queue.json`.
+                            - **Export Queue**: Save the current job list and its images to a zip file.
+                            - **Import Queue**: Load a queue from a `.json` or `.zip` file.
                             """)
-                            
+                        
+                        # --- Event Handlers for Queue Tab ---
+
+                        # Function to clear all jobs in the queue
+                        def clear_all_jobs():
+                            try:
+                                cancelled_count = job_queue.clear_queue()
+                                print(f"Cleared {cancelled_count} jobs from the queue")
+                                return update_stats()
+                            except Exception as e:
+                                import traceback
+                                print(f"Error in clear_all_jobs: {e}")
+                                traceback.print_exc()
+                                return [], ""
+
+                        # Function to clear completed and cancelled jobs
+                        def clear_completed_jobs():
+                            try:
+                                removed_count = job_queue.clear_completed_jobs()
+                                print(f"Removed {removed_count} completed/cancelled jobs from the queue")
+                                return update_stats()
+                            except Exception as e:
+                                import traceback
+                                print(f"Error in clear_completed_jobs: {e}")
+                                traceback.print_exc()
+                                return [], ""
+
+                        # Function to load queue from queue.json
+                        def load_queue_from_json():
+                            try:
+                                loaded_count = job_queue.load_queue_from_json()
+                                print(f"Loaded {loaded_count} jobs from queue.json")
+                                return update_stats()
+                            except Exception as e:
+                                import traceback
+                                print(f"Error loading queue from JSON: {e}")
+                                traceback.print_exc()
+                                return [], ""
+
+                        # Function to import queue from a custom JSON file
+                        def import_queue_from_file(file_path):
+                            if not file_path:
+                                return update_stats()
+                            try:
+                                loaded_count = job_queue.load_queue_from_json(file_path)
+                                print(f"Loaded {loaded_count} jobs from {file_path}")
+                                return update_stats()
+                            except Exception as e:
+                                import traceback
+                                print(f"Error importing queue from file: {e}")
+                                traceback.print_exc()
+                                return [], ""
+
+                        # Function to export queue to a zip file
+                        def export_queue_to_zip():
+                            try:
+                                zip_path = job_queue.export_queue_to_zip()
+                                if zip_path and os.path.exists(zip_path):
+                                    print(f"Queue exported to {zip_path}")
+                                else:
+                                    print("Failed to export queue to zip")
+                                return update_stats()
+                            except Exception as e:
+                                import traceback
+                                print(f"Error exporting queue to zip: {e}")
+                                traceback.print_exc()
+                                return [], ""
+
+                        # --- Connect Buttons ---
+                        refresh_button.click(fn=update_stats, inputs=[], outputs=[queue_status, queue_stats_display])
+                        
+                        # Confirmation logic for Cancel Queue
+                        def show_cancel_confirmation():
+                            return gr.update(visible=False), gr.update(visible=True)
+
+                        def hide_cancel_confirmation():
+                            return gr.update(visible=True), gr.update(visible=False)
+
+                        def confirmed_clear_all_jobs():
+                            qs_data, qs_text = clear_all_jobs()
+                            return qs_data, qs_text, gr.update(visible=True), gr.update(visible=False)
+
+                        clear_queue_button.click(fn=show_cancel_confirmation, inputs=None, outputs=[queue_controls_row, confirm_cancel_row])
+                        confirm_cancel_no_btn.click(fn=hide_cancel_confirmation, inputs=None, outputs=[queue_controls_row, confirm_cancel_row])
+                        confirm_cancel_yes_btn.click(fn=confirmed_clear_all_jobs, inputs=None, outputs=[queue_status, queue_stats_display, queue_controls_row, confirm_cancel_row])
+
+                        clear_complete_button.click(fn=clear_completed_jobs, inputs=[], outputs=[queue_status, queue_stats_display])
+                        load_queue_button.click(fn=load_queue_from_json, inputs=[], outputs=[queue_status, queue_stats_display])
+                        queue_export_button.click(fn=export_queue_to_zip, inputs=[], outputs=[queue_status, queue_stats_display])
+                        import_queue_file.change(fn=import_queue_from_file, inputs=[import_queue_file], outputs=[queue_status, queue_stats_display])
+
                         # Create a container for thumbnails (kept for potential future use, though not displayed in DataFrame)
                         with gr.Row():
                             thumbnail_container = gr.Column()
