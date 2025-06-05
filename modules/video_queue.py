@@ -803,15 +803,20 @@ class VideoJobQueue:
         """Export the current queue to a zip file containing queue.json and queue_images directory
         
         Args:
-            output_path: Path to save the zip file. If None, uses 'queue_export.zip' in the current directory.
+            output_path: Path to save the zip file. If None, uses 'queue_export.zip' in the configured output directory.
             
         Returns:
             str: Path to the created zip file
         """
         try:
+            # Get the output directory from settings
+            settings = Settings()
+            output_dir = settings.get("output_dir", "outputs")
+            os.makedirs(output_dir, exist_ok=True)
+
             # Use default path if none provided
             if output_path is None:
-                output_path = "queue_export.zip"
+                output_path = os.path.join(output_dir, "queue_export.zip")
             
             # Make sure queue.json is up to date
             self.save_queue_to_json()
