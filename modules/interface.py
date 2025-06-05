@@ -59,6 +59,34 @@ def create_interface(
     section_boundaries = get_section_boundaries()
     quick_prompts = get_quick_prompts()
 
+    # --- Function to update queue stats (Moved earlier to resolve UnboundLocalError) ---
+    def update_stats():
+        # Get queue status data
+        queue_status_data = update_queue_status_fn()
+        
+        # Get queue statistics for the toolbar display
+        jobs = job_queue.get_all_jobs()
+        
+        # Count jobs by status
+        pending_count = 0
+        running_count = 0
+        completed_count = 0
+        
+        for job in jobs:
+            if hasattr(job, 'status'):
+                status = str(job.status)
+                if status == "JobStatus.PENDING":
+                    pending_count += 1
+                elif status == "JobStatus.RUNNING":
+                    running_count += 1
+                elif status == "JobStatus.COMPLETED":
+                    completed_count += 1
+        
+        # Format the queue stats display text
+        queue_stats_text = f"<p style='margin:0;color:white;' class='toolbar-text'>Queue: {pending_count} | Running: {running_count} | Completed: {completed_count}</p>"
+        
+        return queue_status_data, queue_stats_text
+
     #XY helper
     def generate_tab_xy_plot_process():
         return xy_plot_process_wrapper(settings, xy_plot_process,
@@ -309,8 +337,9 @@ def create_interface(
                     <p class='toolbar-patreon'><a href='https://patreon.com/Colinu' target='_blank'>Support on Patreon</a></p>
                 </div>
                 """)
-            with gr.Column(scale=0, min_width=40):
-                refresh_stats_btn = gr.Button("⟳", elem_id="refresh-stats-btn", elem_classes="narrow-button")  
+            # REMOVED: refresh_stats_btn - Toolbar refresh button is no longer needed
+            # with gr.Column(scale=0, min_width=40):
+            #     refresh_stats_btn = gr.Button("⟳", elem_id="refresh-stats-btn", elem_classes="narrow-button")  
             with gr.Column(scale=1, min_width=180): # Queue Stats
                 queue_stats_display = gr.Markdown("<p style='margin:0;color:white;' class='toolbar-text'>Queue: 0 | Running: 0 | Completed: 0</p>")
                 
@@ -1144,9 +1173,9 @@ def create_interface(
                             )
                             # Connect the refresh button (Moved inside 'with block')
                             refresh_button.click(
-                                fn=update_queue_status_fn, # Use the function passed in
+                                fn=update_stats, 
                                 inputs=[],
-                                outputs=[queue_status]
+                                outputs=[queue_status, queue_stats_display]
                             )
                             
                             # Function to clear all jobs in the queue
@@ -1157,19 +1186,19 @@ def create_interface(
                                     print(f"Cleared {cancelled_count} jobs from the queue")
                                     
                                     # Refresh the queue display with the current state
-                                    return update_queue_status_fn()
+                                    return update_stats()
                                 except Exception as e:
                                     import traceback
                                     print(f"Error in clear_all_jobs: {e}")
                                     traceback.print_exc()
                                     # Return empty list on error to avoid UI hanging
-                                    return []
+                                    return [], "" # Return empty data for queue_status and empty string for queue_stats_display
                             
                             # Connect the clear queue button
                             clear_queue_button.click(
                                 fn=clear_all_jobs,
                                 inputs=[],
-                                outputs=[queue_status]
+                                outputs=[queue_status, queue_stats_display]
                             )
                             
                             # Function to clear completed and cancelled jobs
@@ -1180,19 +1209,19 @@ def create_interface(
                                     print(f"Removed {removed_count} completed/cancelled jobs from the queue")
                                     
                                     # Refresh the queue display with the current state
-                                    return update_queue_status_fn()
+                                    return update_stats()
                                 except Exception as e:
                                     import traceback
                                     print(f"Error in clear_completed_jobs: {e}")
                                     traceback.print_exc()
                                     # Return empty list on error to avoid UI hanging
-                                    return []
+                                    return [], ""
                             
                             # Connect the clear complete button
                             clear_complete_button.click(
                                 fn=clear_completed_jobs,
                                 inputs=[],
-                                outputs=[queue_status]
+                                outputs=[queue_status, queue_stats_display]
                             )
                             
                             # Function to load queue from queue.json
@@ -1203,18 +1232,18 @@ def create_interface(
                                     print(f"Loaded {loaded_count} jobs from queue.json")
                                     
                                     # Refresh the queue display with the current state
-                                    return update_queue_status_fn()
+                                    return update_stats()
                                 except Exception as e:
                                     import traceback
                                     print(f"Error loading queue from JSON: {e}")
                                     traceback.print_exc()
                                     # Return empty list on error to avoid UI hanging
-                                    return []
+                                    return [], ""
                             
                             # Function to import queue from a custom JSON file
                             def import_queue_from_file(file_path):
                                 if not file_path:
-                                    return update_queue_status_fn()
+                                    return update_stats()
                                     
                                 try:
                                     # Use the load_queue_from_json method from VideoJobQueue with the provided file path
@@ -1222,19 +1251,19 @@ def create_interface(
                                     print(f"Loaded {loaded_count} jobs from {file_path}")
                                     
                                     # Refresh the queue display with the current state
-                                    return update_queue_status_fn()
+                                    return update_stats()
                                 except Exception as e:
                                     import traceback
                                     print(f"Error importing queue from file: {e}")
                                     traceback.print_exc()
                                     # Return empty list on error to avoid UI hanging
-                                    return []
+                                    return [], ""
                             
                             # Connect the load queue button
                             load_queue_button.click(
                                 fn=load_queue_from_json,
                                 inputs=[],
-                                outputs=[queue_status]
+                                outputs=[queue_status, queue_stats_display]
                             )
                             
                             # Function to export queue to a zip file
@@ -1244,29 +1273,29 @@ def create_interface(
                                     zip_path = job_queue.export_queue_to_zip()
                                     if zip_path and os.path.exists(zip_path):
                                         print(f"Queue exported to {zip_path}")
-                                        return update_queue_status_fn()
+                                        return update_stats()
                                     else:
                                         print("Failed to export queue to zip")
-                                        return update_queue_status_fn()
+                                        return update_stats()
                                 except Exception as e:
                                     import traceback
                                     print(f"Error exporting queue to zip: {e}")
                                     traceback.print_exc()
                                     # Return empty list on error to avoid UI hanging
-                                    return []
+                                    return [], ""
                             
                             # Connect the queue export button
                             queue_export_button.click(
                                 fn=export_queue_to_zip,
                                 inputs=[],
-                                outputs=[queue_status]
+                                outputs=[queue_status, queue_stats_display]
                             )
                             
                             # Connect the import queue file selector
                             import_queue_file.change(
                                 fn=import_queue_from_file,
                                 inputs=[import_queue_file],
-                                outputs=[queue_status]
+                                outputs=[queue_status, queue_stats_display]
                             )
                         # Add documentation accordion
                         with gr.Accordion("Queue Documentation", open=True):
@@ -1547,6 +1576,9 @@ def create_interface(
 
         # Connect the main process function (wrapper for adding to queue)
         def process_with_queue_update(model_type_arg, *args):
+            # Call update_stats to get both queue_status_data and queue_stats_text
+            queue_status_data, queue_stats_text = update_stats() # MODIFIED
+
             # Extract all arguments (ensure order matches inputs lists)
             # The order here MUST match the order in the `ips` list.
             # RT_BORG: Global settings gpu_memory_preservation, mp4_crf, save_metadata removed from direct args.
@@ -1634,34 +1666,41 @@ def create_interface(
             # If a job ID was created, automatically start monitoring it and update queue
             if result and result[1]:  # Check if job_id exists in results
                 job_id = result[1]
-                queue_status_data = update_queue_status_fn()
+                # queue_status_data = update_queue_status_fn() # OLD: update_stats now called earlier
+                # Call update_stats again AFTER the job is added to get the freshest stats
+                queue_status_data, queue_stats_text = update_stats()
+
 
                 # Add the new seed value to the results if randomize is checked
                 if new_seed_value is not None:
                     # Use result[6] directly for end_button to preserve its value
-                    return [result[0], job_id, result[2], result[3], result[4], result[5], result[6], queue_status_data, new_seed_value]
+                    return [result[0], job_id, result[2], result[3], result[4], result[5], result[6], queue_status_data, queue_stats_text, new_seed_value]
                 else:
                     # Use result[6] directly for end_button to preserve its value
-                    return [result[0], job_id, result[2], result[3], result[4], result[5], result[6], queue_status_data, gr.update()]
+                    return [result[0], job_id, result[2], result[3], result[4], result[5], result[6], queue_status_data, queue_stats_text, gr.update()]
 
             # If no job ID was created, still return the new seed if randomize is checked
+            # Also, ensure we return the latest stats even if no job was created (e.g., error during param validation)
+            queue_status_data, queue_stats_text = update_stats()
             if new_seed_value is not None:
                 # Make sure to preserve the end_button update from result[6]
-                return [result[0], result[1], result[2], result[3], result[4], result[5], result[6], update_queue_status_fn(), new_seed_value]
+                return [result[0], result[1], result[2], result[3], result[4], result[5], result[6], queue_status_data, queue_stats_text, new_seed_value]
             else:
                 # Make sure to preserve the end_button update from result[6]
-                return [result[0], result[1], result[2], result[3], result[4], result[5], result[6], update_queue_status_fn(), gr.update()]
+                return [result[0], result[1], result[2], result[3], result[4], result[5], result[6], queue_status_data, queue_stats_text, gr.update()]
 
         # Custom end process function that ensures the queue is updated and changes button text
         def end_process_with_update():
-            queue_status_data = end_process_fn()
+            _ = end_process_fn() # Call the original end_process_fn
+            # Now, get fresh stats for both queue table and toolbar
+            queue_status_data, queue_stats_text = update_stats()
             
             # Don't try to get the new job ID immediately after cancellation
             # The monitor_job function will handle the transition to the next job
             
             # Change the cancel button text to "Cancelling..." and make it non-interactive
             # This ensures the button stays in this state until the job is fully cancelled
-            return queue_status_data, gr.update(value="Cancelling...", interactive=False), gr.update()
+            return queue_status_data, queue_stats_text, gr.update(value="Cancelling...", interactive=False), gr.update()
 
         # MODIFIED handle_send_video_to_toolbox:
         def handle_send_video_to_toolbox(original_path_from_state): # Input is now the original path from gr.State
@@ -1721,39 +1760,45 @@ def create_interface(
         def handle_start_button(selected_model, *args):
             if selected_model == "XY Plot":
                 # For XY Plot, call the xy_plot_process function
+                # XY plot also needs to update stats, though it's a longer process.
+                # For now, we'll let its internal logic handle its specific UI updates.
+                # The main stats will update once the XY plot jobs are added to the queue by its internal loop.
                 status, video = generate_tab_xy_plot_process()
+                # After XY plot processing (which adds jobs), update stats
+                qs_data, qs_text = update_stats()
                 if status:
                     # If there was an error, display it
-                    return gr.update(value=None), gr.update(), gr.update(), gr.update(value=status), gr.update(), gr.update(value="Add to Queue", interactive=True), gr.update(), gr.update(), gr.update()
+                    return gr.update(value=None), gr.update(), gr.update(), gr.update(value=status), gr.update(), gr.update(value="Add to Queue", interactive=True), gr.update(), qs_data, qs_text, gr.update()
                 else:
                     # If successful, display the result video
-                    return gr.update(value=video), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(value="Add to Queue", interactive=True), gr.update(), gr.update(), gr.update()
+                    return gr.update(value=video), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(value="Add to Queue", interactive=True), gr.update(), qs_data, qs_text, gr.update()
             else:
                 # For other model types, use the regular process function
-                # First update the button to show "Adding..." and disable it
                 return process_with_queue_update(selected_model, *args)
                 
         # Function to update button state before processing
         def update_button_before_processing(selected_model, *args):
             # First update the button to show "Adding..." and disable it
-            return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(value="Adding...", interactive=False), gr.update(), gr.update(), gr.update()
+            # Also return current stats so they don't get blanked out during the "Adding..." phase
+            qs_data, qs_text = update_stats()
+            return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(value="Adding...", interactive=False), gr.update(), qs_data, qs_text, gr.update()
         
         # Connect the start button to first update its state
         start_button.click(
             fn=update_button_before_processing,
             inputs=[model_type] + ips,
-            outputs=[result_video, current_job_id, preview_image, progress_desc, progress_bar, start_button, end_button, queue_status, seed]
+            outputs=[result_video, current_job_id, preview_image, progress_desc, progress_bar, start_button, end_button, queue_status, queue_stats_display, seed]
         ).then(
             # Then process the job
             fn=handle_start_button,
             inputs=[model_type] + ips,
-            outputs=[result_video, current_job_id, preview_image, progress_desc, progress_bar, start_button, end_button, queue_status, seed]
+            outputs=[result_video, current_job_id, preview_image, progress_desc, progress_bar, start_button, end_button, queue_status, queue_stats_display, seed]
         )
 
         # Connect the end button to cancel the current job and update the queue
         end_button.click(
             fn=end_process_with_update,
-            outputs=[queue_status, end_button, current_job_id]
+            outputs=[queue_status, queue_stats_display, end_button, current_job_id]
         )
 
 
@@ -1795,6 +1840,10 @@ def create_interface(
             fn=monitor_fn,
             inputs=[current_job_id],
             outputs=[result_video, current_job_id, preview_image, progress_desc, progress_bar, start_button, end_button]
+        ).then(
+            fn=update_stats, # Update stats after monitoring potentially changes job status
+            inputs=None,
+            outputs=[queue_status, queue_stats_display]
         )
         
         # Auto-check for current job on page load
@@ -1830,39 +1879,14 @@ def create_interface(
 
 
         # --- Connect Queue Refresh ---
-        # Function to update queue stats
-        def update_stats():
-            # Get queue status data
-            queue_status_data = update_queue_status_fn()
-            
-            # Get queue statistics for the toolbar display
-            jobs = job_queue.get_all_jobs()
-            
-            # Count jobs by status
-            pending_count = 0
-            running_count = 0
-            completed_count = 0
-            
-            for job in jobs:
-                if hasattr(job, 'status'):
-                    status = str(job.status)
-                    if status == "JobStatus.PENDING":
-                        pending_count += 1
-                    elif status == "JobStatus.RUNNING":
-                        running_count += 1
-                    elif status == "JobStatus.COMPLETED":
-                        completed_count += 1
-            
-            # Format the queue stats display text
-            queue_stats_text = f"<p style='margin:0;color:white;' class='toolbar-text'>Queue: {pending_count} | Running: {running_count} | Completed: {completed_count}</p>"
-            
-            return queue_status_data, queue_stats_text
+        # The update_stats function is now defined much earlier.
         
-        refresh_stats_btn.click(
-            fn=update_stats,
-            inputs=None,
-            outputs=[queue_status, queue_stats_display]
-        )
+        # REMOVED: refresh_stats_btn.click - Toolbar refresh button is no longer needed
+        # refresh_stats_btn.click(
+        #     fn=update_stats,
+        #     inputs=None,
+        #     outputs=[queue_status, queue_stats_display]
+        # )
 
         # Set up auto-refresh for queue status
         # Instead of using a timer with 'every' parameter, we'll use the queue refresh button
