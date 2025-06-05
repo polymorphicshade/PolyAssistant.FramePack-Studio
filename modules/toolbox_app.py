@@ -717,7 +717,7 @@ def tb_create_video_toolbox_ui():
                             ],
                             value=0, # Default to Auto (0)
                             label="Tile Size for Upscaling",
-                            info="Splits image into tiles for processing. 'Auto' (0) disables tiling. Smaller values (e.g., 256, 512) use less VRAM but are slower and can show seams on some videos. Use if 'Auto' causes Out-Of-Memory."
+                            info="Splits video frames into tiles for processing. 'Auto' (0) disables tiling. Smaller values (e.g., 256, 512) use less VRAM but are slower and can show seams on some videos. Use if 'Auto' causes Out-Of-Memory."
                         )
                         with gr.Row():
                             # NEW Face Enhancement Checkbox
