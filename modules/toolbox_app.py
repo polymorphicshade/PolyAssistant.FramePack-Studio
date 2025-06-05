@@ -255,15 +255,41 @@ def tb_handle_clear_selected_folder(selected_folder_to_delete):
     # The dropdown will clear itself if its current value is no longer in choices.
     return tb_update_messages(), gr.update(choices=updated_folders, value=None)
 
-def tb_handle_upscale_video(video_path, upscale_factor, progress=gr.Progress()):
+def tb_handle_upscale_video(video_path, model_key_selected, tile_size, enhance_face_ui, progress=gr.Progress()):
     tb_message_mgr.clear()
     if video_path is None:
         tb_message_mgr.add_warning("No input video selected for upscaling.")
         return None, tb_update_messages()
+    if not model_key_selected:
+        tb_message_mgr.add_warning("No upscale model selected.")
+        return None, tb_update_messages()
 
-    output_video = tb_processor.tb_upscale_video(video_path, upscale_factor, progress)
+    try:
+        tile_size_int = int(tile_size)
+    except ValueError:
+        tb_message_mgr.add_error(f"Invalid tile size value: {tile_size}. Using Auto (0).")
+        tile_size_int = 0
+    
+    # The output_scale_factor is no longer passed from UI; it's determined by the model in toolbox_processor
+    output_video = tb_processor.tb_upscale_video(
+        video_path, 
+        model_key_selected, 
+        # output_scale_factor_float, # Removed
+        tile_size_int, 
+        enhance_face_ui, 
+        progress=progress 
+    )
     return output_video, tb_update_messages()
 
+def tb_get_selected_model_scale_info(model_key_selected):
+    if model_key_selected and model_key_selected in tb_processor.esrgan_upscaler.supported_models:
+        model_details = tb_processor.esrgan_upscaler.supported_models[model_key_selected]
+        scale = model_details.get('scale', 'N/A')
+        description = model_details.get('description', 'No description available.')
+        # Format for two lines: Scale on the first, Description on the second.
+        return f"Output Scale: {scale}x\nInfo: {description}"
+    return "Output Scale: N/A\nInfo: Select a model."
+    
 def tb_handle_delete_studio_transformer():
     tb_message_mgr.clear()
     tb_message_mgr.add_message("Attempting to directly access and delete Studio transformer...")
@@ -654,20 +680,55 @@ def tb_create_video_toolbox_ui():
     with gr.Accordion("Operations", open=True):
         with gr.Tabs():
             with gr.TabItem("📈 Upscale Video (ESRGAN)"):
-                gr.Markdown(
-                    "**Warning:** Upscaling is memory and time-intensive, especially for high-resolution or long videos. "
-                    "Monitor your system resources (see '💻 System Monitor' above). "
-                    "Consider using '📤 Unload Studio Model' to free up VRAM if needed."
-                )
-                gr.Markdown("---")
                 gr.Markdown("Upscale video resolution using Real-ESRGAN.")
-                tb_upscale_factor_radio = gr.Radio(
-                    choices=["2x", "4x"],
-                    value="2x",
-                    label="Upscale Factor",
-                    info="Select the desired upscaling factor (e.g., 2x makes a 640p video into 1280p)."
-                )
-                tb_upscale_video_btn = gr.Button("🚀 Upscale Video", variant="primary")
+                with gr.Row():
+                    with gr.Column(scale=2):
+                        tb_upscale_model_select = gr.Dropdown(
+                            choices=list(tb_processor.esrgan_upscaler.supported_models.keys()),
+                            value=list(tb_processor.esrgan_upscaler.supported_models.keys())[0] if tb_processor.esrgan_upscaler.supported_models else None,
+                            label="ESRGAN Model",
+                            info="Select the Real-ESRGAN model."
+                        )
+                        # NEW: Textbox to display selected model's scale and description
+                        default_model_key = list(tb_processor.esrgan_upscaler.supported_models.keys())[0] if tb_processor.esrgan_upscaler.supported_models else None
+                        initial_scale_info = tb_get_selected_model_scale_info(default_model_key)
+                        tb_selected_model_scale_display = gr.Textbox(
+                            label="Selected Model Info", 
+                            value=initial_scale_info, 
+                            interactive=False,
+                            lines=3 # Adjusted for two lines of text
+                        )                 
+                        # # NEW Upscale Factor Slider
+                        # tb_upscale_factor_slider = gr.Slider(
+                            # minimum=1.0, 
+                            # maximum=4.0, # Max scale matches current models. Adjust if 8x models are added.
+                            # step=0.05, 
+                            # value=2.0, 
+                            # label="Target Upscale Factor",
+                            # info="Desired output scale (e.g., 2.0 for 2x). The selected model will upscale then downscale if needed."
+                        # )
+                    with gr.Column(scale=2):
+                        # NEW Tile Size Radio
+                        tb_upscale_tile_size_radio = gr.Radio(
+                            choices=[
+                                ("Auto (Recommended)", 0), # Label, value
+                                ("512px", 512),
+                                ("256px", 256)
+                            ],
+                            value=0, # Default to Auto (0)
+                            label="Tile Size for Upscaling",
+                            info="Splits image into tiles for processing. 'Auto' (0) disables tiling. Smaller values (e.g., 256, 512) use less VRAM but are slower and can show seams on some videos. Use if 'Auto' causes Out-Of-Memory."
+                        )
+                        with gr.Row():
+                            # NEW Face Enhancement Checkbox
+                            tb_upscale_enhance_face_checkbox = gr.Checkbox(
+                                label="Enhance Faces (GFPGAN)",
+                                value=False, # Default to off
+                                info="Uses GFPGAN to restore faces. Increases processing time."
+                            )
+                    
+                with gr.Row():
+                    tb_upscale_video_btn = gr.Button("🚀 Upscale Video", variant="primary")
 
             with gr.TabItem("🎨 Video Filters (FFmpeg)"):
                 gr.Markdown("Apply visual enhancements using FFmpeg filters. Ensure FFmpeg is fully installed for best results.")
@@ -877,12 +938,26 @@ def tb_create_video_toolbox_ui():
             outputs=[tb_processed_video_output, tb_video_analysis_output]
         )
 
+        # UPDATED event handler for tb_upscale_video_btn
         tb_upscale_video_btn.click(
             fn=tb_handle_upscale_video,
-            inputs=[tb_input_video_component, tb_upscale_factor_radio],
+            inputs=[
+                tb_input_video_component, 
+                tb_upscale_model_select,      
+                #  tb_upscale_factor_slider,     
+                tb_upscale_tile_size_radio,
+                tb_upscale_enhance_face_checkbox # New input
+            ], 
             outputs=[tb_processed_video_output, tb_message_output]
         )
-
+        
+        # Event handler for model selection changing (updates the info Textbox)
+        tb_upscale_model_select.change(
+            fn=tb_get_selected_model_scale_info,
+            inputs=[tb_upscale_model_select],
+            outputs=[tb_selected_model_scale_display]
+        )
+        
         # Frames I/O Event Handlers
         tb_extract_frames_btn.click(
             fn=tb_handle_extract_frames,
