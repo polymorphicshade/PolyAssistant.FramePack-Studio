@@ -43,17 +43,21 @@ class VideoProcessor:
         self._tb_initialize_ffmpeg() # Finds executables and sets flags
 
         studio_output_dir = Path(self.settings.get("output_dir"))
-        self._base_temp_output_dir = studio_output_dir / "postprocessed_output" / "temp_processing"
-        self._base_permanent_save_dir = studio_output_dir / "postprocessed_output" / "saved_videos"
+        self.postprocessed_output_root_dir = studio_output_dir / "postprocessed_output"
+        self._base_temp_output_dir = self.postprocessed_output_root_dir / "temp_processing"
+        self._base_permanent_save_dir = self.postprocessed_output_root_dir / "saved_videos"
+        
         self.toolbox_video_output_dir = self._base_temp_output_dir
         self.toolbox_permanent_save_dir = self._base_permanent_save_dir 
         
+        # Ensure all necessary directories exist
+        os.makedirs(self.postprocessed_output_root_dir, exist_ok=True)
         os.makedirs(self._base_temp_output_dir, exist_ok=True)
         os.makedirs(self._base_permanent_save_dir, exist_ok=True)
 
-        self.extracted_frames_target_path = studio_output_dir / "postprocessed_output" / "toolbox_frames" / "extracted_frames"
+        self.extracted_frames_target_path = self.postprocessed_output_root_dir / "frames" / "extracted_frames"
         os.makedirs(self.extracted_frames_target_path, exist_ok=True)
-        self.reassembled_video_target_path = studio_output_dir / "postprocessed_output" / "toolbox_frames" / "reassembled_videos"
+        self.reassembled_video_target_path = self.postprocessed_output_root_dir / "frames" / "reassembled_videos"
         os.makedirs(self.reassembled_video_target_path, exist_ok=True)
 
     def _tb_initialize_ffmpeg(self):
@@ -1038,25 +1042,40 @@ class VideoProcessor:
         finally: gc.collect()
             
 
-    def tb_upscale_video(self, video_path, upscale_factor_str, progress=gr.Progress()):
+    def tb_upscale_video(self, video_path, model_key: str, tile_size: int, enhance_face: bool, progress=gr.Progress()):
         if video_path is None: self.message_manager.add_warning("No input video for upscaling."); return None
         
-        # ESRGAN for upscaling, imageio for reading/writing frames.
-        # FFmpeg primarily for audio handling.
-        
-        upscale_factor = 0; final_output_path = None; reader = None
+        final_output_path = None; reader = None
         try:
-            progress(0.0, desc="Parsing upscale factor...")
-            upscale_factor = int(upscale_factor_str.replace('x', ''))
-            if upscale_factor not in [2, 4]:
-                self.message_manager.add_error(f"Unsupported upscale factor: {upscale_factor}x. Choose 2x or 4x."); return None 
+            # Determine the model's native scale factor
+            if model_key not in self.esrgan_upscaler.supported_models:
+                self.message_manager.add_error(f"Upscale model key '{model_key}' not found in supported models.")
+                return None
+            model_native_scale = self.esrgan_upscaler.supported_models[model_key].get('scale')
+            if not model_native_scale or not (isinstance(model_native_scale, (int, float)) and model_native_scale > 0):
+                self.message_manager.add_error(f"Invalid or missing native scale for model '{model_key}'.")
+                return None
 
-            progress(0.05, desc=f"Loading ESRGAN model ({upscale_factor}x)...")
-            if not self.esrgan_upscaler.load_model(target_scale=upscale_factor): # load_model returns True/False or similar
-                self.message_manager.add_error(f"Could not load ESRGAN model for {upscale_factor}x. Aborting."); return None 
+            tile_size_str_for_log = str(tile_size) if tile_size > 0 else "Auto"
+            face_enhance_str_for_log = "+FaceEnhance" if enhance_face else ""
+            
+            self.message_manager.add_message(
+                f"Preparing to load ESRGAN model '{model_key}' for its native {model_native_scale}x upscale (Tile: {tile_size_str_for_log}{face_enhance_str_for_log})."
+            )
+            progress(0.05, desc=f"Loading ESRGAN model '{model_key}' (Tile: {tile_size_str_for_log})...")
+            
+            upsampler_instance = self.esrgan_upscaler.load_model(model_key=model_key, tile_size=tile_size)
+            if not upsampler_instance:
+                self.message_manager.add_error(f"Could not load ESRGAN model '{model_key}' with tile size {tile_size_str_for_log}. Aborting."); return None 
 
-            self.message_manager.add_message(f"ESRGAN model for {upscale_factor}x loaded.")
-            progress(0.1, desc="Initializing upscaling process...")
+            if enhance_face:
+                if not self.esrgan_upscaler._load_face_enhancer(bg_upsampler=upsampler_instance):
+                    self.message_manager.add_warning("Failed to load GFPGAN for face enhancement. Proceeding without it.")
+                    enhance_face = False 
+                    face_enhance_str_for_log = "" 
+
+            self.message_manager.add_message(f"ESRGAN model '{model_key}' (Native Scale: {model_native_scale}x, Tile: {tile_size_str_for_log}) { 'and GFPGAN ' if enhance_face else ''}loaded.")
+            progress(0.1, desc=f"Initializing {model_native_scale}x upscaling{face_enhance_str_for_log} process...")
             
             resolved_video_path = str(Path(video_path).resolve())
             upscaled_frames = []
@@ -1068,7 +1087,7 @@ class VideoProcessor:
             n_frames = meta_data.get('nframes')
             if n_frames is None or n_frames == float('inf'):
                 try: n_frames = reader.count_frames()
-                except: n_frames = None # Still unknown
+                except: n_frames = None 
             if n_frames == float('inf'): n_frames = None
 
             n_frames_display = str(int(n_frames)) if n_frames is not None else "Unknown"
@@ -1076,13 +1095,19 @@ class VideoProcessor:
 
             progress(0.15, desc="Preparing to upscale frames...")
             frame_iterator = enumerate(reader)
-            if n_frames is not None: frame_iterator = progress.tqdm(enumerate(reader), total=int(n_frames), desc="Upscaling Frames")
-            else: self.message_manager.add_message("Total frames unknown, progress per batch.")
+            progress_desc = f"Upscaling Frames to {model_native_scale}x (Model: {model_key}{face_enhance_str_for_log}, Tile: {tile_size_str_for_log})"
+            if n_frames is not None: frame_iterator = progress.tqdm(enumerate(reader), total=int(n_frames), desc=progress_desc)
+            else: self.message_manager.add_message(f"Total frames unknown, progress per batch ({progress_desc}).")
 
             for i, frame_np in frame_iterator:
-                if n_frames is None and i % 10 == 0: progress(0.15 + ( (i/(i+500.0)) * 0.65 ), desc=f"Upscaling frame {i+1}...")
+                if n_frames is None and i % 10 == 0: progress(0.15 + ( (i/(i+500.0)) * 0.65 ), desc=f"Upscaling frame {i+1} to {model_native_scale}x (Tile: {tile_size_str_for_log})...")
                 
-                upscaled_frame_np = self.esrgan_upscaler.upscale_frame(frame_np, target_scale=upscale_factor)
+                # Call upscale_frame without output_scale_factor; it uses the model's native scale
+                upscaled_frame_np = self.esrgan_upscaler.upscale_frame(
+                    frame_np_array=frame_np, 
+                    model_key=model_key,
+                    enhance_face=enhance_face
+                )
                 if upscaled_frame_np is not None: upscaled_frames.append(upscaled_frame_np)
                 else:
                     self.message_manager.add_error(f"Failed to upscale frame {i+1}. Skipping.")
@@ -1093,10 +1118,10 @@ class VideoProcessor:
             if reader: reader.close(); reader = None 
             if not upscaled_frames: self.message_manager.add_error("No frames upscaled."); return None 
             
-            self.message_manager.add_message(f"Successfully upscaled {len(upscaled_frames)} frames.")
+            self.message_manager.add_message(f"Successfully upscaled {len(upscaled_frames)} frames to {model_native_scale}x.")
             progress(0.80, desc="Saving upscaled video stream...")
 
-            temp_video_suffix = f"upscaled_{upscale_factor}x_temp_video"
+            temp_video_suffix = f"upscaled_{model_key}_{model_native_scale}x_tile{tile_size_str_for_log}{face_enhance_str_for_log.replace('+','_')}_temp_video"
             video_stream_output_path = self._tb_generate_output_path(resolved_video_path, temp_video_suffix, self.toolbox_video_output_dir)
             final_muxed_output_path = video_stream_output_path.replace("_temp_video", "")
 
@@ -1123,7 +1148,7 @@ class VideoProcessor:
                     self._tb_log_ffmpeg_error(e_mux, "audio muxing for upscaled video")
                     if os.path.exists(final_muxed_output_path): os.remove(final_muxed_output_path)
                     os.rename(video_stream_output_path, final_muxed_output_path)
-                except FileNotFoundError: # Should not happen if self.has_ffmpeg is true
+                except FileNotFoundError: 
                     self.message_manager.add_error(f"FFmpeg not found during muxing. Unexpected.")
                     if os.path.exists(final_muxed_output_path): os.remove(final_muxed_output_path)
                     os.rename(video_stream_output_path, final_muxed_output_path)
@@ -1141,7 +1166,7 @@ class VideoProcessor:
                 except Exception as e_clean: self.message_manager.add_warning(f"Could not remove temp upscaled video: {e_clean}")
             
             progress(1.0, desc="Upscaling complete.")
-            self.message_manager.add_success(f"Video upscaling complete: {final_output_path}")
+            self.message_manager.add_success(f"Video upscaling to {model_native_scale}x complete: {final_output_path}")
             return final_output_path
 
         except Exception as e:
@@ -1153,17 +1178,21 @@ class VideoProcessor:
                 try: 
                     if hasattr(reader, 'closed') and not reader.closed: reader.close()
                 except: pass
-            if upscale_factor > 0 and self.esrgan_upscaler: self.esrgan_upscaler.unload_model(upscale_factor)
+            if model_key and self.esrgan_upscaler:
+                 self.esrgan_upscaler.unload_model(model_key) 
+            if enhance_face and self.esrgan_upscaler and self.esrgan_upscaler.face_enhancer:
+                self.esrgan_upscaler._unload_face_enhancer()
+
             devicetorch.empty_cache(torch); gc.collect()
 
     def tb_open_output_folder(self):
-        folder_path = os.path.abspath(self.toolbox_permanent_save_dir)
+        folder_path = os.path.abspath(self.postprocessed_output_root_dir)
         try:
             os.makedirs(folder_path, exist_ok=True) 
             if sys.platform == 'win32': subprocess.run(['explorer', folder_path])
             elif sys.platform == 'darwin': subprocess.run(['open', folder_path])
             else: subprocess.run(['xdg-open', folder_path])
-            self.message_manager.add_success(f"Opened permanent save folder: {folder_path}")
+            self.message_manager.add_success(f"Opened postprocessed output folder: {folder_path}")
         except Exception as e:
             self.message_manager.add_error(f"Error opening folder {folder_path}: {e}")
 
