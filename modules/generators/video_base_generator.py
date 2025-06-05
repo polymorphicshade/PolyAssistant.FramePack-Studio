@@ -163,7 +163,18 @@ class VideoBaseModelGenerator(BaseModelGenerator):
 
             # Read frames
             print("Reading video frames...")
-            frames = vr.get_batch(range(num_real_frames)).asnumpy()  # Shape: (num_real_frames, height, width, channels)
+
+            # RT_BORG: Retaining this commented code for reference.
+            # pftq encoder discarded truncated frames from the end of the video.
+            # frames = vr.get_batch(range(num_real_frames)).asnumpy()  # Shape: (num_real_frames, height, width, channels)
+
+            # Discard truncated frames from the beginning of the video, retaining the last num_real_frames
+            # This ensures a smooth transition from the input video to the generated video
+            total_frames_in_video_file = len(vr)
+            start_frame_index = total_frames_in_video_file - num_real_frames
+            frame_indices_to_extract = range(start_frame_index, total_frames_in_video_file)
+            frames = vr.get_batch(frame_indices_to_extract).asnumpy()  # Shape: (num_real_frames, height, width, channels)
+
             print(f"Frames read: {frames.shape}")
 
             # Get native video resolution
