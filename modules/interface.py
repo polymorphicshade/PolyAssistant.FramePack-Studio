@@ -190,7 +190,7 @@ def create_interface(
     }
     
     /* Responsive design for screens */
-    @media (max-width: 1024px) {
+    @media (max-width: 1147px) {
         .toolbar-patreon, .toolbar-version { /* Hide both on smaller screens */
             display: none;
         }
@@ -206,7 +206,7 @@ def create_interface(
         }
     }
     
-    @media (min-width: 1025px) {
+    @media (min-width: 1148px) {
         .footer-patreon, .footer-version { /* Hide both in footer on larger screens */
             display: none !important;
         }
@@ -259,7 +259,13 @@ def create_interface(
     
     /* Layout adjustments */
     body, .gradio-container {
-        padding-top: 26px !important; /* Adjusted for new toolbar height (36px - 10px) */
+        padding-top: 42px !important; /* Adjusted for new toolbar height (36px - 10px) */
+    }
+    
+    @media (max-width: 848px) {
+        body, .gradio-container {
+            padding-top: 48px !important;
+        }
     }
     
     @media (max-width: 768px) {
