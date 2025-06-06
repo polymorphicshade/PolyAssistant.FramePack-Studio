@@ -6,19 +6,19 @@
 
 The application offers several distinct methods for generating videos, each tailored to different use cases and input types.
 
-- __Original__: This is the fundamental image-to-video generation type. It takes an optional starting frame (an image) and a text prompt to generate a video. If no starting frame is provided, it uses a "latent image" (like a black or noise-filled frame) as the initial input. This mode is ideal for creating video content from a single image or from scratch using only text.
+- __Original__: This is the original FramePack image-to-video generation type. It takes an optional starting frame (an image) and a text prompt to generate a video. If no starting frame is provided, it uses a "latent image" (like a black or noise-filled frame) as the initial input. This model generates the video in reverse chronological order. It can struggle with creating dynamic motion but is generally better than F1 and maintaining consistency. 
 
-- __Original with Endframe__: This type extends the "Original" method by allowing you to specify both a starting frame and an ending frame. The generation is guided by the prompt, but it will conclude on the provided end frame. This is useful for creating seamless loops or ensuring the video transitions to a specific final scene.
+- __Original with Endframe__: This type extends the "Original" method by allowing you to specify both a starting frame and an ending frame. The generation is guided by the prompt, but it will conclude on the provided end frame. This is useful for creating seamless loops or ensuring the video transitions to a specific final scene. 
 
-- __F1__: This generation type is functionally similar to "Original" in the user interface, accepting a starting frame and a prompt. The "F1" designation typically implies the use of a different, often newer or more advanced, underlying generative model or pipeline compared to the "Original" type. This may result in different visual styles, better prompt adherence, or improved motion quality.
+- __F1__: F1 is a different implementation of the FramePack approach to video generation, while still based on Hunyuan video this model generates in chronologial order. F1 is generally better at creating dynamic motion but worse at maintaing consitency throughout a video. Additionally it tends to create a noticable 'pulse' between sections.
 
-- __Video__: This type is designed for video-to-video transformations. Instead of a starting image, you provide an entire video as input. The model then uses this source video, along with your text prompt, to generate a new video. This is perfect for stylizing existing footage, changing its content, or applying effects throughout a clip.
+- __Video__: This generation type will extend the input video using the 'original' FramePack model. 
 
-- __Video with Endframe__: This combines the functionality of the "Video" and "Original with Endframe" types. It takes a source video as input but also allows you to specify a final frame. The generation will transform the source video according to the prompt, ensuring it resolves to the designated end frame.
+- __Video with Endframe__: Functionally similar to 'video' but allows for use of an endframe to guide the video extension.
+- 
+- __Video F1__: Extends videos using the 'F1' model.
 
-- __Video F1__: Similar to the "F1" type for images, "Video F1" is a video-to-video generation method that likely uses a more advanced or alternative underlying model compared to the standard "Video" type. It offers a different approach to transforming source videos, potentially with improved quality or different characteristics.
-
-- __XY Plot__: This is a powerful utility for experimentation and comparison. It allows you to generate a grid of videos by systematically varying one or two parameters across the X and Y axes (and even a third on a Z axis). For example, you can create a grid where each column has a different number of "Steps" and each row has a different "Distilled CFG Scale". This is invaluable for understanding how different parameters affect the final output without having to run each generation manually.
+- __XY Plot__: This is a powerful utility for experimentation and comparison. It allows you to generate a grid of videos by systematically varying one or two parameters across the X and Y axes. For example, you can create a grid where each column has a different number of "Steps" and each row has a different "Distilled CFG Scale". This is invaluable for understanding how different parameters affect the final output without having to run each generation manually. After the individual generations complete they will be combined into a final video grid.
 
 ### Generation Parameters
 
