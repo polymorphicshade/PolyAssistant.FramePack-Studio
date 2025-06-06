@@ -226,6 +226,12 @@ def create_interface(
         }
     }
     
+    @media (max-width: 510px) {
+        #toolbar-ram-col, #toolbar-vram-col, #toolbar-gpu-col {
+            display: none !important;
+        }
+    }
+
     @media (max-width: 480px) {
         .toolbar-title {
             font-size: 1rem;
@@ -374,34 +380,34 @@ def create_interface(
                 queue_stats_display = gr.Markdown("<p style='margin:0;color:white;' class='toolbar-text'>Queue: 0 | Running: 0 | Completed: 0</p>")
                 
             # --- System Stats Display - Single gr.Textbox per stat ---
-            with gr.Column(scale=0, min_width=205): # RAM Column
+            with gr.Column(scale=0, min_width=205, elem_id="toolbar-ram-col"): # RAM Column
                 toolbar_ram_display_component = gr.Textbox(
-                    value="RAM: N/A", 
-                    interactive=False, 
-                    lines=1, 
+                    value="RAM: N/A",
+                    interactive=False,
+                    lines=1,
                     max_lines=1,
                     show_label=False,
                     elem_id="toolbar-ram-stat",
                     elem_classes="toolbar-stat-textbox"
                 )
-            with gr.Column(scale=0, min_width=160): # VRAM Column
+            with gr.Column(scale=0, min_width=160, elem_id="toolbar-vram-col"): # VRAM Column
                 toolbar_vram_display_component = gr.Textbox(
-                    value="VRAM: N/A", 
-                    interactive=False, 
-                    lines=1, 
+                    value="VRAM: N/A",
+                    interactive=False,
+                    lines=1,
                     max_lines=1,
                     show_label=False,
                     elem_id="toolbar-vram-stat",
                     elem_classes="toolbar-stat-textbox"
                     # Visibility controlled by tb_get_formatted_toolbar_stats
                 )
-            with gr.Column(scale=0, min_width=140): # GPU Column
+            with gr.Column(scale=0, min_width=140, elem_id="toolbar-gpu-col"): # GPU Column
                 toolbar_gpu_display_component = gr.Textbox(
-                    value="GPU: N/A", 
-                    interactive=False, 
-                    lines=1, 
+                    value="GPU: N/A",
+                    interactive=False,
+                    lines=1,
                     max_lines=1,
-                    show_label=False,                     
+                    show_label=False,
                     elem_id="toolbar-gpu-stat",
                     elem_classes="toolbar-stat-textbox"
                     # Visibility controlled by tb_get_formatted_toolbar_stats
