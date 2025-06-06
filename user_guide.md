@@ -18,7 +18,7 @@ The application offers several distinct methods for generating videos, each tail
   
 - __Video F1__: Extends videos using the 'F1' model.
 
-- __XY Plot__: This is a powerful utility for experimentation and comparison. It allows you to generate a grid of videos by systematically varying one or two parameters across the X and Y axes. For example, you can create a grid where each column has a different number of "Steps" and each row has a different "Distilled CFG Scale". This is invaluable for understanding how different parameters affect the final output without having to run each generation manually. After the individual generations complete they will be combined into a final video grid.
+- __Grid__: This is a powerful utility for experimentation and comparison. It allows you to generate a grid of videos by systematically varying one or two parameters across the X and Y axes. For example, you can create a grid where each column has a different number of "Steps" and each row has a different "Distilled CFG Scale". This is invaluable for understanding how different parameters affect the final output without having to run each generation manually. After the individual generations complete they will be combined into a final video grid.
 
 ### Generation Parameters
 
@@ -48,7 +48,7 @@ These are the parameters available on the "Generate" screen. Many are shared acr
 
 - __Latent Image__
 
-  - __Applies to__: All types except `XY Plot` (when no Start Frame is provided).
+  - __Applies to__: All types except `Grid` (when no Start Frame is provided).
   - The initial image to start generation from if no `Start Frame` is given. Options are typically `Black`, `White`, `Noise`, or `Green Screen`.
 
 #### Prompting
@@ -60,12 +60,12 @@ These are the parameters available on the "Generate" screen. Many are shared acr
 
 - __Negative Prompt__
 
-  - __Applies to__: All types except `XY Plot`.
+  - __Applies to__: All types except `Grid`.
   - Describes what you *don't* want to see in the video, helping to steer the generation away from undesired elements or styles.
 
 - __Number of sections to blend between prompts__
 
-  - __Applies to__: All types except `XY Plot`.
+  - __Applies to__: All types except `Grid`.
   - Controls the smoothness of transitions between different timestamped sections in your prompt. A higher value creates more gradual blending.
 
 #### Generation Settings
@@ -131,172 +131,19 @@ These are the parameters available on the "Generate" screen. Many are shared acr
 
 - __Select LoRAs to Load__
 
-  - __Applies to__: All types except `XY Plot`.
+  - __Applies to__: All types except `Grid`.
   - A dropdown to select one or more LoRA (Low-Rank Adaptation) models to apply during generation. LoRAs are small files that can modify the style or content of the output.
 
 - __LoRA Weight Sliders__
 
-  - __Applies to__: All types except `XY Plot`.
+  - __Applies to__: All types except `Grid`.
   - Individual sliders appear for each selected LoRA, allowing you to control the strength of its effect.
 
 - __Upload Metadata JSON__
 
-  - __Applies to__: All types except `XY Plot`.
+  - __Applies to__: All types except `Grid`.
   - Allows you to load all generation parameters from a previously saved JSON file, making it easy to replicate a past generation.
 
-I hope this detailed summary is helpful for understanding the capabilities of the generation screen.
-
-rewrite the generation param list in a way that I can past it into a google doc with good formatting
-
-**Checkpoint
-
-Compare
-
-Restore
-
-API Request$0.0662
-
-Thinking:**Crafting a Plan** I'm starting to design the generation parameter list. The main goal is clarity for the user, so I'm focusing on headings, bullet points, and bold text. My aim is a Google Doc-friendly, copy-and-paste format. **Defining the Structure** I've finalized the parameter list structure. Markdown formatting is the current focus, including bolding and bullet points. The next step involves populating the list with the actual parameters and their descriptions, keeping copy-and-paste ease in mind. ‎
-
-Of course. Here is the list of generation parameters, formatted for easy pasting into a document.
-
----
-
-### __Generation Parameters__
-
-A comprehensive list of all parameters available on the "Generate" screen.
-
----
-
-#### __Core Inputs__
-
-- __Start Frame (optional)__
-
-  - __Description__: An image that serves as the first frame of the generated video. If not provided, a latent image is used instead.
-  - __Applies to__: `Original`, `Original with Endframe`, `F1`
-
-- __Video Input__
-
-  - __Description__: The source video to be transformed by the generation process.
-  - __Applies to__: `Video`, `Video with Endframe`, `Video F1`
-
-- __End Frame (Optional)__
-
-  - __Description__: An image that the generated video will conclude on, ensuring a specific final scene.
-  - __Applies to__: `Original with Endframe`, `Video with Endframe`
-
-- __End Frame Influence__
-
-  - __Description__: A slider (from 0.05 to 1.0) that controls how strongly the end frame guides the generation. A value of 1.0 represents the maximum possible influence.
-  - __Applies to__: `Original with Endframe`, `Video with Endframe`
-
-- __Latent Image__
-
-  - __Description__: The initial image to start generation from if no `Start Frame` is provided.
-  - __Options__: `Black`, `White`, `Noise`, `Green Screen`
-  - __Applies to__: All types (when no Start Frame is provided).
-
----
-
-#### __Prompting__
-
-- __Prompt__
-
-  - __Description__: The primary text description of the desired video content. Supports timestamps (e.g., `[2s: a cat is sleeping]`) to guide the animation over time.
-  - __Applies to__: All types.
-
-- __Negative Prompt__
-
-  - __Description__: Describes what you *do not* want to see in the video, helping to prevent undesired elements, styles, or artifacts.
-  - __Applies to__: All types except `XY Plot`.
-
-- __Number of sections to blend between prompts__
-
-  - __Description__: Controls the smoothness of transitions between different timestamped sections in your prompt. A higher value creates more gradual, seamless blending.
-  - __Applies to__: All types except `XY Plot`.
-
----
-
-#### __Generation Settings__
-
-- __Steps__
-
-  - __Description__: The number of denoising steps the model takes to generate each frame. More steps can increase detail and coherence but will increase generation time.
-  - __Applies to__: All types.
-
-- __Video Length (Seconds)__
-
-  - __Description__: The desired duration of the final output video.
-  - __Applies to__: All types.
-
-- __Resolution (Width & Height)__
-
-  - __Description__: The dimensions of the output video. The system automatically selects the nearest supported "bucket" size to ensure compatibility.
-  - __Applies to__: All types.
-
-- __Seed__
-
-  - __Description__: A number that initializes the random noise pattern for the generation. Using the same seed with identical parameters will produce a nearly identical output, which is useful for reproducibility.
-  - __Applies to__: All types.
-
-- __Randomize__
-
-  - __Description__: If checked, a new random seed will be automatically generated for each job added to the queue.
-  - __Applies to__: All types.
-
----
-
-#### __Advanced Parameters__
-
-- __Use TeaCache__
-
-  - __Description__: Enables a caching mechanism (`TeaCache`) that can significantly speed up generation.
-  - __Note__: This may slightly degrade the quality of very fine details, such as hands or complex textures.
-  - __Applies to__: All types.
-
-- __TeaCache steps__
-
-  - __Description__: The number of intermediate steps to keep in the cache when `Use TeaCache` is enabled.
-  - __Applies to__: All types (when `Use TeaCache` is enabled).
-
-- __TeaCache rel_l1_thresh__
-
-  - __Description__: A threshold that determines how much change is needed between frames to invalidate the cache.
-  - __Applies to__: All types (when `Use TeaCache` is enabled).
-
-- __Distilled CFG Scale__
-
-  - __Description__: Controls how closely the generation adheres to the text prompt. Higher values result in stronger adherence.
-  - __Applies to__: All types.
-
-- __Combine with source video__
-
-  - __Description__: If checked, the generated video will be blended with the original source video, combining elements of both.
-  - __Applies to__: `Video`, `Video with Endframe`, `Video F1`
-
-- __Number of Context Frames (Adherence to Video)__
-
-  - __Description__: Controls how many frames from the source video are considered when generating a new frame. Higher values retain more detail and motion from the source but are more computationally expensive and can sometimes restrict the model's creativity.
-  - __Applies to__: `Video`, `Video with Endframe`, `Video F1`
-
----
-
-#### __LoRAs & Metadata__
-
-- __Select LoRAs to Load__
-
-  - __Description__: A dropdown menu to select one or more LoRA (Low-Rank Adaptation) models. LoRAs are small files that can modify the style, characters, or content of the output.
-  - __Applies to__: All types except `XY Plot`.
-
-- __LoRA Weight Sliders__
-
-  - __Description__: Once a LoRA is selected, a slider appears to control the strength of its effect on the generation.
-  - __Applies to__: All types except `XY Plot`.
-
-- __Upload Metadata JSON__
-
-  - __Description__: Allows you to load all generation parameters from a previously saved JSON file, making it easy to replicate or modify a past generation.
-  - __Applies to__: All types except `XY Plot`.
 
 ## Queue Tab
 
