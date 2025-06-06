@@ -1300,9 +1300,7 @@ def create_interface(
                         confirm_cancel_yes_btn.click(fn=confirmed_clear_all_jobs, inputs=None, outputs=[queue_status, queue_stats_display, queue_controls_row, confirm_cancel_row])
 
                         clear_complete_button.click(fn=clear_completed_jobs, inputs=[], outputs=[queue_status, queue_stats_display])
-                        load_queue_button.click(fn=load_queue_from_json, inputs=[], outputs=[queue_status, queue_stats_display])
                         queue_export_button.click(fn=export_queue_to_zip, inputs=[], outputs=[queue_status, queue_stats_display])
-                        import_queue_file.change(fn=import_queue_from_file, inputs=[import_queue_file], outputs=[queue_status, queue_stats_display])
 
                         # Create a container for thumbnails (kept for potential future use, though not displayed in DataFrame)
                         with gr.Row():
@@ -1665,7 +1663,7 @@ def create_interface(
             
             # Change the cancel button text to "Cancelling..." and make it non-interactive
             # This ensures the button stays in this state until the job is fully cancelled
-            return queue_status_data, queue_stats_text, gr.update(value="Cancelling...", interactive=False), gr.update()
+            return queue_status_data, queue_stats_text, gr.update(value="Cancelling...", interactive=False), gr.update(value=None)
 
         # MODIFIED handle_send_video_to_toolbox:
         def handle_send_video_to_toolbox(original_path_from_state): # Input is now the original path from gr.State
@@ -1801,13 +1799,6 @@ def create_interface(
                                                                         xy_plot_axis_z_switch, xy_plot_axis_z_value_text, xy_plot_axis_z_value_dropdown
                                                                         ], outputs=[xy_plot_status, xy_plot_output])
 
-        # Connect the end button to cancel the current job and update the queue
-        end_button.click(
-            fn=end_process_with_update,
-            outputs=[queue_status, queue_stats_display, end_button, current_job_id]
-        )
-
-
         #putting this here for now because this file is way too big
         def on_model_type_change(selected_model):
             is_xy_plot = selected_model == "XY Plot"
@@ -1860,15 +1851,42 @@ def create_interface(
         
 
         # --- Connect Monitoring ---
+        # Auto-check for current job on page load and job change
+        def check_for_current_job():
+            # This function will be called when the interface loads
+            # It will check if there's a current job in the queue and update the UI
+            with job_queue.lock:
+                current_job = job_queue.current_job
+                if current_job:
+                    # Return all the necessary information to update the preview windows
+                    job_id = current_job.id
+                    result = current_job.result
+                    preview = current_job.progress_data.get('preview') if current_job.progress_data else None
+                    desc = current_job.progress_data.get('desc', '') if current_job.progress_data else ''
+                    html = current_job.progress_data.get('html', '') if current_job.progress_data else ''
+                    
+                    # Also trigger the monitor_job function to start monitoring this job
+                    print(f"Auto-check found current job {job_id}, triggering monitor_job")
+                    return job_id, result, preview, desc, html
+                return None, None, None, '', ''
+                
+        # Auto-check for current job on page load and handle handoff between jobs.
+        def check_for_current_job_and_monitor():
+            # This function is now the key to the handoff.
+            # It finds the current job and returns its ID, which will trigger the monitor.
+            job_id, result, preview, desc, html = check_for_current_job()
+            # We also need to get fresh stats at the same time.
+            queue_status_data, queue_stats_text = update_stats()
+            # Return everything needed to update the UI atomically.
+            return job_id, result, preview, desc, html, queue_status_data, queue_stats_text
+            
         # Auto-monitor the current job when job_id changes
-        # Monitor original tab
         current_job_id.change(
             fn=monitor_fn,
             inputs=[current_job_id],
-            # MODIFICATION: Removed current_job_id from the outputs list to break the feedback loop
             outputs=[result_video, preview_image, progress_desc, progress_bar, start_button, end_button]
         ).then(
-            fn=update_stats, # Update stats after monitoring potentially changes job status
+            fn=update_stats, # When a monitor finishes, always update the stats.
             inputs=None,
             outputs=[queue_status, queue_stats_display]
         ).then( # re-validate button state
@@ -1877,25 +1895,50 @@ def create_interface(
             outputs=[start_button, video_input_required_message]
         )
         
-        # Auto-check for current job on page load
-        def check_for_current_job():
-            # This function is disabled to prevent flashing on startup.
-            # Jobs from previous sessions will be re-queued and processed automatically.
-            return None, None, None, '', ''
-                
         # Connect the auto-check function to the interface load event
         block.load(
-            fn=check_for_current_job,
+            fn=check_for_current_job_and_monitor, # Use the new combined function
             inputs=[],
-            outputs=[current_job_id, result_video, preview_image, progress_desc, progress_bar]
+            outputs=[current_job_id, result_video, preview_image, progress_desc, progress_bar, queue_status, queue_stats_display]
         )
 
         cleanup_btn.click(
             fn=cleanup_temp_files,
             outputs=[cleanup_output]
         )
+        
+        # The "end_button" (Cancel Job) is the trigger for the next job's monitor.
+        # When a job is cancelled, we check for the next one.
+        end_button.click(
+            fn=end_process_with_update,
+            outputs=[queue_status, queue_stats_display, end_button, current_job_id]
+        ).then(
+            fn=check_for_current_job_and_monitor,
+            inputs=[],
+            outputs=[current_job_id, result_video, preview_image, progress_desc, progress_bar, queue_status, queue_stats_display]
+        )
+        
+        load_queue_button.click(
+            fn=load_queue_from_json,
+            inputs=[],
+            outputs=[queue_status, queue_stats_display]
+        ).then( # ADD THIS .then() CLAUSE
+            fn=check_for_current_job,
+            inputs=[],
+            outputs=[current_job_id, result_video, preview_image, progress_desc, progress_bar]
+        )
+        
+        import_queue_file.change(
+            fn=import_queue_from_file,
+            inputs=[import_queue_file],
+            outputs=[queue_status, queue_stats_display]
+        ).then( # ADD THIS .then() CLAUSE
+            fn=check_for_current_job,
+            inputs=[],
+            outputs=[current_job_id, result_video, preview_image, progress_desc, progress_bar]
+        )
 
-
+                        
         # --- Connect Queue Refresh ---
         # The update_stats function is now defined much earlier.
         
