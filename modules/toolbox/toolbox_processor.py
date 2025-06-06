@@ -1042,40 +1042,53 @@ class VideoProcessor:
         finally: gc.collect()
             
 
-    def tb_upscale_video(self, video_path, model_key: str, tile_size: int, enhance_face: bool, progress=gr.Progress()):
+    def tb_upscale_video(self, video_path, model_key: str, output_scale_factor_ui: float, 
+                         tile_size: int, enhance_face: bool, 
+                         denoise_strength_ui: float | None, # New parameter
+                         progress=gr.Progress()):
         if video_path is None: self.message_manager.add_warning("No input video for upscaling."); return None
         
         final_output_path = None; reader = None
         try:
-            # Determine the model's native scale factor
             if model_key not in self.esrgan_upscaler.supported_models:
                 self.message_manager.add_error(f"Upscale model key '{model_key}' not found in supported models.")
                 return None
-            model_native_scale = self.esrgan_upscaler.supported_models[model_key].get('scale')
-            if not model_native_scale or not (isinstance(model_native_scale, (int, float)) and model_native_scale > 0):
-                self.message_manager.add_error(f"Invalid or missing native scale for model '{model_key}'.")
-                return None
+            
+            model_native_scale = self.esrgan_upscaler.supported_models[model_key].get('scale', 0)
 
             tile_size_str_for_log = str(tile_size) if tile_size > 0 else "Auto"
             face_enhance_str_for_log = "+FaceEnhance" if enhance_face else ""
-            
-            self.message_manager.add_message(
-                f"Preparing to load ESRGAN model '{model_key}' for its native {model_native_scale}x upscale (Tile: {tile_size_str_for_log}{face_enhance_str_for_log})."
-            )
-            progress(0.05, desc=f"Loading ESRGAN model '{model_key}' (Tile: {tile_size_str_for_log})...")
-            
-            upsampler_instance = self.esrgan_upscaler.load_model(model_key=model_key, tile_size=tile_size)
-            if not upsampler_instance:
-                self.message_manager.add_error(f"Could not load ESRGAN model '{model_key}' with tile size {tile_size_str_for_log}. Aborting."); return None 
+            denoise_str_for_log = ""
+            if model_key == "RealESR-general-x4v3" and denoise_strength_ui is not None:
+                denoise_str_for_log = f", DNI: {denoise_strength_ui:.2f}"
 
-            if enhance_face:
+
+            self.message_manager.add_message(
+                f"Preparing to load ESRGAN model '{model_key}' for {output_scale_factor_ui:.2f}x target upscale "
+                f"(Native: {model_native_scale}x, Tile: {tile_size_str_for_log}{face_enhance_str_for_log}{denoise_str_for_log})."
+            )
+            progress(0.05, desc=f"Loading ESRGAN model '{model_key}' (Tile: {tile_size_str_for_log}{denoise_str_for_log})...")
+            
+            # Pass denoise_strength_ui to load_model
+            upsampler_instance = self.esrgan_upscaler.load_model(
+                model_key=model_key, 
+                tile_size=tile_size,
+                denoise_strength=denoise_strength_ui if model_key == "RealESR-general-x4v3" else None
+            )
+            if not upsampler_instance:
+                self.message_manager.add_error(f"Could not load ESRGAN model '{model_key}'. Aborting."); return None 
+
+            if enhance_face: # Face enhancer loading logic
                 if not self.esrgan_upscaler._load_face_enhancer(bg_upsampler=upsampler_instance):
                     self.message_manager.add_warning("Failed to load GFPGAN for face enhancement. Proceeding without it.")
                     enhance_face = False 
-                    face_enhance_str_for_log = "" 
+                    face_enhance_str_for_log = "" # Update log string if face enhance fails
 
-            self.message_manager.add_message(f"ESRGAN model '{model_key}' (Native Scale: {model_native_scale}x, Tile: {tile_size_str_for_log}) { 'and GFPGAN ' if enhance_face else ''}loaded.")
-            progress(0.1, desc=f"Initializing {model_native_scale}x upscaling{face_enhance_str_for_log} process...")
+            self.message_manager.add_message(
+                f"ESRGAN model '{model_key}' (Native: {model_native_scale}x, Tile: {tile_size_str_for_log}{denoise_str_for_log}) "
+                f"{'and GFPGAN ' if enhance_face else ''}loaded for target {output_scale_factor_ui:.2f}x output."
+            )
+            progress(0.1, desc=f"Initializing {output_scale_factor_ui:.2f}x upscaling{face_enhance_str_for_log}{denoise_str_for_log} process...")
             
             resolved_video_path = str(Path(video_path).resolve())
             upscaled_frames = []
@@ -1093,23 +1106,27 @@ class VideoProcessor:
             n_frames_display = str(int(n_frames)) if n_frames is not None else "Unknown"
             self.message_manager.add_message(f"Original FPS: {original_fps:.2f}. Total frames: {n_frames_display}.")
 
-            progress(0.15, desc="Preparing to upscale frames...")
+            progress_desc = (
+                f"Upscaling Frames to {output_scale_factor_ui:.2f}x (Model: {model_key}{face_enhance_str_for_log}{denoise_str_for_log}, "
+                f"Native: {model_native_scale}x, Tile: {tile_size_str_for_log})"
+            )
             frame_iterator = enumerate(reader)
-            progress_desc = f"Upscaling Frames to {model_native_scale}x (Model: {model_key}{face_enhance_str_for_log}, Tile: {tile_size_str_for_log})"
             if n_frames is not None: frame_iterator = progress.tqdm(enumerate(reader), total=int(n_frames), desc=progress_desc)
             else: self.message_manager.add_message(f"Total frames unknown, progress per batch ({progress_desc}).")
 
             for i, frame_np in frame_iterator:
-                if n_frames is None and i % 10 == 0: progress(0.15 + ( (i/(i+500.0)) * 0.65 ), desc=f"Upscaling frame {i+1} to {model_native_scale}x (Tile: {tile_size_str_for_log})...")
+                if n_frames is None and i % 10 == 0: 
+                    current_progress_val = 0.15 + ( (i/(i+500.0)) * 0.65 )
+                    progress(current_progress_val , desc=f"Upscaling frame {i+1} to {output_scale_factor_ui:.2f}x (Tile: {tile_size_str_for_log})...")
                 
-                # Call upscale_frame without output_scale_factor; it uses the model's native scale
-                upscaled_frame_np = self.esrgan_upscaler.upscale_frame(
+                upscaled_frame_np = self.esrgan_upscaler.upscale_frame( # DNI is handled by loaded model
                     frame_np_array=frame_np, 
                     model_key=model_key,
+                    target_outscale_factor=float(output_scale_factor_ui), 
                     enhance_face=enhance_face
                 )
                 if upscaled_frame_np is not None: upscaled_frames.append(upscaled_frame_np)
-                else:
+                else: # Error handling for frame upscale
                     self.message_manager.add_error(f"Failed to upscale frame {i+1}. Skipping.")
                     if "out of memory" in self.message_manager.get_recent_errors_as_str(count=1).lower():
                         self.message_manager.add_error("CUDA OOM likely. Aborting video upscale."); return None 
@@ -1118,10 +1135,17 @@ class VideoProcessor:
             if reader: reader.close(); reader = None 
             if not upscaled_frames: self.message_manager.add_error("No frames upscaled."); return None 
             
-            self.message_manager.add_message(f"Successfully upscaled {len(upscaled_frames)} frames to {model_native_scale}x.")
+            self.message_manager.add_message(f"Successfully upscaled {len(upscaled_frames)} frames to {output_scale_factor_ui:.2f}x.")
             progress(0.80, desc="Saving upscaled video stream...")
 
-            temp_video_suffix = f"upscaled_{model_key}_{model_native_scale}x_tile{tile_size_str_for_log}{face_enhance_str_for_log.replace('+','_')}_temp_video"
+            temp_video_suffix_base = (
+                f"upscaled_{model_key}_{output_scale_factor_ui:.2f}x_tile{tile_size_str_for_log}"
+                f"{face_enhance_str_for_log.replace('+','_')}"
+            )
+            if model_key == "RealESR-general-x4v3" and denoise_strength_ui is not None:
+                 temp_video_suffix_base += f"_dni{denoise_strength_ui:.2f}"
+            temp_video_suffix = temp_video_suffix_base.replace(".","p") + "_temp_video"
+            
             video_stream_output_path = self._tb_generate_output_path(resolved_video_path, temp_video_suffix, self.toolbox_video_output_dir)
             final_muxed_output_path = video_stream_output_path.replace("_temp_video", "")
 
@@ -1166,7 +1190,7 @@ class VideoProcessor:
                 except Exception as e_clean: self.message_manager.add_warning(f"Could not remove temp upscaled video: {e_clean}")
             
             progress(1.0, desc="Upscaling complete.")
-            self.message_manager.add_success(f"Video upscaling to {model_native_scale}x complete: {final_output_path}")
+            self.message_manager.add_success(f"Video upscaling to {output_scale_factor_ui:.2f}x complete: {final_output_path}")
             return final_output_path
 
         except Exception as e:
@@ -1178,11 +1202,10 @@ class VideoProcessor:
                 try: 
                     if hasattr(reader, 'closed') and not reader.closed: reader.close()
                 except: pass
-            if model_key and self.esrgan_upscaler:
+            if model_key and self.esrgan_upscaler: # Ensure model is unloaded
                  self.esrgan_upscaler.unload_model(model_key) 
             if enhance_face and self.esrgan_upscaler and self.esrgan_upscaler.face_enhancer:
                 self.esrgan_upscaler._unload_face_enhancer()
-
             devicetorch.empty_cache(torch); gc.collect()
 
     def tb_open_output_folder(self):

@@ -508,50 +508,6 @@ def monitor_job(job_id=None):
     If no job_id is provided, check if there's a current job in the queue.
     ALWAYS shows the current running job, regardless of the job_id provided.
     """
-    # If no job_id is provided, check if there's a current job in the queue
-    if not job_id:
-        # Check if there's a current job in the queue
-        with job_queue.lock:
-            current_job = job_queue.current_job
-            if current_job:
-                print(f"No job ID provided, but found current job {current_job.id}")
-                job_id = current_job.id
-                
-                # Create a dummy preview image if needed
-                dummy_preview = np.zeros((64, 64, 3), dtype=np.uint8)
-
-                # Immediately yield an update with the current job's progress data
-                if current_job.progress_data and 'preview' in current_job.progress_data and current_job.progress_data['preview'] is not None:
-                    preview = current_job.progress_data.get('preview')
-                    desc = current_job.progress_data.get('desc', '')
-                    html = current_job.progress_data.get('html', '')
-                    yield current_job.result, job_id, preview, desc, html, gr.update(interactive=True), gr.update(value="Cancel Current Job", interactive=True, visible=True)
-                else:
-                    # If no progress data yet, show a basic update with dummy preview
-                    if not current_job.progress_data:
-                        current_job.progress_data = {}
-                    current_job.progress_data['preview'] = dummy_preview
-                    current_job.progress_data['desc'] = 'Processing...'
-                    current_job.progress_data['html'] = make_progress_bar_html(0, 'Starting job...')
-                    
-                    # Push job ID to main stream to ensure monitoring connection
-                    try:
-                        # Push to both the main stream and the job's stream if they're different
-                        stream.output_queue.push(('job_id', current_job.id))
-                        stream.output_queue.push(('monitor_job', current_job.id))
-                        
-                        # If the job has its own stream, push to that too
-                        if current_job.stream and current_job.stream != stream:
-                            current_job.stream.output_queue.push(('job_id', current_job.id))
-                            current_job.stream.output_queue.push(('monitor_job', current_job.id))
-                    except Exception as e:
-                        print(f"Error pushing job ID to streams: {e}")
-                    
-                    yield None, job_id, dummy_preview, 'Processing...', make_progress_bar_html(0, 'Starting job...'), gr.update(interactive=True), gr.update(value="Cancel Current Job", interactive=True, visible=True)
-            else:
-                yield None, None, None, '', 'No job ID provided', gr.update(interactive=True), gr.update(interactive=True, visible=False)
-                return
-
     last_video = None  # Track the last video file shown
     last_job_status = None  # Track the previous job status to detect status changes
     last_progress_update_time = time.time()  # Track when we last updated the progress
@@ -573,7 +529,7 @@ def monitor_job(job_id=None):
                 waiting_for_transition = False
                 force_update = True
                 # Yield a temporary update to show we're switching jobs
-                yield last_video, job_id, gr.update(visible=True), '', 'Switching to current job...', gr.update(interactive=True), gr.update(value="Cancel Current Job", visible=True)
+                yield last_video, gr.update(visible=True), '', 'Switching to current job...', gr.update(interactive=True), gr.update(value="Cancel Current Job", visible=True)
                 continue
                 
         # Check if we're waiting for a job transition
@@ -590,7 +546,7 @@ def monitor_job(job_id=None):
                         # Switch to whatever job is currently running
                         job_id = current_job.id
                         force_update = True
-                        yield last_video, job_id, gr.update(visible=True), '', 'Switching to current job...', gr.update(interactive=True), gr.update(value="Cancel Current Job", visible=True)
+                        yield last_video, gr.update(visible=True), '', 'Switching to current job...', gr.update(interactive=True), gr.update(value="Cancel Current Job", visible=True)
                         continue
             else:
                 # If still waiting, sleep briefly and continue
@@ -599,19 +555,21 @@ def monitor_job(job_id=None):
 
         job = job_queue.get_job(job_id)
         if not job:
-            yield None, job_id, None, '', 'Job not found', gr.update(interactive=True), gr.update(interactive=True, visible=False)
+            # Correctly yield 6 items for the startup/no-job case
+            # This ensures the status text goes to the right component and the buttons are set correctly.
+            yield None, None, 'No job ID provided', '', gr.update(value="Add to Queue", interactive=True, visible=True), gr.update(interactive=False, visible=False)
             return
 
         # If a new video file is available, yield it immediately
         if job.result and job.result != last_video:
             last_video = job.result
             # You can also update preview/progress here if desired
-            yield last_video, job_id, gr.update(visible=True), '', '', gr.update(interactive=True), gr.update(interactive=True)
+            yield last_video, gr.update(visible=True), '', '', gr.update(interactive=True), gr.update(interactive=True)
 
         # Handle job status and progress
         if job.status == JobStatus.PENDING:
             position = job_queue.get_queue_position(job_id)
-            yield last_video, job_id, gr.update(visible=True), '', f'Waiting in queue. Position: {position}', gr.update(interactive=True), gr.update(interactive=True)
+            yield last_video, gr.update(visible=True), '', f'Waiting in queue. Position: {position}', gr.update(interactive=True), gr.update(interactive=True)
 
         elif job.status == JobStatus.RUNNING:
             # Only reset the cancel button when a job transitions from another state to RUNNING
@@ -646,7 +604,7 @@ def monitor_job(job_id=None):
                 if force_update or update_needed:
                     last_progress_update_time = current_time
                     force_update = False
-                    yield job.result, str(job_id), last_preview, current_desc_value, current_html_value, gr.update(interactive=True), button_update
+                    yield job.result, last_preview, current_desc_value, current_html_value, gr.update(interactive=True), button_update
             
             # Fallback for periodic update if no new progress data but job is still running
             elif current_time - last_progress_update_time > 0.5: # More frequent fallback update
@@ -654,7 +612,7 @@ def monitor_job(job_id=None):
                 force_update = False # Reset force_update after a yield
                 current_desc_value = job.progress_data.get('desc', 'Processing...') if job.progress_data else 'Processing...'
                 current_html_value = job.progress_data.get('html', make_progress_bar_html(0, 'Processing...')) if job.progress_data else make_progress_bar_html(0, 'Processing...')
-                yield job.result, str(job_id), last_preview, current_desc_value, current_html_value, gr.update(interactive=True), button_update
+                yield job.result, last_preview, current_desc_value, current_html_value, gr.update(interactive=True), button_update
 
         elif job.status == JobStatus.COMPLETED:
             # Show the final video and reset the button text
@@ -668,7 +626,7 @@ def monitor_job(job_id=None):
 
         elif job.status == JobStatus.CANCELLED:
             # Show cancelled message and reset the button text
-            yield job.result, str(job_id), last_preview, 'Job cancelled', make_progress_bar_html(0, 'Cancelled'), gr.update(value="Add to Queue"), gr.update(interactive=True, value="Cancel Current Job", visible=False)
+            yield job.result, last_preview, 'Job cancelled', make_progress_bar_html(0, 'Cancelled'), gr.update(interactive=True), gr.update(interactive=True, value="Cancel Current Job", visible=False)
             break
 
         # Update last_job_status for the next iteration

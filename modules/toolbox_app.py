@@ -255,7 +255,7 @@ def tb_handle_clear_selected_folder(selected_folder_to_delete):
     # The dropdown will clear itself if its current value is no longer in choices.
     return tb_update_messages(), gr.update(choices=updated_folders, value=None)
 
-def tb_handle_upscale_video(video_path, model_key_selected, tile_size, enhance_face_ui, progress=gr.Progress()):
+def tb_handle_upscale_video(video_path, model_key_selected, output_scale_factor_from_slider, tile_size, enhance_face_ui, denoise_strength_from_slider, progress=gr.Progress()):
     tb_message_mgr.clear()
     if video_path is None:
         tb_message_mgr.add_warning("No input video selected for upscaling.")
@@ -270,25 +270,88 @@ def tb_handle_upscale_video(video_path, model_key_selected, tile_size, enhance_f
         tb_message_mgr.add_error(f"Invalid tile size value: {tile_size}. Using Auto (0).")
         tile_size_int = 0
     
-    # The output_scale_factor is no longer passed from UI; it's determined by the model in toolbox_processor
+    try:
+        output_scale_factor_float = float(output_scale_factor_from_slider)
+        # Add a more robust check based on what ESRGAN core expects, e.g., > 0.1 or similar
+        if not (output_scale_factor_float >= 0.25): # Matches the lower bound in esrgan_core's check
+             tb_message_mgr.add_error(f"Invalid output scale factor: {output_scale_factor_from_slider:.2f}. Must be >= 0.25.")
+             return None, tb_update_messages()
+    except ValueError:
+        tb_message_mgr.add_error(f"Invalid output scale factor: {output_scale_factor_from_slider}. Not a valid number.")
+        return None, tb_update_messages()
+
     output_video = tb_processor.tb_upscale_video(
         video_path, 
         model_key_selected, 
-        # output_scale_factor_float, # Removed
+        output_scale_factor_float, # Pass the new scale factor
         tile_size_int, 
         enhance_face_ui, 
+        denoise_strength_from_slider,
         progress=progress 
     )
     return output_video, tb_update_messages()
+    
+def tb_get_model_info_and_update_scale_slider(model_key_selected: str):
+    """
+    Fetches model info and returns Gradio updates for the model info textbox,
+    the outscale factor slider, and the denoise strength slider.
+    """
+    native_scale = 2.0  # Default native scale if model not found or scale not specified
+    slider_min = 1.0
+    slider_max = 2.0
+    slider_step = 0.05
+    slider_default_value = 2.0 # Will be overridden by native_scale
+    model_info_text = "Info: Select a model."
+    slider_label = "Target Upscale Factor"
+    
+    denoise_slider_visible = False
+    denoise_slider_value = 0.5
+
+    if model_key_selected and model_key_selected in tb_processor.esrgan_upscaler.supported_models:
+        model_details = tb_processor.esrgan_upscaler.supported_models[model_key_selected]
+        fetched_native_scale = model_details.get('scale')
+        description = model_details.get('description', 'No description available.')
+        
+        if isinstance(fetched_native_scale, (int, float)) and fetched_native_scale > 0:
+            native_scale = float(fetched_native_scale)
+            slider_max = native_scale 
+            slider_default_value = native_scale
+            slider_min = max(1.0, native_scale / 4.0) # Example: Allow downscaling to 1/4th of native, but not below 1.0
+            slider_min = 1.0 # Cap minimum at 1.0x output relative to original input
+
+            if native_scale >= 4.0:
+                slider_step = 0.1
+            elif native_scale >= 2.0:
+                slider_step = 0.05
+
+        model_info_text = f"{description}"
+        slider_label = f"Target Upscale Factor (Native {native_scale}x)"
+
+        if model_key_selected == "RealESR-general-x4v3":
+            denoise_slider_visible = True
+
+    model_info_update = gr.update(value=model_info_text)
+    outscale_slider_update = gr.update(
+        minimum=slider_min, # This will now be 1.0 for typical ESRGAN models
+        maximum=slider_max,
+        step=slider_step,
+        value=slider_default_value,
+        label=slider_label
+    )
+    denoise_slider_update = gr.update(
+        visible=denoise_slider_visible,
+        value=denoise_slider_value
+    )
+    
+    return model_info_update, outscale_slider_update, denoise_slider_update
 
 def tb_get_selected_model_scale_info(model_key_selected):
     if model_key_selected and model_key_selected in tb_processor.esrgan_upscaler.supported_models:
         model_details = tb_processor.esrgan_upscaler.supported_models[model_key_selected]
-        scale = model_details.get('scale', 'N/A')
+        scale = model_details.get('N/A')
         description = model_details.get('description', 'No description available.')
-        # Format for two lines: Scale on the first, Description on the second.
-        return f"Output Scale: {scale}x\nInfo: {description}"
-    return "Output Scale: N/A\nInfo: Select a model."
+        return f"{description}"
+    return "Info: Select a model."
     
 def tb_handle_delete_studio_transformer():
     tb_message_mgr.clear()
@@ -546,7 +609,6 @@ def tb_get_formatted_toolbar_stats():
         gr.update(value=gpu_full_str, visible=gpu_component_visible)
     )
 
-
 # --- Gradio Interface ---
 
 def tb_create_video_toolbox_ui():
@@ -689,46 +751,60 @@ def tb_create_video_toolbox_ui():
                             label="ESRGAN Model",
                             info="Select the Real-ESRGAN model."
                         )
-                        # NEW: Textbox to display selected model's scale and description
-                        default_model_key = list(tb_processor.esrgan_upscaler.supported_models.keys())[0] if tb_processor.esrgan_upscaler.supported_models else None
-                        initial_scale_info = tb_get_selected_model_scale_info(default_model_key)
+                        # Determine initial states for model info and sliders
+                        default_model_key_init = list(tb_processor.esrgan_upscaler.supported_models.keys())[0] if tb_processor.esrgan_upscaler.supported_models else None
+                        initial_model_info_gr_val, initial_slider_gr_val, initial_denoise_gr_val = tb_get_model_info_and_update_scale_slider(default_model_key_init)
+
                         tb_selected_model_scale_display = gr.Textbox(
                             label="Selected Model Info", 
-                            value=initial_scale_info, 
+                            value=initial_model_info_gr_val.get('value', "Info: Select a model."),
                             interactive=False,
-                            lines=3 # Adjusted for two lines of text
+                            lines=2 
                         )                 
-                        # # NEW Upscale Factor Slider
-                        # tb_upscale_factor_slider = gr.Slider(
-                            # minimum=1.0, 
-                            # maximum=4.0, # Max scale matches current models. Adjust if 8x models are added.
-                            # step=0.05, 
-                            # value=2.0, 
-                            # label="Target Upscale Factor",
-                            # info="Desired output scale (e.g., 2.0 for 2x). The selected model will upscale then downscale if needed."
-                        # )
+                        
+                        # RE-ADDED and DYNAMIC Upscale Factor Slider
+                        tb_upscale_factor_slider = gr.Slider(
+                            minimum=initial_slider_gr_val.get('minimum', 1.0), 
+                            maximum=initial_slider_gr_val.get('maximum', 2.0), 
+                            step=initial_slider_gr_val.get('step', 0.05), 
+                            value=initial_slider_gr_val.get('value', 2.0), 
+                            label=initial_slider_gr_val.get('label', "Target Upscale Factor"),
+                            info="Desired output scale (e.g., 2.0 for 2x). Video is upscaled by the model, then resized if this differs from native scale."
+                        )
                     with gr.Column(scale=2):
-                        # NEW Tile Size Radio
+                        # Tile Size Radio (no changes needed here)
                         tb_upscale_tile_size_radio = gr.Radio(
                             choices=[
-                                ("Auto (Recommended)", 0), # Label, value
+                                ("Auto (Recommended)", 0),
                                 ("512px", 512),
                                 ("256px", 256)
                             ],
-                            value=0, # Default to Auto (0)
+                            value=0,
                             label="Tile Size for Upscaling",
                             info="Splits video frames into tiles for processing. 'Auto' (0) disables tiling. Smaller values (e.g., 256, 512) use less VRAM but are slower and can show seams on some videos. Use if 'Auto' causes Out-Of-Memory."
                         )
                         with gr.Row():
-                            # NEW Face Enhancement Checkbox
+                            # Face Enhancement Checkbox
                             tb_upscale_enhance_face_checkbox = gr.Checkbox(
                                 label="Enhance Faces (GFPGAN)",
-                                value=False, # Default to off
-                                info="Uses GFPGAN to restore faces. Increases processing time."
+                                value=False,
+                                info="Uses GFPGAN to restore (human-like) faces. Increases processing time."
                             )
-                    
+                        with gr.Row():
+                            # NEW Denoise Strength Slider
+                            tb_denoise_strength_slider = gr.Slider(
+                                label="Denoise Strength (for RealESR-general-x4v3)",
+                                minimum=0.0,
+                                maximum=1.0, # Max 1.0, where 1.0 means no WDN model contribution
+                                step=0.01,
+                                value=initial_denoise_gr_val.get('value', 0.5),
+                                info="Adjusts denoising for RealESR-general-x4v3. 0.0=Max WDN, <1.0=Blend, 1.0=No WDN.",
+                                visible=initial_denoise_gr_val.get('visible', False), # Initial visibility
+                                interactive=True
+                            )                    
                 with gr.Row():
                     tb_upscale_video_btn = gr.Button("🚀 Upscale Video", variant="primary")
+
 
             with gr.TabItem("🎨 Video Filters (FFmpeg)"):
                 gr.Markdown("Apply visual enhancements using FFmpeg filters. Ensure FFmpeg is fully installed for best results.")
@@ -944,18 +1020,23 @@ def tb_create_video_toolbox_ui():
             inputs=[
                 tb_input_video_component, 
                 tb_upscale_model_select,      
-                #  tb_upscale_factor_slider,     
+                tb_upscale_factor_slider,
                 tb_upscale_tile_size_radio,
-                tb_upscale_enhance_face_checkbox # New input
+                tb_upscale_enhance_face_checkbox,
+                tb_denoise_strength_slider # NEW input
             ], 
             outputs=[tb_processed_video_output, tb_message_output]
         )
         
-        # Event handler for model selection changing (updates the info Textbox)
+        # MODIFIED Event handler for model selection changing
         tb_upscale_model_select.change(
-            fn=tb_get_selected_model_scale_info,
+            fn=tb_get_model_info_and_update_scale_slider,
             inputs=[tb_upscale_model_select],
-            outputs=[tb_selected_model_scale_display]
+            outputs=[
+                tb_selected_model_scale_display,
+                tb_upscale_factor_slider,
+                tb_denoise_strength_slider # NEW output to control visibility/value
+            ]
         )
         
         # Frames I/O Event Handlers
