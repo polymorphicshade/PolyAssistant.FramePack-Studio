@@ -111,6 +111,13 @@ class VideoBaseModelGenerator(BaseModelGenerator):
             - end_of_input_video_image_np: Last frame as numpy array
             - input_frames_resized_np: All input frames resized and center cropped as numpy array (T, H, W, C)
         """
+        def time_millis():
+            import time
+            # Use time.perf_counter() for accurate interval measurement
+            return time.perf_counter() * 1000.0 # Convert seconds to milliseconds
+        
+        encode_start_time_millis = time_millis()
+
         if device is None:
             device = self.gpu
             
@@ -200,6 +207,18 @@ class VideoBaseModelGenerator(BaseModelGenerator):
             input_frames_resized_np = np.stack(input_frames_resized_np)  # Shape: (num_real_frames, height, width, channels)
             print(f"Frames preprocessed: {input_frames_resized_np.shape}")
 
+            resized_frames_time_millis = time_millis()
+            print("======================================================")
+            memory_bytes = input_frames_resized_np.nbytes
+            memory_kb = memory_bytes / 1024
+            memory_mb = memory_kb / 1024
+
+            print(f"    *****    input_frames_resized_np: {input_frames_resized_np.shape}")
+            print(f"    *****    Memory usage: {int(memory_mb)} MB")
+            duration_ms = resized_frames_time_millis - encode_start_time_millis
+            print(f"    *****    Time taken to encode and resize frames: {duration_ms / 1000.0:.2f} seconds")
+            print("======================================================")
+
             # Save first frame for CLIP vision encoding
             input_image_np = input_frames_resized_np[0]
             end_of_input_video_image_np = input_frames_resized_np[-1]
@@ -255,6 +274,16 @@ class VideoBaseModelGenerator(BaseModelGenerator):
             # Get first frame's latent
             start_latent = history_latents[:, :, :1]  # Shape: (1, channels, 1, height//8, width//8)
             print(f"Start latent shape: {start_latent.shape}")
+
+            print("======================================================")
+            memory_bytes = history_latents.nbytes
+            memory_kb = memory_bytes / 1024
+            memory_mb = memory_kb / 1024
+
+            print(f"    *****    history_latents: {history_latents.shape}")
+            print(f"    *****    Memory usage: {int(memory_mb)} MB")
+            print("======================================================")
+
 
             # Move VAE back to CPU to free GPU memory
             if device == "cuda":
