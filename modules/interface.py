@@ -26,6 +26,7 @@ from modules.video_queue import JobStatus, Job
 from modules.prompt_handler import get_section_boundaries, get_quick_prompts, parse_timestamped_prompt
 from diffusers_helper.gradio.progress_bar import make_progress_bar_css, make_progress_bar_html
 from diffusers_helper.bucket_tools import find_nearest_bucket
+from modules.pipelines.metadata_utils import create_metadata
 
 from modules.toolbox_app import tb_create_video_toolbox_ui, tb_get_formatted_toolbar_stats
 
@@ -352,7 +353,7 @@ def create_interface(
             with gr.Column(scale=0, min_width=400): # Title/Version/Patreon
                 gr.HTML(f"""
                 <div style="display: flex; align-items: center;">
-                    <h1 class='toolbar-title'>FramePack Studio</h1>
+                    <h1 class='toolbar-title'>FP Studio</h1>
                     <p class='toolbar-version'>{APP_VERSION_DISPLAY}</p>
                     <p class='toolbar-patreon'><a href='https://patreon.com/Colinu' target='_blank'>Support on Patreon</a></p>
                 </div>
@@ -1066,6 +1067,14 @@ def create_interface(
                                     label="Number of sections to blend between prompts"
                                 )
                             with gr.Accordion("Generation Parameters", open=True):
+                                with gr.Accordion("Presets", open=False):
+                                    with gr.Row():
+                                        preset_dropdown = gr.Dropdown(label="Select Preset", choices=[], interactive=True)
+                                        load_preset_button = gr.Button("Load")
+                                        delete_preset_button = gr.Button("Delete")
+                                    with gr.Row():
+                                        preset_name_textbox = gr.Textbox(label="Preset Name", placeholder="Enter a name for your preset")
+                                        save_preset_button = gr.Button("Save")
                                 with gr.Row():
                                     steps = gr.Slider(label="Steps", minimum=1, maximum=100, value=25, step=1)
                                     total_second_length = gr.Slider(label="Video Length (Seconds)", minimum=1, maximum=120, value=6, step=0.1)
@@ -1865,6 +1874,118 @@ def create_interface(
             outputs=[lora_sliders[lora] for lora in lora_names] # Assumes lora_sliders keys match lora_names
         )
 
+        # --- Preset System Functions ---
+        PRESET_FILE = "generation_presets.json"
+
+        def load_presets(model_type):
+            if not os.path.exists(PRESET_FILE):
+                return []
+            with open(PRESET_FILE, 'r') as f:
+                data = json.load(f)
+            return list(data.get(model_type, {}).keys())
+
+        def apply_preset(preset_name, model_type):
+            with open(PRESET_FILE, 'r') as f:
+                data = json.load(f)
+            preset = data.get(model_type, {}).get(preset_name, {})
+            
+            # Create a dictionary of all UI components
+            ui_components = {
+                "steps": steps, "total_second_length": total_second_length, "resolutionW": resolutionW,
+                "resolutionH": resolutionH, "seed": seed, "randomize_seed": randomize_seed,
+                "use_teacache": use_teacache, "teacache_num_steps": teacache_num_steps,
+                "teacache_rel_l1_thresh": teacache_rel_l1_thresh, "latent_window_size": latent_window_size,
+                "gs": gs, "lora_selector": lora_selector, **lora_sliders
+            }
+
+            outputs = []
+            for key, component in ui_components.items():
+                if key in preset:
+                    outputs.append(gr.update(value=preset[key]))
+                else:
+                    outputs.append(gr.update())
+            
+            return outputs
+
+        def save_preset(preset_name, model_type, *args):
+            if not preset_name:
+                return
+            
+            if not os.path.exists(PRESET_FILE):
+                with open(PRESET_FILE, 'w') as f:
+                    json.dump({}, f)
+
+            with open(PRESET_FILE, 'r') as f:
+                data = json.load(f)
+
+            if model_type not in data:
+                data[model_type] = {}
+
+            job_params = {
+                "steps": args[0], "total_second_length": args[1], "resolutionW": args[2],
+                "resolutionH": args[3], "seed": args[4], "randomize_seed": args[5],
+                "use_teacache": args[6], "teacache_num_steps": args[7],
+                "teacache_rel_l1_thresh": args[8], "latent_window_size": args[9],
+                "gs": args[10], "lora_selector": args[11],
+                "lora_values": args[12:]
+            }
+            
+            metadata = create_metadata(job_params, "preset", settings)
+            data[model_type][preset_name] = metadata
+
+            with open(PRESET_FILE, 'w') as f:
+                json.dump(data, f, indent=2)
+            
+            return gr.update(choices=load_presets(model_type))
+
+        def delete_preset(preset_name, model_type):
+            with open(PRESET_FILE, 'r') as f:
+                data = json.load(f)
+
+            if model_type in data and preset_name in data[model_type]:
+                del data[model_type][preset_name]
+
+            with open(PRESET_FILE, 'w') as f:
+                json.dump(data, f, indent=2)
+
+            return gr.update(choices=load_presets(model_type), value=None)
+
+        # --- Connect Preset UI ---
+        def update_preset_dropdown(model_type):
+            return gr.update(choices=load_presets(model_type))
+
+        model_type.change(
+            fn=update_preset_dropdown,
+            inputs=[model_type],
+            outputs=[preset_dropdown]
+        )
+
+        load_preset_button.click(
+            fn=apply_preset,
+            inputs=[preset_dropdown, model_type],
+            outputs=[
+                steps, total_second_length, resolutionW, resolutionH, seed, randomize_seed,
+                use_teacache, teacache_num_steps, teacache_rel_l1_thresh, latent_window_size,
+                gs, lora_selector
+            ] + [lora_sliders[lora] for lora in lora_names]
+        )
+
+        save_preset_button.click(
+            fn=save_preset,
+            inputs=[
+                preset_name_textbox, model_type, steps, total_second_length, resolutionW, resolutionH,
+                seed, randomize_seed, use_teacache, teacache_num_steps, teacache_rel_l1_thresh,
+                latent_window_size, gs, lora_selector
+            ] + [lora_sliders[lora] for lora in lora_names],
+            outputs=[preset_dropdown]
+        )
+
+        delete_preset_button.click(
+            fn=delete_preset,
+            inputs=[preset_dropdown, model_type],
+            outputs=[preset_dropdown]
+        )
+
         # --- Auto-refresh for Toolbar System Stats Monitor (Timer) ---
         main_toolbar_system_stats_timer = gr.Timer(2, active=True) 
         
@@ -2161,9 +2282,9 @@ def format_queue_status(jobs):
     """Format job data for display in the queue status table"""
     rows = []
     for job in jobs:
-        created = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(job.created_at)) if job.created_at else ""
-        started = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(job.started_at)) if job.started_at else ""
-        completed = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(job.completed_at)) if job.completed_at else ""
+        created = time.strftime('%H:%M:%S', time.localtime(job.created_at)) if job.created_at else ""
+        started = time.strftime('%H:%M:%S', time.localtime(job.started_at)) if job.started_at else ""
+        completed = time.strftime('%H:%M:%S', time.localtime(job.completed_at)) if job.completed_at else ""
 
         # Calculate elapsed time
         elapsed_time = ""
