@@ -991,21 +991,9 @@ def create_interface(
                                     xy_plot_axis_z_value_dropdown = gr.CheckboxGroup(label="Z axis values", visible=False) #, multiselect=True)
                                     xy_plot_axis_z_switch.change(fn=xy_plot_axis_change, inputs=[xy_plot_axis_z_switch], outputs=[xy_plot_axis_z_value_text, xy_plot_axis_z_value_dropdown])
 
-                            xy_plot_process_btn = gr.Button("Submit")
                             # xy_plot_result_video = gr.Video(label="Finished Frames", autoplay=True, show_share_button=False, height=256, loop=True)
                             xy_plot_status = gr.HTML("")
                             xy_plot_output = gr.Video(autoplay=True, loop=True, sources=[], height=256, visible=False) # or Gallery, but return need value=[paths] instead of value=video
-                            xy_plot_process_btn.click(fn=xy_plot_process, inputs=[xy_plot_model_type, xy_plot_input_image, xy_plot_end_frame_image_original,
-                                                                            xy_plot_end_frame_strength_original, xy_plot_latent_type, 
-                                                                            xy_plot_prompt, xy_plot_blend_sections, xy_plot_steps, xy_plot_total_second_length, 
-                                                                            xy_plot_resolutionW, xy_plot_resolutionH, xy_plot_seed, xy_plot_randomize_seed, 
-                                                                            xy_plot_use_teacache, xy_plot_teacache_num_steps, xy_plot_teacache_rel_l1_thresh, 
-                                                                            xy_plot_latent_window_size, xy_plot_cfg, xy_plot_gs, xy_plot_rs, 
-                                                                            xy_plot_gpu_memory_preservation, xy_plot_mp4_crf, 
-                                                                            xy_plot_axis_x_switch, xy_plot_axis_x_value_text, xy_plot_axis_x_value_dropdown, 
-                                                                            xy_plot_axis_y_switch, xy_plot_axis_y_value_text, xy_plot_axis_y_value_dropdown, 
-                                                                            xy_plot_axis_z_switch, xy_plot_axis_z_value_text, xy_plot_axis_z_value_dropdown
-                                                                            ], outputs=[xy_plot_status, xy_plot_output])
                         with gr.Group(visible=True) as standard_generation_group:    # Default visibility: True because "Original" model is not "Video"
                             with gr.Group(visible=True) as image_input_group: # This group now only contains the start frame image
                                 with gr.Row():
@@ -1164,6 +1152,7 @@ def create_interface(
                         with gr.Row():
                             current_job_id = gr.Textbox(label="Current Job ID", value="", visible=True, interactive=True)
                             start_button = gr.Button(value="Add to Queue", variant="primary", elem_id="toolbar-add-to-queue-btn")
+                            xy_plot_process_btn = gr.Button("Submit", visible=False)
                             end_button = gr.Button(value="Cancel Current Job", interactive=True, visible=False)
 
            
@@ -1565,8 +1554,6 @@ def create_interface(
              use_teacache_arg,
              teacache_num_steps_arg,
              teacache_rel_l1_thresh_arg,
-             randomize_seed_arg,
-             # save_metadata_checked_arg was here, removed to fix misalignment
              blend_sections_arg,
              latent_type_arg,
              clean_up_videos_arg, # UI checkbox from Generate tab
@@ -1605,8 +1592,6 @@ def create_interface(
             # Use the current seed value as is for this job
             # Call the process function with all arguments
             # Pass the backend_model_type and the ORIGINAL prompt_text string to the backend process function
-            # Removed save_metadata_checked=save_metadata_checked_arg from the call below
-            # studio.process will use its default for save_metadata_checked
             result = process_fn(backend_model_type, input_data, actual_end_frame_image_for_backend, actual_end_frame_strength_for_backend,
                                 prompt_text_arg, n_prompt_arg, seed_arg, total_second_length_arg,
                                 latent_window_size_arg, steps_arg, cfg_arg, gs_arg, rs_arg,
@@ -1618,11 +1603,10 @@ def create_interface(
                                 num_cleaned_frames_arg,
                                 lora_names_states_arg,
                                 *lora_slider_values_tuple
-                                # save_metadata_checked was passed here, now removed.
                                )
             # If randomize_seed is checked, generate a new random seed for the next job
             new_seed_value = None
-            if randomize_seed_arg:
+            if randomize_seed.value:
                 new_seed_value = random.randint(0, 21474)
                 print(f"Generated new seed for next job: {new_seed_value}")
 
@@ -1708,7 +1692,6 @@ def create_interface(
             use_teacache,               # Corresponds to use_teacache_arg
             teacache_num_steps,         # Corresponds to teacache_num_steps_arg
             teacache_rel_l1_thresh,     # Corresponds to teacache_rel_l1_thresh_arg
-            randomize_seed,             # Corresponds to randomize_seed_arg
             blend_sections,             # Corresponds to blend_sections_arg
             latent_type,                # Corresponds to latent_type_arg
             clean_up_videos,            # Corresponds to clean_up_videos_arg (UI checkbox)
@@ -1762,6 +1745,18 @@ def create_interface(
             outputs=[result_video, current_job_id, preview_image, progress_desc, progress_bar, start_button, end_button, queue_status, queue_stats_display, seed]
         )
 
+        xy_plot_process_btn.click(fn=xy_plot_process, inputs=[xy_plot_model_type, xy_plot_input_image, xy_plot_end_frame_image_original,
+                                                                        xy_plot_end_frame_strength_original, xy_plot_latent_type, 
+                                                                        xy_plot_prompt, xy_plot_blend_sections, xy_plot_steps, xy_plot_total_second_length, 
+                                                                        xy_plot_resolutionW, xy_plot_resolutionH, xy_plot_seed, xy_plot_randomize_seed, 
+                                                                        xy_plot_use_teacache, xy_plot_teacache_num_steps, xy_plot_teacache_rel_l1_thresh, 
+                                                                        xy_plot_latent_window_size, xy_plot_cfg, xy_plot_gs, xy_plot_rs, 
+                                                                        xy_plot_gpu_memory_preservation, xy_plot_mp4_crf, 
+                                                                        xy_plot_axis_x_switch, xy_plot_axis_x_value_text, xy_plot_axis_x_value_dropdown, 
+                                                                        xy_plot_axis_y_switch, xy_plot_axis_y_value_text, xy_plot_axis_y_value_dropdown, 
+                                                                        xy_plot_axis_z_switch, xy_plot_axis_z_value_text, xy_plot_axis_z_value_dropdown
+                                                                        ], outputs=[xy_plot_status, xy_plot_output])
+
         # Connect the end button to cancel the current job and update the queue
         end_button.click(
             fn=end_process_with_update,
@@ -1781,7 +1776,9 @@ def create_interface(
                 gr.update(visible=not is_xy_plot and not is_video_model),  # image_input_group
                 gr.update(visible=not is_xy_plot and is_video_model),      # video_input_group
                 gr.update(visible=not is_xy_plot and shows_end_frame),     # end_frame_group_original
-                gr.update(visible=not is_xy_plot and shows_end_frame)      # end_frame_slider_group
+                gr.update(visible=not is_xy_plot and shows_end_frame),      # end_frame_slider_group
+                gr.update(visible=not is_xy_plot),   # start_button
+                gr.update(visible=is_xy_plot)    # xy_plot_process_btn
             )
 
         # Model change listener
@@ -1794,7 +1791,9 @@ def create_interface(
                 image_input_group,
                 video_input_group,
                 end_frame_group_original,
-                end_frame_slider_group
+                end_frame_slider_group,
+                start_button,
+                xy_plot_process_btn
             ]
         )
 
