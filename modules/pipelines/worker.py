@@ -337,8 +337,10 @@ def worker(
                 input_files_dir=job_params['input_files_dir']
             )
 
-            # Store input_frames_resized_np in job_params for later use
-            job_params['input_frames_resized_np'] = input_frames_resized_np
+            # Only necessary to retain resized frames to produce a combined video with source frames of the right dimensions 
+            if combine_with_source:
+                # Store input_frames_resized_np in job_params for later use
+                job_params['input_frames_resized_np'] = input_frames_resized_np
 
             
             # CLIP Vision encoding for the first frame
@@ -997,35 +999,35 @@ def worker(
                 print(f"Error combining videos: {e_combine_outer}")
                 traceback.print_exc()
     
-    # Combine processed input frames (from video_encode) with final generated history_pixels tensor sequentially ---
-    # This creates _combined2.mp4
-    if (model_type == "Video" or model_type == "Video F1") and job_params.get('input_frames_resized_np') is not None and history_pixels is not None:
-        print("Creating sequentially combined video (_combined2.mp4) with processed input frames and generated history_pixels tensor...")
-        try:
-            processed_input_frames_for_combine = job_params.get('input_frames_resized_np')
-            
-            # history_pixels is (B, C, T, H, W), float32, [-1,1], on CPU
-
-            if processed_input_frames_for_combine is not None and history_pixels.numel() > 0 : # Check if history_pixels is not empty
-                combined_sequential_output_filename = os.path.join(output_dir, f'{job_id}_combined2.mp4')
+        # Combine processed input frames (from video_encode) with final generated history_pixels tensor sequentially ---
+        # This creates _combined2.mp4
+        if (model_type == "Video" or model_type == "Video F1") and combine_with_source and job_params.get('input_frames_resized_np') is not None and history_pixels is not None:
+            print("Creating sequentially combined video (_combined2.mp4) with processed input frames and generated history_pixels tensor...")
+            try:
+                processed_input_frames_for_combine = job_params.get('input_frames_resized_np')
                 
-                # fps variable should be from the video_encode call earlier.
-                input_video_fps_for_combine = fps 
-                current_crf = settings.get("mp4_crf", 16)
+                # history_pixels is (B, C, T, H, W), float32, [-1,1], on CPU
 
-                # Call the new function from video_tools.py
-                combined_sequential_result_path = combine_videos_sequentially_from_tensors(
-                    processed_input_frames_np=processed_input_frames_for_combine,
-                    generated_frames_pt=history_pixels,
-                    output_path=combined_sequential_output_filename,
-                    target_fps=input_video_fps_for_combine,
-                    crf_value=current_crf
-                )
-                if combined_sequential_result_path:
-                    stream_to_use.output_queue.push(('file', combined_sequential_result_path))
-        except Exception as e:
-            print(f"Error creating sequentially combined video (_combined2.mp4): {e}")
-            traceback.print_exc()
+                if processed_input_frames_for_combine is not None and history_pixels.numel() > 0 : # Check if history_pixels is not empty
+                    combined_sequential_output_filename = os.path.join(output_dir, f'{job_id}_combined2.mp4')
+                    
+                    # fps variable should be from the video_encode call earlier.
+                    input_video_fps_for_combine = fps 
+                    current_crf = settings.get("mp4_crf", 16)
+
+                    # Call the new function from video_tools.py
+                    combined_sequential_result_path = combine_videos_sequentially_from_tensors(
+                        processed_input_frames_np=processed_input_frames_for_combine,
+                        generated_frames_pt=history_pixels,
+                        output_path=combined_sequential_output_filename,
+                        target_fps=input_video_fps_for_combine,
+                        crf_value=current_crf
+                    )
+                    if combined_sequential_result_path:
+                        stream_to_use.output_queue.push(('file', combined_sequential_result_path))
+            except Exception as e:
+                print(f"Error creating sequentially combined video (_combined2.mp4): {e}")
+                traceback.print_exc()
     
     # Final verification of LoRA state
     if studio_module.current_generator and studio_module.current_generator.transformer:
