@@ -15,7 +15,7 @@ The application offers several distinct methods for generating videos, each tail
 - __Video__: This generation type will extend the input video using the 'original' FramePack model. 
 
 - __Video with Endframe__: Functionally similar to 'video' but allows for use of an endframe to guide the video extension.
-- 
+  
 - __Video F1__: Extends videos using the 'F1' model.
 
 - __XY Plot__: This is a powerful utility for experimentation and comparison. It allows you to generate a grid of videos by systematically varying one or two parameters across the X and Y axes. For example, you can create a grid where each column has a different number of "Steps" and each row has a different "Distilled CFG Scale". This is invaluable for understanding how different parameters affect the final output without having to run each generation manually. After the individual generations complete they will be combined into a final video grid.
