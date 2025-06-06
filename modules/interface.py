@@ -122,7 +122,7 @@ def create_interface(
     .contain-image * img {
         object-fit: contain !important;
         width: 100% !important;
-        height: 100% !important;
+        height: 60vh !important;
         max-height: 100% !important;
         max-width: 100% !important;
     }
@@ -1805,7 +1805,8 @@ def create_interface(
         current_job_id.change(
             fn=monitor_fn,
             inputs=[current_job_id],
-            outputs=[result_video, current_job_id, preview_image, progress_desc, progress_bar, start_button, end_button]
+            # MODIFICATION: Removed current_job_id from the outputs list to break the feedback loop
+            outputs=[result_video, preview_image, progress_desc, progress_bar, start_button, end_button]
         ).then(
             fn=update_stats, # Update stats after monitoring potentially changes job status
             inputs=None,
