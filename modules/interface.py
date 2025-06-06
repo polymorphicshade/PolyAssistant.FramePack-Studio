@@ -64,7 +64,7 @@ def create_interface(
     quick_prompts = get_quick_prompts()
 
     # --- Function to update queue stats (Moved earlier to resolve UnboundLocalError) ---
-    def update_stats():
+    def update_stats(*args): # Accept any arguments and ignore them
         # Get queue status data
         queue_status_data = update_queue_status_fn()
         
@@ -1741,16 +1741,28 @@ def create_interface(
                 return process_with_queue_update(selected_model, *args)
                 
         # Validation ensures the start button is only enabled when appropriate
-        def update_start_button_state(selected_model, input_video_value):
+        def update_start_button_state(*args):
             """
             Validation fails if a video model is selected and no input video is provided.
             Updates the start button interactivity and validation message visibility.
+            Handles variable inputs from different Gradio event chains.
             """
+            # The required values are the last two arguments provided by the Gradio event
+            if len(args) >= 2:
+                selected_model = args[-2]
+                input_video_value = args[-1]
+            else:
+                # Fallback or error handling if not enough arguments are received
+                # This might happen if the event is triggered in an unexpected way
+                print(f"Warning: update_start_button_state received {len(args)} args, expected at least 2.")
+                # Default to a safe state (button disabled)
+                return gr.Button(value="Error", interactive=False), gr.update(visible=True)
+
             video_provided = input_video_value is not None
             
             if is_video_model(selected_model) and not video_provided:
                 # Video model selected, but no video provided
-                return gr.Button(value="Missing Video", interactive=False), gr.update(visible=True) # Explicitly return a new Button object
+                return gr.Button(value="Missing Video", interactive=False), gr.update(visible=True)
             else:
                 # Either not a video model, or video model selected and video provided
                 return gr.update(value="Add to Queue", interactive=True), gr.update(visible=False)
