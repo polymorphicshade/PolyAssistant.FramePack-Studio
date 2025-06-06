@@ -483,20 +483,6 @@ def create_interface(
                                         result = np.round(result).astype(int)
                                     return result.tolist()
                                 return []
-                            def xy_plot_convert_loras_text(arrayT):
-                                lora_pattern = r"<lora:([^:>]+):([-+]?\d*\.?\d+)>"
-                                matches = re.findall(lora_pattern, arrayT["prompt"])
-                                arrayT["prompt"] = re.sub(lora_pattern, '', arrayT["prompt"]).strip()
-                                usedLoras = []
-                                weightLoras = [1 for _ in range(len(arrayT["lora_loaded_names"]))]
-                                for n, w in matches:
-                                    if n in arrayT["lora_loaded_names"] and n not in usedLoras:
-                                        usedLoras.append(n)
-                                        weightLoras[arrayT["lora_loaded_names"].index(n)] = float(w)
-                                    # print(n, w, v["lora_loaded_names"], arrayT["selected_loras"])
-                                arrayT["selected_loras"] = usedLoras
-                                arrayT["lora_values"] = weightLoras
-                                return arrayT
                             def xy_plot_axis_change(updated_value_type):
                                 if xy_plot_axis_options[updated_value_type][0] == "textbox" or xy_plot_axis_options[updated_value_type][0] == "number":
                                     return gr.update(visible=True, value=xy_plot_axis_options[updated_value_type][2]), gr.update(visible=False, value=[], choices=[])
@@ -513,7 +499,9 @@ def create_interface(
                                     cfg, gs, rs, gpu_memory_preservation, mp4_crf, 
                                     axis_x_switch, axis_x_value_text, axis_x_value_dropdown, 
                                     axis_y_switch, axis_y_value_text, axis_y_value_dropdown, 
-                                    axis_z_switch, axis_z_value_text, axis_z_value_dropdown
+                                    axis_z_switch, axis_z_value_text, axis_z_value_dropdown,
+                                    selected_loras,
+                                    *lora_slider_values
                                     ):
                                 # print(model_type, input_image, latent_type, 
                                 #     prompt, blend_sections, steps, total_second_length, 
@@ -569,11 +557,11 @@ def create_interface(
                                     "blend_sections": blend_sections,
                                     "latent_type": latent_type,
                                     "clean_up_videos": True, 
-                                    "selected_loras": [],
+                                    "selected_loras": selected_loras,
                                     "resolutionW": resolutionW,
                                     "resolutionH": resolutionH,
                                     "lora_loaded_names": lora_names,
-                                    "lora_values": []
+                                    "lora_values": lora_slider_values
                                 }
 
                                 def xy_plot_convert_values(type, value_textbox, value_dropdown):
@@ -626,7 +614,7 @@ def create_interface(
                                         else:
                                             vars_copy[text_to_base_keys[splitted_axis_name[0]]] = value
                                         vars_copy[splitted_axis_name[1]+"_axis_on_plot"] = str(value)
-                                    output_generator_vars.append(xy_plot_convert_loras_text(vars_copy))
+                                    output_generator_vars.append(vars_copy)
                                 # print("----- BEFORE GENERATED VIDS VARS START -----")
                                 # for v in output_generator_vars:
                                 #     print(v)
@@ -969,6 +957,21 @@ def create_interface(
                                 with gr.Row():
                                     xy_plot_seed = gr.Number(label="Seed", value=31337, precision=0)
                                     xy_plot_randomize_seed = gr.Checkbox(label="Randomize", value=False, info="Generate a new random seed for each job")
+                                with gr.Row("LoRAs"):
+                                    xy_plot_lora_selector = gr.Dropdown(
+                                        choices=lora_names,
+                                        label="Select LoRAs to Load",
+                                        multiselect=True,
+                                        value=[],
+                                        info="Select one or more LoRAs to use for this job"
+                                    )
+                                    xy_plot_lora_names_states = gr.State(lora_names)
+                                    xy_plot_lora_sliders = {}
+                                    for lora in lora_names:
+                                        xy_plot_lora_sliders[lora] = gr.Slider(
+                                            minimum=0.0, maximum=2.0, value=1.0, step=0.01,
+                                            label=f"{lora} Weight", visible=False, interactive=True
+                                        )
                             with gr.Accordion("Advanced Parameters", open=False):
                                 with gr.Row("TeaCache"):
                                     xy_plot_use_teacache = gr.Checkbox(label='Use TeaCache', value=True, info='Faster speed, but often makes hands and fingers slightly worse.')
@@ -1799,17 +1802,33 @@ def create_interface(
             outputs=[start_button, video_input_required_message]
         )
 
-        xy_plot_process_btn.click(fn=xy_plot_process, inputs=[xy_plot_model_type, xy_plot_input_image, xy_plot_end_frame_image_original,
-                                                                        xy_plot_end_frame_strength_original, xy_plot_latent_type, 
-                                                                        xy_plot_prompt, xy_plot_blend_sections, xy_plot_steps, xy_plot_total_second_length, 
-                                                                        xy_plot_resolutionW, xy_plot_resolutionH, xy_plot_seed, xy_plot_randomize_seed, 
-                                                                        xy_plot_use_teacache, xy_plot_teacache_num_steps, xy_plot_teacache_rel_l1_thresh, 
-                                                                        xy_plot_latent_window_size, xy_plot_cfg, xy_plot_gs, xy_plot_rs, 
-                                                                        xy_plot_gpu_memory_preservation, xy_plot_mp4_crf, 
-                                                                        xy_plot_axis_x_switch, xy_plot_axis_x_value_text, xy_plot_axis_x_value_dropdown, 
-                                                                        xy_plot_axis_y_switch, xy_plot_axis_y_value_text, xy_plot_axis_y_value_dropdown, 
-                                                                        xy_plot_axis_z_switch, xy_plot_axis_z_value_text, xy_plot_axis_z_value_dropdown
-                                                                        ], outputs=[xy_plot_status, xy_plot_output])
+        xy_plot_inputs = [xy_plot_model_type, xy_plot_input_image, xy_plot_end_frame_image_original,
+            xy_plot_end_frame_strength_original, xy_plot_latent_type, 
+            xy_plot_prompt, xy_plot_blend_sections, xy_plot_steps, xy_plot_total_second_length, 
+            xy_plot_resolutionW, xy_plot_resolutionH, xy_plot_seed, xy_plot_randomize_seed, 
+            xy_plot_use_teacache, xy_plot_teacache_num_steps, xy_plot_teacache_rel_l1_thresh, 
+            xy_plot_latent_window_size, xy_plot_cfg, xy_plot_gs, xy_plot_rs, 
+            xy_plot_gpu_memory_preservation, xy_plot_mp4_crf, 
+            xy_plot_axis_x_switch, xy_plot_axis_x_value_text, xy_plot_axis_x_value_dropdown, 
+            xy_plot_axis_y_switch, xy_plot_axis_y_value_text, xy_plot_axis_y_value_dropdown, 
+            xy_plot_axis_z_switch, xy_plot_axis_z_value_text, xy_plot_axis_z_value_dropdown,
+            xy_plot_lora_selector
+        ]
+        xy_plot_inputs.extend(xy_plot_lora_sliders.values())
+        xy_plot_process_btn.click(fn=xy_plot_process, inputs=xy_plot_inputs, outputs=[xy_plot_status, xy_plot_output])
+        
+        def xy_plot_update_lora_sliders(selected_loras):
+            updates = []
+            for lora in lora_names:
+                 updates.append(gr.update(visible=(lora in selected_loras)))
+            num_sliders = len(xy_plot_lora_sliders)
+            return updates[:num_sliders]
+
+        xy_plot_lora_selector.change(
+            fn=xy_plot_update_lora_sliders,
+            inputs=[xy_plot_lora_selector],
+            outputs=[xy_plot_lora_sliders[lora] for lora in lora_names]
+        )
 
         #putting this here for now because this file is way too big
         def on_model_type_change(selected_model):
@@ -2091,11 +2110,6 @@ def create_interface(
             outputs=[preset_dropdown]
         )
 
-        delete_preset_button.click(
-            fn=delete_preset,
-            inputs=[preset_dropdown, model_type],
-            outputs=[preset_dropdown]
-        )
 
         # --- Auto-refresh for Toolbar System Stats Monitor (Timer) ---
         main_toolbar_system_stats_timer = gr.Timer(2, active=True) 
