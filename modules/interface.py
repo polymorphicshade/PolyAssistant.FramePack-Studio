@@ -56,6 +56,9 @@ def create_interface(
     Returns:
         Gradio Blocks interface
     """
+    def is_video_model(model_type_value):
+        return model_type_value in ["Video", "Video with Endframe", "Video F1"]
+
     # Get section boundaries and quick prompts
     section_boundaries = get_section_boundaries()
     quick_prompts = get_quick_prompts()
@@ -1157,11 +1160,13 @@ def create_interface(
                         result_video = gr.Video(label="Finished Frames", autoplay=True, show_share_button=False, height=256, loop=True)
                         progress_desc = gr.Markdown('', elem_classes='no-generating-animation')
                         progress_bar = gr.HTML('', elem_classes='no-generating-animation')
-
                         with gr.Row():
                             current_job_id = gr.Textbox(label="Current Job ID", value="", visible=True, interactive=True)
                             start_button = gr.Button(value="Add to Queue", variant="primary", elem_id="toolbar-add-to-queue-btn")
                             xy_plot_process_btn = gr.Button("Submit", visible=False)
+                            video_input_required_message = gr.Markdown(
+                                "<p style='color: red; text-align: center;'>Input video required</p>", visible=False
+                            )
                             end_button = gr.Button(value="Cancel Current Job", interactive=True, visible=False)
 
            
@@ -1581,7 +1586,7 @@ def create_interface(
                 backend_model_type = "Video" # The backend "Video" model_type handles with and without endframe
 
             # Use the appropriate input based on model type
-            is_ui_video_model = (model_type_arg == "Video" or model_type_arg == "Video with Endframe" or model_type_arg == "Video F1")
+            is_ui_video_model = is_video_model(model_type_arg)
             input_data = input_video_arg if is_ui_video_model else input_image_arg
 
             # Define actual end_frame params to pass to backend
@@ -1619,9 +1624,9 @@ def create_interface(
                 new_seed_value = random.randint(0, 21474)
                 print(f"Generated new seed for next job: {new_seed_value}")
 
-            # Create a button update that will be applied after the job is added to the queue
-            # This ensures the button text is reset after the queue's JSON has been saved
-            button_update = gr.update(value="Add to Queue", interactive=True)
+            # Create the button update for start_button WITHOUT interactive=True.
+            # The interactivity will be set by update_start_button_state later in the chain.
+            start_button_update_after_add = gr.update(value="Add to Queue")
             
             # If a job ID was created, automatically start monitoring it and update queue
             if result and result[1]:  # Check if job_id exists in results
@@ -1633,21 +1638,21 @@ def create_interface(
 
                 # Add the new seed value to the results if randomize is checked
                 if new_seed_value is not None:
-                    # Use result[6] directly for end_button to preserve its value
-                    return [result[0], job_id, result[2], result[3], result[4], result[5], result[6], queue_status_data, queue_stats_text, new_seed_value]
+                    # Use result[6] directly for end_button to preserve its value. Add gr.update() for video_input_required_message.
+                    return [result[0], job_id, result[2], result[3], result[4], start_button_update_after_add, result[6], queue_status_data, queue_stats_text, new_seed_value, gr.update()]
                 else:
-                    # Use result[6] directly for end_button to preserve its value
-                    return [result[0], job_id, result[2], result[3], result[4], result[5], result[6], queue_status_data, queue_stats_text, gr.update()]
+                    # Use result[6] directly for end_button to preserve its value. Add gr.update() for video_input_required_message.
+                    return [result[0], job_id, result[2], result[3], result[4], start_button_update_after_add, result[6], queue_status_data, queue_stats_text, gr.update(), gr.update()]
 
             # If no job ID was created, still return the new seed if randomize is checked
             # Also, ensure we return the latest stats even if no job was created (e.g., error during param validation)
             queue_status_data, queue_stats_text = update_stats()
             if new_seed_value is not None:
                 # Make sure to preserve the end_button update from result[6]
-                return [result[0], result[1], result[2], result[3], result[4], result[5], result[6], queue_status_data, queue_stats_text, new_seed_value]
+                return [result[0], result[1], result[2], result[3], result[4], start_button_update_after_add, result[6], queue_status_data, queue_stats_text, new_seed_value, gr.update()]
             else:
                 # Make sure to preserve the end_button update from result[6]
-                return [result[0], result[1], result[2], result[3], result[4], result[5], result[6], queue_status_data, queue_stats_text, gr.update()]
+                return [result[0], result[1], result[2], result[3], result[4], start_button_update_after_add, result[6], queue_status_data, queue_stats_text, gr.update(), gr.update()]
 
         # Custom end process function that ensures the queue is updated and changes button text
         def end_process_with_update():
@@ -1727,31 +1732,49 @@ def create_interface(
                 qs_data, qs_text = update_stats()
                 if status:
                     # If there was an error, display it
-                    return gr.update(value=None), gr.update(), gr.update(), gr.update(value=status), gr.update(), gr.update(value="Add to Queue", interactive=True), gr.update(), qs_data, qs_text, gr.update()
+                    return gr.update(value=None), gr.update(), gr.update(), gr.update(value=status), gr.update(), gr.update(value="Add to Queue"), gr.update(), qs_data, qs_text, gr.update(), gr.update()
                 else:
                     # If successful, display the result video
-                    return gr.update(value=video), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(value="Add to Queue", interactive=True), gr.update(), qs_data, qs_text, gr.update()
+                    return gr.update(value=video), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(value="Add to Queue"), gr.update(), qs_data, qs_text, gr.update(), gr.update()
             else:
                 # For other model types, use the regular process function
                 return process_with_queue_update(selected_model, *args)
                 
+        # Validation ensures the start button is only enabled when appropriate
+        def update_start_button_state(selected_model, input_video_value):
+            """
+            Validation fails if a video model is selected and no input video is provided.
+            Updates the start button interactivity and validation message visibility.
+            """
+            video_provided = input_video_value is not None
+            
+            if is_video_model(selected_model) and not video_provided:
+                # Video model selected, but no video provided
+                return gr.Button(value="Missing Video", interactive=False), gr.update(visible=True) # Explicitly return a new Button object
+            else:
+                # Either not a video model, or video model selected and video provided
+                return gr.update(value="Add to Queue", interactive=True), gr.update(visible=False)
         # Function to update button state before processing
         def update_button_before_processing(selected_model, *args):
             # First update the button to show "Adding..." and disable it
             # Also return current stats so they don't get blanked out during the "Adding..." phase
             qs_data, qs_text = update_stats()
-            return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(value="Adding...", interactive=False), gr.update(), qs_data, qs_text, gr.update()
+            return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(value="Adding...", interactive=False), gr.update(), qs_data, qs_text, gr.update(), gr.update() # Added update for video_input_required_message
         
         # Connect the start button to first update its state
         start_button.click(
             fn=update_button_before_processing,
             inputs=[model_type] + ips,
-            outputs=[result_video, current_job_id, preview_image, progress_desc, progress_bar, start_button, end_button, queue_status, queue_stats_display, seed]
+            outputs=[result_video, current_job_id, preview_image, progress_desc, progress_bar, start_button, end_button, queue_status, queue_stats_display, seed, video_input_required_message]
         ).then(
             # Then process the job
             fn=handle_start_button,
             inputs=[model_type] + ips,
-            outputs=[result_video, current_job_id, preview_image, progress_desc, progress_bar, start_button, end_button, queue_status, queue_stats_display, seed]
+            outputs=[result_video, current_job_id, preview_image, progress_desc, progress_bar, start_button, end_button, queue_status, queue_stats_display, seed, video_input_required_message] # Added video_input_required_message
+        ).then( # Ensure validation is re-checked after job processing completes
+            fn=update_start_button_state,
+            inputs=[model_type, input_video], # Current values of model_type and input_video
+            outputs=[start_button, video_input_required_message]
         )
 
         xy_plot_process_btn.click(fn=xy_plot_process, inputs=[xy_plot_model_type, xy_plot_input_image, xy_plot_end_frame_image_original,
@@ -1776,14 +1799,13 @@ def create_interface(
         #putting this here for now because this file is way too big
         def on_model_type_change(selected_model):
             is_xy_plot = selected_model == "XY Plot"
-            is_video_model = selected_model in ["Video", "Video with Endframe", "Video F1"]
             shows_end_frame = selected_model in ["Original with Endframe", "Video with Endframe"] # F1 with Endframe is not a direct option
 
             return (
                 gr.update(visible=not is_xy_plot),  # standard_generation_group
                 gr.update(visible=is_xy_plot),      # xy_group
-                gr.update(visible=not is_xy_plot and not is_video_model),  # image_input_group
-                gr.update(visible=not is_xy_plot and is_video_model),      # video_input_group
+                gr.update(visible=not is_xy_plot and not is_video_model(selected_model)),  # image_input_group
+                gr.update(visible=not is_xy_plot and is_video_model(selected_model)),      # video_input_group
                 gr.update(visible=not is_xy_plot and shows_end_frame),     # end_frame_group_original
                 gr.update(visible=not is_xy_plot and shows_end_frame),      # end_frame_slider_group
                 gr.update(visible=not is_xy_plot),   # start_button
@@ -1804,6 +1826,23 @@ def create_interface(
                 start_button,
                 xy_plot_process_btn
             ]
+        ).then( # Also trigger validation after model type changes
+            fn=update_start_button_state,
+            inputs=[model_type, input_video],
+            outputs=[start_button, video_input_required_message]
+        )
+        
+        # Connect input_video change to the validation function
+        input_video.change(
+            fn=update_start_button_state,
+            inputs=[model_type, input_video],
+            outputs=[start_button, video_input_required_message]
+        )
+        # Also trigger validation when video is cleared
+        input_video.clear(
+            fn=update_start_button_state,
+            inputs=[model_type, input_video],
+            outputs=[start_button, video_input_required_message]
         )
 
         
@@ -1819,6 +1858,10 @@ def create_interface(
             fn=update_stats, # Update stats after monitoring potentially changes job status
             inputs=None,
             outputs=[queue_status, queue_stats_display]
+        ).then( # re-validate button state
+            fn=update_start_button_state,
+            inputs=[model_type, input_video],
+            outputs=[start_button, video_input_required_message]
         )
         
         # Auto-check for current job on page load
