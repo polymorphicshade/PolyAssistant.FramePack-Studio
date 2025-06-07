@@ -1300,9 +1300,17 @@ class VideoJobQueue:
                     # Start the worker function with the job parameters
                     from diffusers_helper.thread_utils import async_run
                     print(f"Starting worker function for job {job_id}")
+                    
+                    # Clean up params for the worker function
+                    worker_params = job.params.copy()
+                    if 'end_frame_image_original' in worker_params:
+                        del worker_params['end_frame_image_original']
+                    if 'end_frame_strength_original' in worker_params:
+                        del worker_params['end_frame_strength_original']
+
                     async_run(
                         self.worker_function,
-                        **job.params,
+                        **worker_params,
                         job_stream=job.stream
                     )
                     print(f"Worker function started for job {job_id}")

@@ -91,19 +91,6 @@ def create_interface(
         
         return queue_status_data, queue_stats_text
 
-    #XY helper
-    def generate_tab_xy_plot_process():
-        return xy_plot_process_wrapper(settings, xy_plot_process,
-            model_type.value, input_image.value, end_frame_image_original.value,
-            end_frame_strength_original.value, latent_type.value,
-            prompt.value, blend_sections.value, steps.value, total_second_length.value,
-            resolutionW.value, resolutionH.value, seed.value, randomize_seed.value, use_teacache.value,
-            teacache_num_steps.value, teacache_rel_l1_thresh.value, latent_window_size.value,
-            cfg.value, gs.value, rs.value,
-            xy_plot_axis_x_switch.value, xy_plot_axis_x_value_text.value, xy_plot_axis_x_value_dropdown.value,
-            xy_plot_axis_y_switch.value, xy_plot_axis_y_value_text.value, xy_plot_axis_y_value_dropdown.value,
-            xy_plot_axis_z_switch.value, xy_plot_axis_z_value_text.value, xy_plot_axis_z_value_dropdown.value
-        )
     # Create the interface
     css = make_progress_bar_css()
     css += """
@@ -427,6 +414,17 @@ def create_interface(
                             value="Original",
                             label="Generation Type"
                         )
+                        with gr.Group():
+                            with gr.Row("Resolution"):
+                                resolutionW = gr.Slider(
+                                    label="Width", minimum=128, maximum=768, value=640, step=32, 
+                                    info="Nearest valid width will be used."
+                                )
+                                resolutionH = gr.Slider(
+                                    label="Height", minimum=128, maximum=768, value=640, step=32, 
+                                    info="Nearest valid height will be used."
+                                )
+                            resolution_text = gr.Markdown(value="<div style='text-align:right; padding:5px 15px 5px 5px;'>Selected bucket for resolution: 640 x 640</div>", label="", show_label=False)
                         with gr.Group(visible=False) as xy_group:  # Default visibility: True
                             xy_plot_axis_options = {
                                 # "type": [
@@ -535,10 +533,12 @@ def create_interface(
                                 base_generator_vars = {
                                     "model_type": model_type,
                                     "input_image": input_image,
+                                    "end_frame_image": None,
+                                    "end_frame_strength": 1.0,
                                     "input_video": None,
                                     "end_frame_image_original": end_frame_image_original,
                                     "end_frame_strength_original": end_frame_strength_original,
-                                    "prompt": prompt,
+                                    "prompt_text": prompt,
                                     "n_prompt": "",
                                     "seed": seed,
                                     "total_second_length": total_second_length,
@@ -547,16 +547,13 @@ def create_interface(
                                     "cfg": cfg,
                                     "gs": gs,
                                     "rs": rs,
-                                    "gpu_memory_preservation": gpu_memory_preservation,
                                     "use_teacache": use_teacache,
                                     "teacache_num_steps": teacache_num_steps,
                                     "teacache_rel_l1_thresh": teacache_rel_l1_thresh,
-                                    "mp4_crf": mp4_crf,
-                                    "randomize_seed_checked": False,
+                                    "has_input_image": True if input_image is not None else False,
                                     "save_metadata_checked": True,
                                     "blend_sections": blend_sections,
                                     "latent_type": latent_type,
-                                    "clean_up_videos": True, 
                                     "selected_loras": selected_loras,
                                     "resolutionW": resolutionW,
                                     "resolutionH": resolutionH,
@@ -607,14 +604,16 @@ def create_interface(
                                     for axis, value in zip(active_axes, combo):
                                         splitted_axis_name = axis.split(" -> ")
                                         if splitted_axis_name[0] == "Prompt add":
-                                            vars_copy[text_to_base_keys[splitted_axis_name[0]]] = vars_copy[text_to_base_keys[splitted_axis_name[0]]] + " " + str(value)
+                                            vars_copy["prompt_text"] = vars_copy["prompt_text"] + " " + str(value)
                                         elif splitted_axis_name[0] == "Prompt replace":
-                                            orig_copy_prompt_text = vars_copy[text_to_base_keys[splitted_axis_name[0]]]
-                                            vars_copy[text_to_base_keys[splitted_axis_name[0]]] = orig_copy_prompt_text.replace(prompt_replace_initial_values[splitted_axis_name[1]], str(value))
+                                            orig_copy_prompt_text = vars_copy["prompt_text"]
+                                            vars_copy["prompt_text"] = orig_copy_prompt_text.replace(prompt_replace_initial_values[splitted_axis_name[1]], str(value))
                                         else:
                                             vars_copy[text_to_base_keys[splitted_axis_name[0]]] = value
                                         vars_copy[splitted_axis_name[1]+"_axis_on_plot"] = str(value)
-                                    output_generator_vars.append(vars_copy)
+                                    
+                                    worker_params = {k: v for k, v in vars_copy.items() if k not in ["X_axis_on_plot", "Y_axis_on_plot", "Z_axis_on_plot"]}
+                                    output_generator_vars.append(worker_params)
                                 # print("----- BEFORE GENERATED VIDS VARS START -----")
                                 # for v in output_generator_vars:
                                 #     print(v)
@@ -906,33 +905,6 @@ def create_interface(
                                 with gr.Row():
                                     xy_plot_steps = gr.Slider(label="Steps", minimum=1, maximum=100, value=5, step=1)
                                     xy_plot_total_second_length = gr.Slider(label="Video Length (Seconds)", minimum=0.1, maximum=120, value=1, step=0.1)
-                                with gr.Group():
-                                    with gr.Row("Resolution"):
-                                        xy_plot_resolutionW = gr.Slider(
-                                            label="Width", minimum=128, maximum=768, value=128, step=32, 
-                                            info="Nearest valid width will be used."
-                                        )
-                                        xy_plot_resolutionH = gr.Slider(
-                                            label="Height", minimum=128, maximum=768, value=128, step=32, 
-                                            info="Nearest valid height will be used."
-                                        )
-                                    xy_plot_resolution_text = gr.Markdown(value="<div style='text-align:right; padding:5px 15px 5px 5px;'>Selected bucket for resolution: 128 x 128</div>", label="", show_label=False)
-                                def xy_plot_on_input_image_change(img):
-                                    if img is not None:
-                                        return gr.update(info="Nearest valid bucket size will be used. Height will be adjusted automatically."), gr.update(visible=False)
-                                    else:
-                                        return gr.update(info="Nearest valid width will be used."), gr.update(visible=True)
-                                xy_plot_input_image.change(fn=xy_plot_on_input_image_change, inputs=[xy_plot_input_image], outputs=[xy_plot_resolutionW, xy_plot_resolutionH])
-                                def xy_plot_on_resolution_change(img, resolutionW, resolutionH):
-                                    out_bucket_resH, out_bucket_resW = [128, 128]
-                                    if img is not None:
-                                        H, W, _ = img.shape
-                                        out_bucket_resH, out_bucket_resW = find_nearest_bucket(H, W, resolution=resolutionW)
-                                    else:
-                                        out_bucket_resH, out_bucket_resW = find_nearest_bucket(resolutionH, resolutionW, (resolutionW+resolutionH)/2) # if resolutionW > resolutionH else resolutionH
-                                    return gr.update(value=f"<div style='text-align:right; padding:5px 15px 5px 5px;'>Selected bucket for resolution: {out_bucket_resW} x {out_bucket_resH}</div>")
-                                xy_plot_resolutionW.change(fn=xy_plot_on_resolution_change, inputs=[xy_plot_input_image, xy_plot_resolutionW, xy_plot_resolutionH], outputs=[xy_plot_resolution_text], show_progress="hidden")
-                                xy_plot_resolutionH.change(fn=xy_plot_on_resolution_change, inputs=[xy_plot_input_image, xy_plot_resolutionW, xy_plot_resolutionH], outputs=[xy_plot_resolution_text], show_progress="hidden")
                                 with gr.Row():
                                     xy_plot_seed = gr.Number(label="Seed", value=31337, precision=0)
                                     xy_plot_randomize_seed = gr.Checkbox(label="Randomize", value=False, info="Generate a new random seed for each job")
@@ -1079,17 +1051,6 @@ def create_interface(
                                 with gr.Row():
                                     steps = gr.Slider(label="Steps", minimum=1, maximum=100, value=25, step=1)
                                     total_second_length = gr.Slider(label="Video Length (Seconds)", minimum=1, maximum=120, value=6, step=0.1)
-                                with gr.Group():
-                                    with gr.Row("Resolution"):
-                                        resolutionW = gr.Slider(
-                                            label="Width", minimum=128, maximum=768, value=640, step=32, 
-                                            info="Nearest valid width will be used."
-                                        )
-                                        resolutionH = gr.Slider(
-                                            label="Height", minimum=128, maximum=768, value=640, step=32, 
-                                            info="Nearest valid height will be used."
-                                        )
-                                    resolution_text = gr.Markdown(value="<div style='text-align:right; padding:5px 15px 5px 5px;'>Selected bucket for resolution: 640 x 640</div>", label="", show_label=False)
                                 def on_input_image_change(img):
                                     if img is not None:
                                         return gr.update(info="Nearest valid bucket size will be used. Height will be adjusted automatically."), gr.update(visible=False)
@@ -1748,23 +1709,8 @@ def create_interface(
 
         # --- Connect Buttons ---
         def handle_start_button(selected_model, *args):
-            if selected_model == "XY Plot":
-                # For XY Plot, call the xy_plot_process function
-                # XY plot also needs to update stats, though it's a longer process.
-                # For now, we'll let its internal logic handle its specific UI updates.
-                # The main stats will update once the XY plot jobs are added to the queue by its internal loop.
-                status, video = generate_tab_xy_plot_process()
-                # After XY plot processing (which adds jobs), update stats
-                qs_data, qs_text = update_stats()
-                if status:
-                    # If there was an error, display it
-                    return gr.update(value=None), gr.update(), gr.update(), gr.update(value=status), gr.update(), gr.update(value="Add to Queue"), gr.update(), qs_data, qs_text, gr.update(), gr.update()
-                else:
-                    # If successful, display the result video
-                    return gr.update(value=video), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(value="Add to Queue"), gr.update(), qs_data, qs_text, gr.update(), gr.update()
-            else:
-                # For other model types, use the regular process function
-                return process_with_queue_update(selected_model, *args)
+            # For other model types, use the regular process function
+            return process_with_queue_update(selected_model, *args)
                 
         # Validation ensures the start button is only enabled when appropriate
         def update_start_button_state(*args):
@@ -1818,7 +1764,7 @@ def create_interface(
         xy_plot_inputs = [xy_plot_model_type, xy_plot_input_image, xy_plot_end_frame_image_original,
             xy_plot_end_frame_strength_original, xy_plot_latent_type, 
             xy_plot_prompt, xy_plot_blend_sections, xy_plot_steps, xy_plot_total_second_length, 
-            xy_plot_resolutionW, xy_plot_resolutionH, xy_plot_seed, xy_plot_randomize_seed, 
+            resolutionW, resolutionH, xy_plot_seed, xy_plot_randomize_seed, 
             xy_plot_use_teacache, xy_plot_teacache_num_steps, xy_plot_teacache_rel_l1_thresh, 
             xy_plot_latent_window_size, xy_plot_cfg, xy_plot_gs, xy_plot_rs, 
             xy_plot_gpu_memory_preservation, xy_plot_mp4_crf, 
