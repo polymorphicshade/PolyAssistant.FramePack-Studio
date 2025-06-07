@@ -1395,17 +1395,27 @@ def create_interface(
                         )
                         
                         with gr.Accordion("System Prompt", open=False):
-                            override_system_prompt = gr.Checkbox(
-                                label="Override System Prompt",
-                                value=settings.get("override_system_prompt", False),
-                                info="If checked, the system prompt template below will be used instead of the default one."
-                            )
+                            with gr.Row(equal_height=True): # New Row to contain checkbox and reset button
+                                override_system_prompt = gr.Checkbox(
+                                    label="Override System Prompt",
+                                    value=settings.get("override_system_prompt", False),
+                                    info="If checked, the system prompt template below will be used instead of the default one.",
+                                    scale=1 # Give checkbox some scale
+                                )
+                                reset_system_prompt_btn = gr.Button(
+                                    "Reset",
+                                    scale=0
+                                )
                             system_prompt_template = gr.Textbox(
                                 label="System Prompt Template",
                                 value=settings.get("system_prompt_template", "{\"template\": \"<|start_header_id|>system<|end_header_id|>\\n\\nDescribe the video by detailing the following aspects: 1. The main content and theme of the video.2. The color, shape, size, texture, quantity, text, and spatial relationships of the objects.3. Actions, events, behaviors temporal relationships, physical movement changes of the objects.4. background environment, light, style and atmosphere.5. camera angles, movements, and transitions used in the video:<|eot_id|><|start_header_id|>user<|end_header_id|>\\n\\n{}<|eot_id|>\", \"crop_start\": 95}"),
                                 lines=10,
                                 info="System prompt template used for video generation. Must be a valid JSON or Python dictionary string with 'template' and 'crop_start' keys. Example: {\"template\": \"your template here\", \"crop_start\": 95}"
                             )
+                            # The reset_system_prompt_btn is now defined above within the Row
+
+                        # --- Settings Tab Event Handlers ---
+
                         output_dir = gr.Textbox(
                             label="Output Directory",
                             value=settings.get("output_dir"),
@@ -1469,6 +1479,13 @@ def create_interface(
                             inputs=[save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, cleanup_temp_folder, override_system_prompt, system_prompt_template, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, theme_dropdown],
                             outputs=[status]
                         )
+
+                        def reset_system_prompt_template_value():
+                            return settings.default_settings["system_prompt_template"], False
+
+                        reset_system_prompt_btn.click(
+                            fn=reset_system_prompt_template_value,
+                            outputs=[system_prompt_template, override_system_prompt])
 
                         def cleanup_temp_files():
                             """Clean up temporary files and folders in the Gradio temp directory"""
