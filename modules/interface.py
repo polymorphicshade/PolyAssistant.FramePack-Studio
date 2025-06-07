@@ -22,7 +22,7 @@ import imageio.plugins.ffmpeg
 import ffmpeg
 from diffusers_helper.utils import generate_timestamp
 
-from modules.video_queue import JobStatus, Job
+from modules.video_queue import JobStatus, Job, JobType
 from modules.prompt_handler import get_section_boundaries, get_quick_prompts, parse_timestamped_prompt
 from diffusers_helper.gradio.progress_bar import make_progress_bar_css, make_progress_bar_html
 from diffusers_helper.bucket_tools import find_nearest_bucket
@@ -620,34 +620,13 @@ def create_interface(
                                 #     print(v)
                                 # print("------ BEFORE GENERATED VIDS VARS END ------")
 
-                                for i, v in enumerate(output_generator_vars):
-                                    xy_plot_new_job = process_with_queue_update(
-                                                v["model_type"], v["input_image"], v["input_video"], v["end_frame_image_original"], 
-                                                v["end_frame_strength_original"], v["prompt"], v["n_prompt"],
-                                                v["seed"], v["total_second_length"], v["latent_window_size"], v["steps"],
-                                                v["cfg"], v["gs"], v["rs"], v["gpu_memory_preservation"],
-                                                v["use_teacache"], v["teacache_num_steps"], v["teacache_rel_l1_thresh"], v["mp4_crf"], v["randomize_seed_checked"], False,
-                                                v["blend_sections"], v["latent_type"], v["clean_up_videos"], v["selected_loras"],
-                                                v["resolutionW"], v["resolutionH"], v["lora_loaded_names"], v["lora_values"]
-                                            )
-                                    output_generator_vars[i]["job_id"] = xy_plot_new_job[1]
-                                # blah...
-                                while True:
-                                    xy_plot_ended_jobs = 0
-                                    # outVrS = []
-                                    for i, gen in enumerate(output_generator_vars):
-                                        job = job_queue.get_job(gen["job_id"])
-                                        if job.result != None and job.status == JobStatus.COMPLETED:
-                                            output_generator_vars[i]["result"] = job.result
-                                            xy_plot_ended_jobs += 1
-                                        # outVrS.append([gen["job_id"], job.result, job.status])
-                                    # print("Waiting")
-                                    # for ktv in outVrS:
-                                        # print(ktv)
-                                    if xy_plot_ended_jobs == len(output_generator_vars):
-                                        print("All jobs for XY plot done")
-                                        break
-                                    time.sleep(5)
+                                from modules.video_queue import JobType
+                                job_queue.add_job(
+                                    params=base_generator_vars,
+                                    job_type=JobType.GRID,
+                                    child_job_params_list=output_generator_vars
+                                )
+                                return "Grid job added to the queue.", gr.update(visible=False)
                                 # print("----- GENERATED VIDS VARS START -----")
                                 # for v in output_generator_vars:
                                 #     print(v)
@@ -1085,14 +1064,18 @@ def create_interface(
                                     label="Number of sections to blend between prompts"
                                 )
                             with gr.Accordion("Generation Parameters", open=True):
-                                with gr.Accordion("Presets", open=False):
+                                with gr.Accordion("Presets", open=True):
                                     with gr.Row():
                                         preset_dropdown = gr.Dropdown(label="Select Preset", choices=[], interactive=True)
                                         load_preset_button = gr.Button("Load")
-                                        delete_preset_button = gr.Button("Delete")
+                                        delete_preset_button = gr.Button("Delete", variant="stop")
                                     with gr.Row():
                                         preset_name_textbox = gr.Textbox(label="Preset Name", placeholder="Enter a name for your preset")
-                                        save_preset_button = gr.Button("Save")
+                                        save_preset_button = gr.Button("Save", variant="primary")
+                                    with gr.Row(visible=False) as confirm_delete_row:
+                                        gr.Markdown("### Are you sure you want to delete this preset?")
+                                        confirm_delete_yes_btn = gr.Button("Yes, Delete", variant="stop")
+                                        confirm_delete_no_btn = gr.Button("No, Go Back")
                                 with gr.Row():
                                     steps = gr.Slider(label="Steps", minimum=1, maximum=100, value=25, step=1)
                                     total_second_length = gr.Slider(label="Video Length (Seconds)", minimum=1, maximum=120, value=6, step=0.1)
@@ -1557,6 +1540,36 @@ def create_interface(
 
         # --- Event Handlers and Connections (Now correctly indented) ---
 
+        # --- Connect Monitoring ---
+        # Auto-check for current job on page load and job change
+        def check_for_current_job():
+            # This function will be called when the interface loads
+            # It will check if there's a current job in the queue and update the UI
+            with job_queue.lock:
+                current_job = job_queue.current_job
+                if current_job:
+                    # Return all the necessary information to update the preview windows
+                    job_id = current_job.id
+                    result = current_job.result
+                    preview = current_job.progress_data.get('preview') if current_job.progress_data else None
+                    desc = current_job.progress_data.get('desc', '') if current_job.progress_data else ''
+                    html = current_job.progress_data.get('html', '') if current_job.progress_data else ''
+                    
+                    # Also trigger the monitor_job function to start monitoring this job
+                    print(f"Auto-check found current job {job_id}, triggering monitor_job")
+                    return job_id, result, preview, desc, html
+                return None, None, None, '', ''
+                
+        # Auto-check for current job on page load and handle handoff between jobs.
+        def check_for_current_job_and_monitor():
+            # This function is now the key to the handoff.
+            # It finds the current job and returns its ID, which will trigger the monitor.
+            job_id, result, preview, desc, html = check_for_current_job()
+            # We also need to get fresh stats at the same time.
+            queue_status_data, queue_stats_text = update_stats()
+            # Return everything needed to update the UI atomically.
+            return job_id, result, preview, desc, html, queue_status_data, queue_stats_text
+
         # Connect the main process function (wrapper for adding to queue)
         def process_with_queue_update(model_type_arg, *args):
             # Call update_stats to get both queue_status_data and queue_stats_text
@@ -1815,7 +1828,13 @@ def create_interface(
             xy_plot_lora_selector
         ]
         xy_plot_inputs.extend(xy_plot_lora_sliders.values())
-        xy_plot_process_btn.click(fn=xy_plot_process, inputs=xy_plot_inputs, outputs=[xy_plot_status, xy_plot_output])
+        xy_plot_process_btn.click(fn=xy_plot_process, inputs=xy_plot_inputs, outputs=[xy_plot_status, xy_plot_output]).then(
+            fn=update_stats,
+            outputs=[queue_status, queue_stats_display]
+        ).then(
+            fn=check_for_current_job,
+            outputs=[current_job_id, result_video, preview_image, progress_desc, progress_bar]
+        )
         
         def xy_plot_update_lora_sliders(selected_loras):
             updates = []
@@ -1881,36 +1900,6 @@ def create_interface(
 
         
 
-        # --- Connect Monitoring ---
-        # Auto-check for current job on page load and job change
-        def check_for_current_job():
-            # This function will be called when the interface loads
-            # It will check if there's a current job in the queue and update the UI
-            with job_queue.lock:
-                current_job = job_queue.current_job
-                if current_job:
-                    # Return all the necessary information to update the preview windows
-                    job_id = current_job.id
-                    result = current_job.result
-                    preview = current_job.progress_data.get('preview') if current_job.progress_data else None
-                    desc = current_job.progress_data.get('desc', '') if current_job.progress_data else ''
-                    html = current_job.progress_data.get('html', '') if current_job.progress_data else ''
-                    
-                    # Also trigger the monitor_job function to start monitoring this job
-                    print(f"Auto-check found current job {job_id}, triggering monitor_job")
-                    return job_id, result, preview, desc, html
-                return None, None, None, '', ''
-                
-        # Auto-check for current job on page load and handle handoff between jobs.
-        def check_for_current_job_and_monitor():
-            # This function is now the key to the handoff.
-            # It finds the current job and returns its ID, which will trigger the monitor.
-            job_id, result, preview, desc, html = check_for_current_job()
-            # We also need to get fresh stats at the same time.
-            queue_status_data, queue_stats_text = update_stats()
-            # Return everything needed to update the UI atomically.
-            return job_id, result, preview, desc, html, queue_status_data, queue_stats_text
-            
         # Auto-monitor the current job when job_id changes
         current_job_id.change(
             fn=monitor_fn,
@@ -2015,32 +2004,33 @@ def create_interface(
             return list(data.get(model_type, {}).keys())
 
         def apply_preset(preset_name, model_type):
+            if not preset_name:
+                return [gr.update()] * len(ui_components)
+
             with open(PRESET_FILE, 'r') as f:
                 data = json.load(f)
             preset = data.get(model_type, {}).get(preset_name, {})
-            
-            # Create a dictionary of all UI components
-            ui_components = {
-                "steps": steps, "total_second_length": total_second_length, "resolutionW": resolutionW,
-                "resolutionH": resolutionH, "seed": seed, "randomize_seed": randomize_seed,
-                "use_teacache": use_teacache, "teacache_num_steps": teacache_num_steps,
-                "teacache_rel_l1_thresh": teacache_rel_l1_thresh, "latent_window_size": latent_window_size,
-                "gs": gs, "lora_selector": lora_selector, **lora_sliders
-            }
 
-            outputs = []
+            updates = []
             for key, component in ui_components.items():
                 if key in preset:
-                    outputs.append(gr.update(value=preset[key]))
+                    updates.append(gr.update(value=preset[key]))
                 else:
-                    outputs.append(gr.update())
+                    updates.append(gr.update())
             
-            return outputs
+            if 'lora_values' in preset and isinstance(preset['lora_values'], dict):
+                lora_values_dict = preset['lora_values']
+                for lora_name, slider_component in lora_sliders.items():
+                    if lora_name in lora_values_dict:
+                        slider_index = list(ui_components.keys()).index(lora_name)
+                        updates[slider_index] = gr.update(value=lora_values_dict[lora_name])
+
+            return updates
 
         def save_preset(preset_name, model_type, *args):
             if not preset_name:
-                return
-            
+                return gr.update()
+
             if not os.path.exists(PRESET_FILE):
                 with open(PRESET_FILE, 'w') as f:
                     json.dump({}, f)
@@ -2051,24 +2041,29 @@ def create_interface(
             if model_type not in data:
                 data[model_type] = {}
 
-            job_params = {
-                "steps": args[0], "total_second_length": args[1], "resolutionW": args[2],
-                "resolutionH": args[3], "seed": args[4], "randomize_seed": args[5],
-                "use_teacache": args[6], "teacache_num_steps": args[7],
-                "teacache_rel_l1_thresh": args[8], "latent_window_size": args[9],
-                "gs": args[10], "lora_selector": args[11],
-                "lora_values": args[12:]
-            }
+            keys = list(ui_components.keys())
+            preset_data = {keys[i]: args[i] for i in range(len(args))}
             
-            metadata = create_metadata(job_params, "preset", settings)
-            data[model_type][preset_name] = metadata
+            selected_loras = preset_data.get("lora_selector", [])
+            lora_values = {}
+            for lora_name in selected_loras:
+                if lora_name in lora_sliders:
+                    slider_index = keys.index(lora_name)
+                    lora_values[lora_name] = args[slider_index]
+
+            preset_data['lora_values'] = lora_values
+
+            data[model_type][preset_name] = preset_data
 
             with open(PRESET_FILE, 'w') as f:
                 json.dump(data, f, indent=2)
             
-            return gr.update(choices=load_presets(model_type))
+            return gr.update(choices=load_presets(model_type), value=preset_name)
 
         def delete_preset(preset_name, model_type):
+            if not preset_name:
+                return gr.update(), gr.update(visible=True), gr.update(visible=False)
+                
             with open(PRESET_FILE, 'r') as f:
                 data = json.load(f)
 
@@ -2078,36 +2073,61 @@ def create_interface(
             with open(PRESET_FILE, 'w') as f:
                 json.dump(data, f, indent=2)
 
-            return gr.update(choices=load_presets(model_type), value=None)
+            return gr.update(choices=load_presets(model_type), value=None), gr.update(visible=True), gr.update(visible=False)
 
         # --- Connect Preset UI ---
-        def update_preset_dropdown(model_type):
-            return gr.update(choices=load_presets(model_type))
-
+        ui_components = {
+            "steps": steps, "total_second_length": total_second_length, "resolutionW": resolutionW,
+            "resolutionH": resolutionH, "seed": seed, "randomize_seed": randomize_seed,
+            "use_teacache": use_teacache, "teacache_num_steps": teacache_num_steps,
+            "teacache_rel_l1_thresh": teacache_rel_l1_thresh, "latent_window_size": latent_window_size,
+            "gs": gs, "lora_selector": lora_selector, **lora_sliders
+        }
+        
         model_type.change(
-            fn=update_preset_dropdown,
+            fn=lambda mt: gr.update(choices=load_presets(mt)),
             inputs=[model_type],
             outputs=[preset_dropdown]
+        )
+        
+        preset_dropdown.select(
+            fn=lambda name: name,
+            inputs=[preset_dropdown],
+            outputs=[preset_name_textbox]
         )
 
         load_preset_button.click(
             fn=apply_preset,
             inputs=[preset_dropdown, model_type],
-            outputs=[
-                steps, total_second_length, resolutionW, resolutionH, seed, randomize_seed,
-                use_teacache, teacache_num_steps, teacache_rel_l1_thresh, latent_window_size,
-                gs, lora_selector
-            ] + [lora_sliders[lora] for lora in lora_names]
+            outputs=list(ui_components.values())
         )
 
         save_preset_button.click(
             fn=save_preset,
-            inputs=[
-                preset_name_textbox, model_type, steps, total_second_length, resolutionW, resolutionH,
-                seed, randomize_seed, use_teacache, teacache_num_steps, teacache_rel_l1_thresh,
-                latent_window_size, gs, lora_selector
-            ] + [lora_sliders[lora] for lora in lora_names],
+            inputs=[preset_name_textbox, model_type, *list(ui_components.values())],
             outputs=[preset_dropdown]
+        )
+        
+        def show_delete_confirmation():
+            return gr.update(visible=False), gr.update(visible=True)
+
+        def hide_delete_confirmation():
+            return gr.update(visible=True), gr.update(visible=False)
+
+        delete_preset_button.click(
+            fn=show_delete_confirmation,
+            outputs=[save_preset_button, confirm_delete_row]
+        )
+        
+        confirm_delete_no_btn.click(
+            fn=hide_delete_confirmation,
+            outputs=[save_preset_button, confirm_delete_row]
+        )
+
+        confirm_delete_yes_btn.click(
+            fn=delete_preset,
+            inputs=[preset_dropdown, model_type],
+            outputs=[preset_dropdown, save_preset_button, confirm_delete_row]
         )
 
 

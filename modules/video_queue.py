@@ -50,11 +50,19 @@ class JobStatus(Enum):
     CANCELLED = "cancelled"
 
 
+class JobType(Enum):
+    SINGLE = "single"
+    GRID = "grid"
+
+
 @dataclass
 class Job:
     id: str
     params: Dict[str, Any]
     status: JobStatus = JobStatus.PENDING
+    job_type: JobType = JobType.SINGLE
+    child_job_ids: List[str] = field(default_factory=list)
+    parent_job_id: Optional[str] = None
     created_at: float = field(default_factory=time.time)
     started_at: Optional[float] = None
     completed_at: Optional[float] = None
@@ -605,24 +613,50 @@ class VideoJobQueue:
             print(f"Error synchronizing queue images: {e}")
 
     
-    def add_job(self, params):
+    def add_job(self, params, job_type=JobType.SINGLE, child_job_params_list=None, parent_job_id=None):
         """Add a job to the queue and return its ID"""
         job_id = str(uuid.uuid4())
+        
+        # For grid jobs, create child jobs first
+        child_job_ids = []
+        if job_type == JobType.GRID and child_job_params_list:
+            with self.lock:
+                for child_params in child_job_params_list:
+                    child_job_id = str(uuid.uuid4())
+                    child_job_ids.append(child_job_id)
+                    child_job = Job(
+                        id=child_job_id,
+                        params=child_params,
+                        status=JobStatus.PENDING,
+                        job_type=JobType.SINGLE, # Children are single jobs
+                        parent_job_id=job_id,
+                        created_at=time.time(),
+                        progress_data={},
+                        stream=AsyncStream(),
+                        input_image_saved=False,
+                        end_frame_image_saved=False
+                    )
+                    self.jobs[child_job_id] = child_job
+                    print(f"  - Created child job {child_job_id} for grid job {job_id}")
+
         job = Job(
             id=job_id,
             params=params,
             status=JobStatus.PENDING,
+            job_type=job_type,
+            child_job_ids=child_job_ids,
+            parent_job_id=parent_job_id,
             created_at=time.time(),
             progress_data={},
             stream=AsyncStream(),
-            input_image_saved=False,  # Initialize as not saved for new jobs
-            end_frame_image_saved=False  # Initialize as not saved for new jobs
+            input_image_saved=False,
+            end_frame_image_saved=False
         )
-        
+
         with self.lock:
-            print(f"Adding job {job_id} to queue, current job is {self.current_job.id if self.current_job else 'None'}")
+            print(f"Adding job {job_id} (type: {job_type.value}) to queue.")
             self.jobs[job_id] = job
-            self.queue.put(job_id)
+            self.queue.put(job_id) # Only the parent (or single) job is added to the queue initially
         
         # Save the queue to JSON after adding a new job (outside the lock)
         try:
@@ -1178,11 +1212,11 @@ class VideoJobQueue:
             try:
                 # Get the next job ID from the queue
                 try:
-                    job_id = self.queue.get(block=True, timeout=1.0)  # Use timeout to allow periodic checks
+                    job_id = self.queue.get(block=True, timeout=1.0)
                 except queue_module.Empty:
-                    # No jobs in queue, just continue the loop
+                    self._check_and_process_completed_grids()
                     continue
-                
+
                 with self.lock:
                     job = self.jobs.get(job_id)
                     if not job:
@@ -1194,6 +1228,23 @@ class VideoJobQueue:
                         self.queue.task_done()
                         continue
                     
+                    # If it's a grid job, queue its children and mark it as running
+                    if job.job_type == JobType.GRID:
+                        print(f"Processing grid job {job.id}, adding {len(job.child_job_ids)} child jobs to queue.")
+                        job.status = JobStatus.RUNNING # Mark the grid job as running
+                        job.started_at = time.time()
+                        # Add child jobs to the front of the queue
+                        temp_queue = []
+                        while not self.queue.empty():
+                            temp_queue.append(self.queue.get())
+                        for child_id in reversed(job.child_job_ids): # Add in reverse to maintain order
+                            self.queue.put(child_id)
+                        for item in temp_queue:
+                            self.queue.put(item)
+                        
+                        self.queue.task_done()
+                        continue # Continue to the next iteration to process the first child job
+
                     # If we're already processing a job, wait for it to complete
                     if self.is_processing:
                         # Check if this is the job that's already marked as running
@@ -1389,3 +1440,59 @@ class VideoJobQueue:
                         self.current_job = None
                 
                 time.sleep(0.5)  # Prevent tight loop on error
+
+    def _check_and_process_completed_grids(self):
+        """Check for completed grid jobs and process them."""
+        with self.lock:
+            # Find all running grid jobs
+            running_grid_jobs = [job for job in self.jobs.values() if job.job_type == JobType.GRID and job.status == JobStatus.RUNNING]
+            
+            for grid_job in running_grid_jobs:
+                # Check if all child jobs are completed
+                child_jobs = [self.jobs.get(child_id) for child_id in grid_job.child_job_ids]
+                
+                if not all(child_jobs):
+                    print(f"Warning: Some child jobs for grid {grid_job.id} not found.")
+                    continue
+
+                all_children_done = all(job.status in [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED] for job in child_jobs)
+
+                if all_children_done:
+                    print(f"All child jobs for grid {grid_job.id} are done. Assembling grid.")
+                    # Logic to assemble the grid
+                    # This is a placeholder for the actual grid assembly logic
+                    # For now, we'll just mark the grid job as completed.
+                    
+                    # Collect results from child jobs
+                    child_results = [child.result for child in child_jobs if child.status == JobStatus.COMPLETED and child.result]
+                    
+                    if not child_results:
+                        print(f"Grid job {grid_job.id} failed because no child jobs completed successfully.")
+                        grid_job.status = JobStatus.FAILED
+                        grid_job.error = "No child jobs completed successfully."
+                        grid_job.completed_at = time.time()
+                        continue
+
+                    # Placeholder for grid assembly.
+                    # In a real implementation, you would use a tool like FFmpeg or MoviePy to stitch the videos.
+                    # For this example, we'll just create a text file with the paths of the child videos.
+                    try:
+                        output_dir = grid_job.params.get("output_dir", "outputs")
+                        grid_filename = os.path.join(output_dir, f"grid_{grid_job.id}.txt")
+                        with open(grid_filename, "w") as f:
+                            f.write(f"Grid for job: {grid_job.id}\n")
+                            f.write("Child video paths:\n")
+                            for result_path in child_results:
+                                f.write(f"{result_path}\n")
+                        
+                        grid_job.result = grid_filename
+                        grid_job.status = JobStatus.COMPLETED
+                        print(f"Grid assembly for job {grid_job.id} complete. Result saved to {grid_filename}")
+
+                    except Exception as e:
+                        print(f"Error during grid assembly for job {grid_job.id}: {e}")
+                        grid_job.status = JobStatus.FAILED
+                        grid_job.error = f"Grid assembly failed: {e}"
+
+                    grid_job.completed_at = time.time()
+                    self.save_queue_to_json()
