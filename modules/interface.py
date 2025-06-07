@@ -94,6 +94,8 @@ def create_interface(
     # Create the interface
     css = make_progress_bar_css()
     css += """
+
+    
     .short-import-box, .short-import-box > div {
         min-height: 40px !important;
         height: 40px !important;
@@ -410,7 +412,7 @@ def create_interface(
                 with gr.Row():
                     with gr.Column(scale=2):
                         model_type = gr.Radio(
-                            choices=[("Original", "Original"), ("Original with Endframe", "Original with Endframe"), ("F1", "F1"), ("Video", "Video"), ("Video with Endframe", "Video with Endframe"), ("Video F1", "Video F1"), ("Grid", "XY Plot")],
+                            choices=[("Original", "Original"), ("Original with Endframe", "Original with Endframe"), ("F1", "F1"), ("Video", "Video"), ("Video with Endframe", "Video with Endframe"), ("Video F1", "Video F1")],
                             value="Original",
                             label="Generation Type"
                         )
@@ -1036,7 +1038,7 @@ def create_interface(
                                     label="Number of sections to blend between prompts"
                                 )
                             with gr.Accordion("Generation Parameters", open=True):
-                                with gr.Accordion("Presets", open=True):
+                                with gr.Accordion("Presets", open=True, visible=False) as preset_accordion:
                                     with gr.Row():
                                         preset_dropdown = gr.Dropdown(label="Select Preset", choices=[], interactive=True)
                                         load_preset_button = gr.Button("Load")
