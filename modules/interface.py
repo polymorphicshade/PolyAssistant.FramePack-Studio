@@ -27,8 +27,10 @@ from modules.prompt_handler import get_section_boundaries, get_quick_prompts, pa
 from diffusers_helper.gradio.progress_bar import make_progress_bar_css, make_progress_bar_html
 from diffusers_helper.bucket_tools import find_nearest_bucket
 from modules.pipelines.metadata_utils import create_metadata
-
 from modules.toolbox_app import tb_create_video_toolbox_ui, tb_get_formatted_toolbar_stats
+from modules import DUMMY_LORA_NAME # Import the constant
+
+# Define the dummy LoRA name as a constant
 
 def create_interface(
     process_fn,
@@ -1871,23 +1873,34 @@ def create_interface(
         xy_plot_inputs.extend(xy_plot_lora_sliders.values())
         xy_plot_process_btn.click(fn=xy_plot_process, inputs=xy_plot_inputs, outputs=[xy_plot_status, xy_plot_output]).then(
             fn=update_stats,
+            inputs=None, 
             outputs=[queue_status, queue_stats_display]
         ).then(
             fn=check_for_current_job,
+            inputs=None, 
             outputs=[current_job_id, result_video, preview_image, progress_desc, progress_bar]
         )
         
         def xy_plot_update_lora_sliders(selected_loras):
             updates = []
-            for lora in lora_names:
-                 updates.append(gr.update(visible=(lora in selected_loras)))
-            num_sliders = len(xy_plot_lora_sliders)
-            return updates[:num_sliders]
+            # Suppress dummy LoRA from workaround for the single lora bug.
+            # Filter out the dummy LoRA for display purposes in the dropdown
+            actual_selected_loras_for_display = [lora for lora in selected_loras if lora != DUMMY_LORA_NAME]
+            updates.append(gr.update(value=actual_selected_loras_for_display)) # First update is for the dropdown itself
+
+            # lora_names is from the create_interface scope.
+            for lora_name_key in lora_names: # Iterate using lora_names to maintain order
+                 if lora_name_key == DUMMY_LORA_NAME: # Check for dummy LoRA
+                     updates.append(gr.update(visible=False))
+                 else:
+                     # Visibility of sliders should be based on actual_selected_loras_for_display
+                     updates.append(gr.update(visible=(lora_name_key in actual_selected_loras_for_display)))
+            return updates # This list will be correctly ordered
 
         xy_plot_lora_selector.change(
             fn=xy_plot_update_lora_sliders,
             inputs=[xy_plot_lora_selector],
-            outputs=[xy_plot_lora_sliders[lora] for lora in lora_names]
+            outputs=[xy_plot_lora_selector] + [xy_plot_lora_sliders[lora] for lora in lora_names if lora in xy_plot_lora_sliders] # Add selector, ensure keys exist
         )
 
         #putting this here for now because this file is way too big
@@ -2019,19 +2032,26 @@ def create_interface(
         # Function to update slider visibility based on selection
         def update_lora_sliders(selected_loras):
             updates = []
+            # Suppress dummy LoRA from workaround for the single lora bug.
+            # Filter out the dummy LoRA for display purposes in the dropdown
+            actual_selected_loras_for_display = [lora for lora in selected_loras if lora != DUMMY_LORA_NAME]
+            updates.append(gr.update(value=actual_selected_loras_for_display)) # First update is for the dropdown itself
+
             # Need to handle potential missing keys if lora_names changes dynamically
-            # For now, assume lora_names passed to create_interface is static
-            for lora in lora_names:
-                 updates.append(gr.update(visible=(lora in selected_loras)))
-            # Ensure the output list matches the number of sliders defined
-            num_sliders = len(lora_sliders)
-            return updates[:num_sliders] # Return only updates for existing sliders
+            # lora_names is from the create_interface scope
+            for lora_name_key in lora_names: # Iterate using lora_names to maintain order
+                 if lora_name_key == DUMMY_LORA_NAME: # Check for dummy LoRA
+                     updates.append(gr.update(visible=False))
+                 else:
+                     # Visibility of sliders should be based on actual_selected_loras_for_display
+                     updates.append(gr.update(visible=(lora_name_key in actual_selected_loras_for_display)))
+            return updates # This list will be correctly ordered
 
         # Connect the dropdown to the sliders
         lora_selector.change(
             fn=update_lora_sliders,
             inputs=[lora_selector],
-            outputs=[lora_sliders[lora] for lora in lora_names] # Assumes lora_sliders keys match lora_names
+            outputs=[lora_selector] + [lora_sliders[lora] for lora in lora_names if lora in lora_sliders]
         )
 
         def apply_preset(preset_name, model_type):
