@@ -7,6 +7,7 @@ queue_images/
 modules/toolbox/model_esrgan/
 modules/toolbox/model_rife/
 modules/toolbox/data/filter_presets.json
+modules/toolbox/bin
 queue.json
 settings.json
 # Byte-compiled / optimized / DLL files

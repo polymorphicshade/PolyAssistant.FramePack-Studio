@@ -19,6 +19,7 @@ from modules.toolbox.toolbox_processor import VideoProcessor
 from modules.toolbox.message_manager import MessageManager
 from modules.toolbox.system_monitor import SystemMonitor
 from modules.settings import Settings
+from modules.toolbox.setup_ffmpeg import setup_ffmpeg
 
 try:
     from diffusers_helper.memory import cpu
@@ -27,6 +28,20 @@ except ImportError:
     cpu = torch.device('cpu')
 
 
+# Check if FFmpeg is set up, if not, run the setup
+script_dir = os.path.dirname(os.path.abspath(__file__))
+# Construct the correct path to the target bin directory.
+bin_dir = os.path.join(script_dir, 'toolbox', 'bin')
+
+ffmpeg_exe_name = 'ffmpeg.exe' if sys.platform == "win32" else 'ffmpeg'
+ffmpeg_full_path = os.path.join(bin_dir, ffmpeg_exe_name)
+
+# Check if the executable exists at the correct location.
+if not os.path.exists(ffmpeg_full_path):
+    print(f"Bundled FFmpeg not found in '{bin_dir}'. Running one-time setup...")
+    setup_ffmpeg()
+ 
+ 
 tb_message_mgr = MessageManager()
 settings_instance = Settings()
 tb_processor = VideoProcessor(tb_message_mgr, settings_instance) # Pass settings to VideoProcessor
