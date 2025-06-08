@@ -19,6 +19,7 @@ from modules.toolbox.toolbox_processor import VideoProcessor
 from modules.toolbox.message_manager import MessageManager
 from modules.toolbox.system_monitor import SystemMonitor
 from modules.settings import Settings
+from modules.toolbox.setup_ffmpeg import setup_ffmpeg
 
 try:
     from diffusers_helper.memory import cpu
@@ -27,6 +28,14 @@ except ImportError:
     cpu = torch.device('cpu')
 
 
+# Check if FFmpeg is set up, if not, run the setup
+bin_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bin')
+ffmpeg_exe_name = 'ffmpeg.exe' if os.name == 'nt' else 'ffmpeg'
+if not os.path.exists(os.path.join(bin_dir, ffmpeg_exe_name)):
+    print("FFmpeg not found in 'bin' directory. Running one-time setup...")
+    setup_ffmpeg()
+ 
+ 
 tb_message_mgr = MessageManager()
 settings_instance = Settings()
 tb_processor = VideoProcessor(tb_message_mgr, settings_instance) # Pass settings to VideoProcessor

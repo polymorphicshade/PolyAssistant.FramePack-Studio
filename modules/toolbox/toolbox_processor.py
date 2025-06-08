@@ -73,82 +73,127 @@ class VideoProcessor:
         
         self._report_ffmpeg_status()
 
-    def _report_ffmpeg_status(self):
-        """Provides a summary of FFmpeg/FFprobe status to the user."""
-        if self.has_ffmpeg:
-            self.message_manager.add_message(f"FFmpeg located: {self.ffmpeg_exe}. Most video operations enabled.", "SUCCESS")
-            if self.has_ffprobe:
-                self.message_manager.add_message(f"FFprobe located: {self.ffprobe_exe}. Full video analysis and audio detection enabled.", "SUCCESS")
-            else:
-                self.message_manager.add_warning(
-                    "FFprobe not found. Audio detection and detailed video analysis will be limited. "
-                    "For full functionality (especially with audio), a complete FFmpeg installation (including ffprobe) is recommended."
-                )
-        else:
-            # This implies even imageio's bundled ffmpeg wasn't found or isn't functional.
-            self.message_manager.add_error(
-                "Critical: FFmpeg executable could not be found or is not functional. "
-                "Video processing (filters, loops, some speed adjustments, audio handling) will be severely limited or fail. "
-                "Please install FFmpeg system-wide or ensure 'imageio-ffmpeg' is correctly installed and operational."
-            )
-            self.message_manager.add_message(
-                "Basic frame extraction/reassembly via imageio might still work if 'imageio-ffmpeg' provides underlying support.", "INFO"
-            )
-
 
     def _tb_find_ffmpeg_executables(self):
         """
-        Attempts to find ffmpeg and ffprobe.
-        Priority:
-        1. imageio's bundled ffmpeg (and ffprobe if alongside it).
-        2. System PATH for ffmpeg and ffprobe.
+        Points to the bundled ffmpeg and ffprobe executables in the local 'bin' directory
+        located within the 'toolbox' module folder.
         Returns (ffmpeg_path, ffprobe_path)
         """
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        bin_dir = os.path.join(script_dir, 'bin')
+
         ffmpeg_name = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
         ffprobe_name = "ffprobe.exe" if sys.platform == "win32" else "ffprobe"
-        
-        ffmpeg_path, ffprobe_path = None, None
-        
-        # Attempt 1: imageio's ffmpeg
-        try:
-            imageio_ffmpeg_exe = imageio.plugins.ffmpeg.get_exe()
-            if os.path.isfile(imageio_ffmpeg_exe):
-                result = subprocess.run([imageio_ffmpeg_exe, "-version"], capture_output=True, text=True, check=False, errors='ignore')
-                if result.returncode == 0 and "ffmpeg version" in result.stdout.lower():
-                    ffmpeg_path = imageio_ffmpeg_exe
-                    # Check for ffprobe in the same directory
-                    potential_ffprobe = os.path.join(os.path.dirname(ffmpeg_path), ffprobe_name)
-                    if os.path.isfile(potential_ffprobe):
-                        result_probe = subprocess.run([potential_ffprobe, "-version"], capture_output=True, text=True, check=False, errors='ignore')
-                        if result_probe.returncode == 0 and "ffprobe version" in result_probe.stdout.lower():
-                            ffprobe_path = potential_ffprobe
-        except Exception:
-            # Silently ignore if imageio's ffmpeg can't be found or verified, will try PATH next
-            pass
-        # # <<< --- ADD THIS LINE FOR SIMULATION --- >>>
-        # print("SIMULATION: Returning after imageio check, skipping PATH search.") # Optional: for confirmation
-        # return ffmpeg_path, ffprobe_path 
-        # # <<< --- END OF SIMULATION MODIFICATION --- >>>
 
-        # Attempt 2: System PATH (if not already found or to augment)
-        if not ffmpeg_path:
-            try:
-                result = subprocess.run([ffmpeg_name, "-version"], capture_output=True, text=True, check=True, errors='ignore')
-                if "ffmpeg version" in result.stdout.lower():
-                    ffmpeg_path = ffmpeg_name # Indicates it's in PATH
-            except (FileNotFoundError, subprocess.CalledProcessError):
-                pass # FFmpeg not in PATH
+        ffmpeg_path = os.path.join(bin_dir, ffmpeg_name)
+        ffprobe_path = os.path.join(bin_dir, ffprobe_name)
         
-        if not ffprobe_path:
-            try:
-                result = subprocess.run([ffprobe_name, "-version"], capture_output=True, text=True, check=True, errors='ignore')
-                if "ffprobe version" in result.stdout.lower():
-                    ffprobe_path = ffprobe_name # Indicates it's in PATH
-            except (FileNotFoundError, subprocess.CalledProcessError):
-                 # If ffmpeg was found but ffprobe wasn't, this is a common scenario for basic imageio-ffmpeg setups
-                pass
+        # Check if they actually exist
+        found_ffmpeg = ffmpeg_path if os.path.exists(ffmpeg_path) else None
+        found_ffprobe = ffprobe_path if os.path.exists(ffprobe_path) else None
 
-        return ffmpeg_path, ffprobe_path
+        return found_ffmpeg, found_ffprobe
+
+
+    def _report_ffmpeg_status(self):
+        """Provides a summary of FFmpeg/FFprobe status to the user based on bundled executables."""
+        if self.has_ffmpeg and self.has_ffprobe:
+            self.message_manager.add_message(f"Bundled FFmpeg found: {self.ffmpeg_exe}", "SUCCESS")
+            self.message_manager.add_message(f"Bundled FFprobe found: {self.ffprobe_exe}", "SUCCESS")
+            self.message_manager.add_message("All video and audio features are enabled.", "SUCCESS")
+        else:
+            missing = []
+            if not self.has_ffmpeg:
+                missing.append("ffmpeg")
+            if not self.has_ffprobe:
+                missing.append("ffprobe")
+            
+            self.message_manager.add_error(
+                f"Critical: Bundled '{', '.join(missing)}' not found in the 'bin' directory. "
+                "Many video/audio operations will fail."
+            )
+            self.message_manager.add_error(
+                "Please run the 'setup_ffmpeg.py' script to download and install them automatically."
+            )
+
+            
+    # def _report_ffmpeg_status(self):
+        # """Provides a summary of FFmpeg/FFprobe status to the user."""
+        # if self.has_ffmpeg:
+            # self.message_manager.add_message(f"FFmpeg located: {self.ffmpeg_exe}. Most video operations enabled.", "SUCCESS")
+            # if self.has_ffprobe:
+                # self.message_manager.add_message(f"FFprobe located: {self.ffprobe_exe}. Full video analysis and audio detection enabled.", "SUCCESS")
+            # else:
+                # self.message_manager.add_warning(
+                    # "FFprobe not found. Audio detection and detailed video analysis will be limited. "
+                    # "For full functionality (especially with audio), a complete FFmpeg installation (including ffprobe) is recommended."
+                # )
+        # else:
+            # # This implies even imageio's bundled ffmpeg wasn't found or isn't functional.
+            # self.message_manager.add_error(
+                # "Critical: FFmpeg executable could not be found or is not functional. "
+                # "Video processing (filters, loops, some speed adjustments, audio handling) will be severely limited or fail. "
+                # "Please install FFmpeg system-wide or ensure 'imageio-ffmpeg' is correctly installed and operational."
+            # )
+            # self.message_manager.add_message(
+                # "Basic frame extraction/reassembly via imageio might still work if 'imageio-ffmpeg' provides underlying support.", "INFO"
+            # )
+
+
+    # def _tb_find_ffmpeg_executables(self):
+        # """
+        # Attempts to find ffmpeg and ffprobe.
+        # Priority:
+        # 1. imageio's bundled ffmpeg (and ffprobe if alongside it).
+        # 2. System PATH for ffmpeg and ffprobe.
+        # Returns (ffmpeg_path, ffprobe_path)
+        # """
+        # ffmpeg_name = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
+        # ffprobe_name = "ffprobe.exe" if sys.platform == "win32" else "ffprobe"
+        
+        # ffmpeg_path, ffprobe_path = None, None
+        
+        # # Attempt 1: imageio's ffmpeg
+        # try:
+            # imageio_ffmpeg_exe = imageio.plugins.ffmpeg.get_exe()
+            # if os.path.isfile(imageio_ffmpeg_exe):
+                # result = subprocess.run([imageio_ffmpeg_exe, "-version"], capture_output=True, text=True, check=False, errors='ignore')
+                # if result.returncode == 0 and "ffmpeg version" in result.stdout.lower():
+                    # ffmpeg_path = imageio_ffmpeg_exe
+                    # # Check for ffprobe in the same directory
+                    # potential_ffprobe = os.path.join(os.path.dirname(ffmpeg_path), ffprobe_name)
+                    # if os.path.isfile(potential_ffprobe):
+                        # result_probe = subprocess.run([potential_ffprobe, "-version"], capture_output=True, text=True, check=False, errors='ignore')
+                        # if result_probe.returncode == 0 and "ffprobe version" in result_probe.stdout.lower():
+                            # ffprobe_path = potential_ffprobe
+        # except Exception:
+            # # Silently ignore if imageio's ffmpeg can't be found or verified, will try PATH next
+            # pass
+        # # # <<< --- ADD THIS LINE FOR SIMULATION --- >>>
+        # # print("SIMULATION: Returning after imageio check, skipping PATH search.") # Optional: for confirmation
+        # # return ffmpeg_path, ffprobe_path 
+        # # # <<< --- END OF SIMULATION MODIFICATION --- >>>
+
+        # # Attempt 2: System PATH (if not already found or to augment)
+        # if not ffmpeg_path:
+            # try:
+                # result = subprocess.run([ffmpeg_name, "-version"], capture_output=True, text=True, check=True, errors='ignore')
+                # if "ffmpeg version" in result.stdout.lower():
+                    # ffmpeg_path = ffmpeg_name # Indicates it's in PATH
+            # except (FileNotFoundError, subprocess.CalledProcessError):
+                # pass # FFmpeg not in PATH
+        
+        # if not ffprobe_path:
+            # try:
+                # result = subprocess.run([ffprobe_name, "-version"], capture_output=True, text=True, check=True, errors='ignore')
+                # if "ffprobe version" in result.stdout.lower():
+                    # ffprobe_path = ffprobe_name # Indicates it's in PATH
+            # except (FileNotFoundError, subprocess.CalledProcessError):
+                 # # If ffmpeg was found but ffprobe wasn't, this is a common scenario for basic imageio-ffmpeg setups
+                # pass
+
+        # return ffmpeg_path, ffprobe_path
 
     def set_autosave_mode(self, autosave_enabled: bool):
         if autosave_enabled:
@@ -179,9 +224,6 @@ class VideoProcessor:
         if not isinstance(extraction_rate, int) or extraction_rate < 1:
             self.message_manager.add_error("Extraction rate must be a positive integer (1 for all frames, N for every Nth frame).")
             return None
-
-        # This operation primarily uses imageio, which should be robust.
-        # FFmpeg dependency is indirect via imageio-ffmpeg.
 
         resolved_video_path = str(Path(video_path).resolve())
         output_folder_name = self._tb_generate_output_folder_path(
