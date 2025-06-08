@@ -29,10 +29,16 @@ except ImportError:
 
 
 # Check if FFmpeg is set up, if not, run the setup
-bin_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bin')
-ffmpeg_exe_name = 'ffmpeg.exe' if os.name == 'nt' else 'ffmpeg'
-if not os.path.exists(os.path.join(bin_dir, ffmpeg_exe_name)):
-    print("FFmpeg not found in 'bin' directory. Running one-time setup...")
+script_dir = os.path.dirname(os.path.abspath(__file__))
+# Construct the correct path to the target bin directory.
+bin_dir = os.path.join(script_dir, 'toolbox', 'bin')
+
+ffmpeg_exe_name = 'ffmpeg.exe' if sys.platform == "win32" else 'ffmpeg'
+ffmpeg_full_path = os.path.join(bin_dir, ffmpeg_exe_name)
+
+# Check if the executable exists at the correct location.
+if not os.path.exists(ffmpeg_full_path):
+    print(f"Bundled FFmpeg not found in '{bin_dir}'. Running one-time setup...")
     setup_ffmpeg()
  
  

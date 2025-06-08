@@ -40,6 +40,10 @@ class VideoProcessor:
         self.ffprobe_exe = None
         self.has_ffmpeg = False
         self.has_ffprobe = False
+        # --- NEW: Add source tracking ---
+        self.ffmpeg_source = None
+        self.ffprobe_source = None
+        
         self._tb_initialize_ffmpeg() # Finds executables and sets flags
 
         studio_output_dir = Path(self.settings.get("output_dir"))
@@ -61,63 +65,102 @@ class VideoProcessor:
         os.makedirs(self.reassembled_video_target_path, exist_ok=True)
 
     def _tb_initialize_ffmpeg(self):
-        """Finds FFmpeg/FFprobe and sets status flags, then reports status."""
-        ffmpeg_path, ffprobe_path = self._tb_find_ffmpeg_executables()
-        
-        if ffmpeg_path:
-            self.ffmpeg_exe = ffmpeg_path
-            self.has_ffmpeg = True
-        if ffprobe_path:
-            self.ffprobe_exe = ffprobe_path
-            self.has_ffprobe = True
+        """Finds FFmpeg/FFprobe and sets status flags and sources."""
+        (
+            self.ffmpeg_exe,
+            self.ffmpeg_source,
+            self.ffprobe_exe,
+            self.ffprobe_source,
+        ) = self._tb_find_ffmpeg_executables()
+
+        self.has_ffmpeg = bool(self.ffmpeg_exe)
+        self.has_ffprobe = bool(self.ffprobe_exe)
         
         self._report_ffmpeg_status()
 
-
     def _tb_find_ffmpeg_executables(self):
         """
-        Points to the bundled ffmpeg and ffprobe executables in the local 'bin' directory
-        located within the 'toolbox' module folder.
-        Returns (ffmpeg_path, ffprobe_path)
+        Finds ffmpeg and ffprobe with a priority system.
+        Priority: 1. Bundled -> 2. System PATH -> 3. imageio-ffmpeg
+        Returns (ffmpeg_path, ffmpeg_source, ffprobe_path, ffprobe_source)
         """
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        bin_dir = os.path.join(script_dir, 'bin')
-
+        ffmpeg_path, ffprobe_path = None, None
+        ffmpeg_source, ffprobe_source = None, None
         ffmpeg_name = "ffmpeg.exe" if sys.platform == "win32" else "ffmpeg"
         ffprobe_name = "ffprobe.exe" if sys.platform == "win32" else "ffprobe"
 
-        ffmpeg_path = os.path.join(bin_dir, ffmpeg_name)
-        ffprobe_path = os.path.join(bin_dir, ffprobe_name)
-        
-        # Check if they actually exist
-        found_ffmpeg = ffmpeg_path if os.path.exists(ffmpeg_path) else None
-        found_ffprobe = ffprobe_path if os.path.exists(ffprobe_path) else None
+        # --- Priority 1: Bundled ---
+        try:
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            bin_dir = os.path.join(script_dir, 'bin')
+            bundled_ffmpeg = os.path.join(bin_dir, ffmpeg_name)
+            bundled_ffprobe = os.path.join(bin_dir, ffprobe_name)
+            if os.path.exists(bundled_ffmpeg):
+                ffmpeg_path = bundled_ffmpeg
+                ffmpeg_source = "Bundled"
+            if os.path.exists(bundled_ffprobe):
+                ffprobe_path = bundled_ffprobe
+                ffprobe_source = "Bundled"
+        except Exception:
+            pass # Silently fail and move to next priority
 
-        return found_ffmpeg, found_ffprobe
+        # --- Priority 2: System PATH ---
+        # Use shutil.which to find executables in the system's PATH
+        if not ffmpeg_path:
+            path_from_env = shutil.which(ffmpeg_name)
+            if path_from_env:
+                ffmpeg_path = path_from_env
+                ffmpeg_source = "System PATH"
+        if not ffprobe_path:
+            path_from_env = shutil.which(ffprobe_name)
+            if path_from_env:
+                ffprobe_path = path_from_env
+                ffprobe_source = "System PATH"
 
+        # --- Priority 3: imageio-ffmpeg ---
+        # This will only provide ffmpeg, not ffprobe.
+        if not ffmpeg_path:
+            try:
+                imageio_ffmpeg_exe = imageio.plugins.ffmpeg.get_exe()
+                if os.path.isfile(imageio_ffmpeg_exe):
+                    ffmpeg_path = imageio_ffmpeg_exe
+                    ffmpeg_source = "imageio-ffmpeg"
+            except Exception:
+                pass # Silently fail
+
+        return ffmpeg_path, ffmpeg_source, ffprobe_path, ffprobe_source
 
     def _report_ffmpeg_status(self):
-        """Provides a summary of FFmpeg/FFprobe status to the user based on bundled executables."""
-        if self.has_ffmpeg and self.has_ffprobe:
+        """Provides a summary of FFmpeg/FFprobe status based on what was found."""
+        # Ideal case: Bundled version is used
+        if self.ffmpeg_source == "Bundled" and self.ffprobe_source == "Bundled":
             self.message_manager.add_message(f"Bundled FFmpeg found: {self.ffmpeg_exe}", "SUCCESS")
             self.message_manager.add_message(f"Bundled FFprobe found: {self.ffprobe_exe}", "SUCCESS")
             self.message_manager.add_message("All video and audio features are enabled.", "SUCCESS")
+            return
+
+        # Fallback cases: Report what was found and where
+        if self.has_ffmpeg:
+            self.message_manager.add_message(f"FFmpeg found via {self.ffmpeg_source}: {self.ffmpeg_exe}", "SUCCESS")
         else:
-            missing = []
-            if not self.has_ffmpeg:
-                missing.append("ffmpeg")
-            if not self.has_ffprobe:
-                missing.append("ffprobe")
-            
             self.message_manager.add_error(
-                f"Critical: Bundled '{', '.join(missing)}' not found in the 'bin' directory. "
-                "Many video/audio operations will fail."
-            )
-            self.message_manager.add_error(
-                "Please run the 'setup_ffmpeg.py' script to download and install them automatically."
+                "Critical: FFmpeg executable could not be found. "
+                "Most video processing operations will fail. Please try running the setup script."
             )
 
-            
+        if self.has_ffprobe:
+            self.message_manager.add_message(f"FFprobe found via {self.ffprobe_source}: {self.ffprobe_exe}", "SUCCESS")
+        else:
+            self.message_manager.add_warning(
+                "FFprobe not found. Audio detection and full video analysis will be limited."
+            )
+            # Add a specific nag if the bundled version should exist but doesn't
+            if self.ffmpeg_source != "Bundled":
+                 self.message_manager.add_warning(
+                    "For full functionality, please run the 'setup_ffmpeg.py' script."
+                 )
+
+ 
     # def _report_ffmpeg_status(self):
         # """Provides a summary of FFmpeg/FFprobe status to the user."""
         # if self.has_ffmpeg:
