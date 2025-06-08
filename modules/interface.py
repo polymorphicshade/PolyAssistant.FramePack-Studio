@@ -91,6 +91,16 @@ def create_interface(
         
         return queue_status_data, queue_stats_text
 
+    # --- Preset System Functions ---
+    PRESET_FILE = os.path.join(".framepack", "generation_presets.json")
+
+    def load_presets(model_type):
+        if not os.path.exists(PRESET_FILE):
+            return []
+        with open(PRESET_FILE, 'r') as f:
+            data = json.load(f)
+        return list(data.get(model_type, {}).keys())
+
     # Create the interface
     css = make_progress_bar_css()
     css += """
@@ -416,6 +426,17 @@ def create_interface(
                             value="Original",
                             label="Generation Type"
                         )
+                        with gr.Accordion("Original Presets", open=True, visible=True) as preset_accordion:
+                            with gr.Row():
+                                preset_dropdown = gr.Dropdown(label="Select Preset", choices=load_presets("Original"), interactive=True, scale=2)
+                                delete_preset_button = gr.Button("Delete", variant="stop", scale=1)
+                            with gr.Row():
+                                preset_name_textbox = gr.Textbox(label="Preset Name", placeholder="Enter a name for your preset", scale=2)
+                                save_preset_button = gr.Button("Save", variant="primary", scale=1)
+                            with gr.Row(visible=False) as confirm_delete_row:
+                                gr.Markdown("### Are you sure you want to delete this preset?")
+                                confirm_delete_yes_btn = gr.Button("Yes, Delete", variant="stop")
+                                confirm_delete_no_btn = gr.Button("No, Go Back")
                         with gr.Group():
                             with gr.Row("Resolution"):
                                 resolutionW = gr.Slider(
@@ -1038,18 +1059,6 @@ def create_interface(
                                     label="Number of sections to blend between prompts"
                                 )
                             with gr.Accordion("Generation Parameters", open=True):
-                                with gr.Accordion("Presets", open=True, visible=False) as preset_accordion:
-                                    with gr.Row():
-                                        preset_dropdown = gr.Dropdown(label="Select Preset", choices=[], interactive=True)
-                                        load_preset_button = gr.Button("Load")
-                                        delete_preset_button = gr.Button("Delete", variant="stop")
-                                    with gr.Row():
-                                        preset_name_textbox = gr.Textbox(label="Preset Name", placeholder="Enter a name for your preset")
-                                        save_preset_button = gr.Button("Save", variant="primary")
-                                    with gr.Row(visible=False) as confirm_delete_row:
-                                        gr.Markdown("### Are you sure you want to delete this preset?")
-                                        confirm_delete_yes_btn = gr.Button("Yes, Delete", variant="stop")
-                                        confirm_delete_no_btn = gr.Button("No, Go Back")
                                 with gr.Row():
                                     steps = gr.Slider(label="Steps", minimum=1, maximum=100, value=25, step=1)
                                     total_second_length = gr.Slider(label="Video Length (Seconds)", minimum=1, maximum=120, value=6, step=0.1)
@@ -2021,43 +2030,39 @@ def create_interface(
             outputs=[lora_sliders[lora] for lora in lora_names] # Assumes lora_sliders keys match lora_names
         )
 
-        # --- Preset System Functions ---
-        PRESET_FILE = "generation_presets.json"
-
-        def load_presets(model_type):
-            if not os.path.exists(PRESET_FILE):
-                return []
-            with open(PRESET_FILE, 'r') as f:
-                data = json.load(f)
-            return list(data.get(model_type, {}).keys())
-
         def apply_preset(preset_name, model_type):
             if not preset_name:
+                # Create a list of empty updates matching the number of components
                 return [gr.update()] * len(ui_components)
 
             with open(PRESET_FILE, 'r') as f:
                 data = json.load(f)
             preset = data.get(model_type, {}).get(preset_name, {})
 
-            updates = []
-            for key, component in ui_components.items():
-                if key in preset:
-                    updates.append(gr.update(value=preset[key]))
-                else:
-                    updates.append(gr.update())
-            
+            # Initialize updates for all components
+            updates = {key: gr.update() for key in ui_components.keys()}
+
+            # Update components based on the preset
+            for key, value in preset.items():
+                if key in updates:
+                    updates[key] = gr.update(value=value)
+
+            # Handle LoRA sliders specifically
             if 'lora_values' in preset and isinstance(preset['lora_values'], dict):
                 lora_values_dict = preset['lora_values']
-                for lora_name, slider_component in lora_sliders.items():
-                    if lora_name in lora_values_dict:
-                        slider_index = list(ui_components.keys()).index(lora_name)
-                        updates[slider_index] = gr.update(value=lora_values_dict[lora_name])
-
-            return updates
+                for lora_name, lora_value in lora_values_dict.items():
+                    if lora_name in updates:
+                        updates[lora_name] = gr.update(value=lora_value)
+            
+            # Convert the dictionary of updates to a list in the correct order
+            return [updates[key] for key in ui_components.keys()]
 
         def save_preset(preset_name, model_type, *args):
             if not preset_name:
                 return gr.update()
+
+            # Ensure the directory exists
+            os.makedirs(os.path.dirname(PRESET_FILE), exist_ok=True)
 
             if not os.path.exists(PRESET_FILE):
                 with open(PRESET_FILE, 'w') as f:
@@ -2070,16 +2075,26 @@ def create_interface(
                 data[model_type] = {}
 
             keys = list(ui_components.keys())
-            preset_data = {keys[i]: args[i] for i in range(len(args))}
             
-            selected_loras = preset_data.get("lora_selector", [])
+            # Create a dictionary from the passed arguments
+            args_dict = {keys[i]: args[i] for i in range(len(keys))}
+
+            # Build the preset data from the arguments dictionary
+            preset_data = {key: args_dict[key] for key in ui_components.keys() if key not in lora_sliders}
+
+            # Handle LoRA values separately
+            selected_loras = args_dict.get("lora_selector", [])
             lora_values = {}
             for lora_name in selected_loras:
-                if lora_name in lora_sliders:
-                    slider_index = keys.index(lora_name)
-                    lora_values[lora_name] = args[slider_index]
-
+                if lora_name in args_dict:
+                    lora_values[lora_name] = args_dict[lora_name]
+            
             preset_data['lora_values'] = lora_values
+            
+            # Remove individual lora sliders from the top-level preset data
+            for lora_name in lora_sliders:
+                if lora_name in preset_data:
+                    del preset_data[lora_name]
 
             data[model_type][preset_name] = preset_data
 
@@ -2113,21 +2128,19 @@ def create_interface(
         }
         
         model_type.change(
-            fn=lambda mt: gr.update(choices=load_presets(mt)),
+            fn=lambda mt: (gr.update(choices=load_presets(mt)), gr.update(label=f"{mt} Presets")),
             inputs=[model_type],
-            outputs=[preset_dropdown]
+            outputs=[preset_dropdown, preset_accordion]
         )
         
         preset_dropdown.select(
-            fn=lambda name: name,
-            inputs=[preset_dropdown],
-            outputs=[preset_name_textbox]
-        )
-
-        load_preset_button.click(
             fn=apply_preset,
             inputs=[preset_dropdown, model_type],
             outputs=list(ui_components.values())
+        ).then(
+            lambda name: name,
+            inputs=[preset_dropdown],
+            outputs=[preset_name_textbox]
         )
 
         save_preset_button.click(
