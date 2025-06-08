@@ -1044,10 +1044,7 @@ def create_interface(
                                     info="Controls how strongly the end frame guides the generation. 1.0 is full influence."
                                 )
 
-                            with gr.Accordion("Latent Image Options", open=False):
-                                latent_type = gr.Dropdown(
-                                    ["Black", "White", "Noise", "Green Screen"], label="Latent Image", value="Black", info="Used as a starting point if no image is provided"
-                                )
+                            
 
                             prompt = gr.Textbox(label="Prompt", value=default_prompt)
 
@@ -1078,21 +1075,7 @@ def create_interface(
                                     return gr.update(value=f"<div style='text-align:right; padding:5px 15px 5px 5px;'>Selected bucket for resolution: {out_bucket_resW} x {out_bucket_resH}</div>")
                                 resolutionW.change(fn=on_resolution_change, inputs=[input_image, resolutionW, resolutionH], outputs=[resolution_text], show_progress="hidden")
                                 resolutionH.change(fn=on_resolution_change, inputs=[input_image, resolutionW, resolutionH], outputs=[resolution_text], show_progress="hidden")
-                                with gr.Row("LoRAs"):
-                                    lora_selector = gr.Dropdown(
-                                        choices=lora_names,
-                                        label="Select LoRAs to Load",
-                                        multiselect=True,
-                                        value=[],
-                                        info="Select one or more LoRAs to use for this job"
-                                    )
-                                    lora_names_states = gr.State(lora_names)
-                                    lora_sliders = {}
-                                    for lora in lora_names:
-                                        lora_sliders[lora] = gr.Slider(
-                                            minimum=0.0, maximum=2.0, value=1.0, step=0.01,
-                                            label=f"{lora} Weight", visible=False, interactive=True
-                                        )
+                                
 
                                 with gr.Row("Metadata"):
                                     json_upload = gr.File(
@@ -1110,7 +1093,26 @@ def create_interface(
                                 with gr.Row():
                                     seed = gr.Number(label="Seed", value=2500, precision=0)
                                     randomize_seed = gr.Checkbox(label="Randomize", value=True, info="Generate a new random seed for each job")
-
+                            with gr.Accordion("LoRAs", open=False):
+                                with gr.Row():
+                                    lora_selector = gr.Dropdown(
+                                        choices=lora_names,
+                                        label="Select LoRAs to Load",
+                                        multiselect=True,
+                                        value=[],
+                                        info="Select one or more LoRAs to use for this job"
+                                    )
+                                    lora_names_states = gr.State(lora_names)
+                                    lora_sliders = {}
+                                    for lora in lora_names:
+                                        lora_sliders[lora] = gr.Slider(
+                                            minimum=0.0, maximum=2.0, value=1.0, step=0.01,
+                                            label=f"{lora} Weight", visible=False, interactive=True
+                                        )
+                            with gr.Accordion("Latent Image Options", open=False):
+                                latent_type = gr.Dropdown(
+                                    ["Black", "White", "Noise", "Green Screen"], label="Latent Image", value="Black", info="Used as a starting point if no image is provided"
+                                )
                             with gr.Accordion("Advanced Parameters", open=False):
                                 latent_window_size = gr.Slider(label="Latent Window Size", minimum=1, maximum=33, value=9, step=1, visible=True, info='Change at your own risk, very experimental')  # Should not change
                                 cfg = gr.Slider(label="CFG Scale", minimum=1.0, maximum=32.0, value=1.0, step=0.01, visible=False)  # Should not change
