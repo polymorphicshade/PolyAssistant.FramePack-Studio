@@ -1452,6 +1452,13 @@ def create_interface(
                         cleanup_output = gr.Textbox(label="Cleanup Status", interactive=False)
 
                         def save_settings(save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, cleanup_temp_folder, override_system_prompt_value, system_prompt_template_value, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, selected_theme):
+                            """Handles the manual 'Save Settings' button click."""
+                            # This function is for the manual save button.
+                            # It collects all current UI values and saves them.
+                            # The auto-save logic is handled by individual .change() and .blur() handlers
+                            # calling settings.set().
+
+                            # First, update the settings object with all current values from the UI
                             try:
                                 # Save the system prompt template as is, without trying to parse it
                                 # The hunyuan.py file will handle parsing it when needed
@@ -1472,9 +1479,37 @@ def create_interface(
                                     auto_save_settings=auto_save,
                                     gradio_theme=selected_theme
                                 )
+                                # settings.save_settings() is called inside settings.save_settings if auto_save is true,
+                                # but for the manual button, we ensure it saves regardless of the auto_save flag's previous state.
+                                # The call above to settings.save_settings already handles writing to disk.
                                 return "<p style='color:green;'>Settings saved successfully! Restart required for theme change.</p>"
                             except Exception as e:
                                 return f"<p style='color:red;'>Error saving settings: {str(e)}</p>"
+
+                        def handle_individual_setting_change(key, value, setting_name_for_ui):
+                            """Called by .change() and .submit() events of individual setting components."""
+                            if key == "auto_save_settings":
+                                # For the "auto_save_settings" checkbox itself:
+                                # 1. Update its value directly in the settings object in memory.
+                                #    This bypasses the conditional save logic within settings.set() for this specific action.
+                                settings.settings[key] = value
+                                # 2. Force a save of all settings to disk. This will be correct because either:
+                                #    - auto_save_settings is turning True: so all changes already in memory need to be saved now.
+                                #    - auto_save_settings turning False from True: prior changes already saved so only auto_save_settings will be saved.
+                                settings.save_settings()
+                                # 3. Provide feedback.
+                                if value is True:
+                                    return f"<p style='color:green;'>'{setting_name_for_ui}' setting is now ON and saved.</p>"
+                                else:
+                                    return f"<p style='color:green;'>'{setting_name_for_ui}' setting is now OFF and saved.</p>"
+                            else:
+                                # For all other settings:
+                                # Let settings.set() handle the auto-save logic based on the current "auto_save_settings" value.
+                                settings.set(key, value) # settings.set() will call save_settings() if auto_save is True
+                                if settings.get("auto_save_settings"): # Check the current state of auto_save
+                                    return f"<p style='color:blue;'>'{setting_name_for_ui}' setting auto-saved.</p>"
+                                else:
+                                    return f"<p style='color:gray;'>'{setting_name_for_ui}' setting changed (auto-save is off, click 'Save Settings').</p>"
 
                         save_btn.click(
                             fn=save_settings,
@@ -1487,7 +1522,10 @@ def create_interface(
 
                         reset_system_prompt_btn.click(
                             fn=reset_system_prompt_template_value,
-                            outputs=[system_prompt_template, override_system_prompt])
+                            outputs=[system_prompt_template, override_system_prompt]
+                        ).then( # Trigger auto-save for the reset values if auto-save is on
+                            lambda val_template, val_override: handle_individual_setting_change("system_prompt_template", val_template, "System Prompt Template") or handle_individual_setting_change("override_system_prompt", val_override, "Override System Prompt"),
+                            inputs=[system_prompt_template, override_system_prompt], outputs=[status])
 
                         def cleanup_temp_files():
                             """Clean up temporary files and folders in the Gradio temp directory"""
@@ -1517,6 +1555,29 @@ def create_interface(
                                 return f"Cleaned up {removed_count} temporary files/folders."
                             except Exception as e:
                                 return f"Error cleaning up temporary files: {str(e)}"
+
+                        # Add .change handlers for auto-saving individual settings
+                        save_metadata.change(lambda v: handle_individual_setting_change("save_metadata", v, "Save Metadata"), inputs=[save_metadata], outputs=[status])
+                        gpu_memory_preservation.change(lambda v: handle_individual_setting_change("gpu_memory_preservation", v, "GPU Memory Preservation"), inputs=[gpu_memory_preservation], outputs=[status])
+                        mp4_crf.change(lambda v: handle_individual_setting_change("mp4_crf", v, "MP4 Compression"), inputs=[mp4_crf], outputs=[status])
+                        clean_up_videos.change(lambda v: handle_individual_setting_change("clean_up_videos", v, "Clean Up Videos"), inputs=[clean_up_videos], outputs=[status])
+
+                        # This setting is not visible in the UI, but still handle it in case it's re-added to the UI
+                        cleanup_temp_folder.change(lambda v: handle_individual_setting_change("cleanup_temp_folder", v, "Cleanup Temp Folder"), inputs=[cleanup_temp_folder], outputs=[status])
+
+                        override_system_prompt.change(lambda v: handle_individual_setting_change("override_system_prompt", v, "Override System Prompt"), inputs=[override_system_prompt], outputs=[status])
+                        # Using .blur for text changes so they are processed after the user finishes, not on every keystroke
+                        system_prompt_template.blur(lambda v: handle_individual_setting_change("system_prompt_template", v, "System Prompt Template"), inputs=[system_prompt_template], outputs=[status])
+                        # reset_system_prompt_btn # is handled separately above, on click
+                        
+                        # Using .blur for text changes so they are processed after the user finishes, not on every keystroke
+                        output_dir.blur(lambda v: handle_individual_setting_change("output_dir", v, "Output Directory"), inputs=[output_dir], outputs=[status])
+                        metadata_dir.blur(lambda v: handle_individual_setting_change("metadata_dir", v, "Metadata Directory"), inputs=[metadata_dir], outputs=[status])
+                        lora_dir.blur(lambda v: handle_individual_setting_change("lora_dir", v, "LoRA Directory"), inputs=[lora_dir], outputs=[status])
+                        gradio_temp_dir.blur(lambda v: handle_individual_setting_change("gradio_temp_dir", v, "Gradio Temporary Directory"), inputs=[gradio_temp_dir], outputs=[status])
+                        
+                        auto_save.change(lambda v: handle_individual_setting_change("auto_save_settings", v, "Auto-save Settings"), inputs=[auto_save], outputs=[status])
+                        theme_dropdown.change(lambda v: handle_individual_setting_change("gradio_theme", v, "Theme"), inputs=[theme_dropdown], outputs=[status])
 
         # --- Event Handlers and Connections (Now correctly indented) ---
 
