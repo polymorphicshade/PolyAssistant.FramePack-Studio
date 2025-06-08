@@ -2176,7 +2176,7 @@ def create_interface(
         # Function to load metadata from JSON file
         def load_metadata_from_json(json_path):
             # Define the total number of output components to handle errors gracefully
-            num_outputs = 7 + len(lora_sliders)
+            num_outputs = 14 + len(lora_sliders)
 
             if not json_path:
                 # Return empty updates for all components if no file is provided
@@ -2188,12 +2188,19 @@ def create_interface(
 
                 # Extract values from metadata with defaults
                 prompt_val = metadata.get('prompt')
+                n_prompt_val = metadata.get('negative_prompt')
                 seed_val = metadata.get('seed')
+                steps_val = metadata.get('steps')
                 total_second_length_val = metadata.get('total_second_length')
                 end_frame_strength_val = metadata.get('end_frame_strength')
                 model_type_val = metadata.get('model_type')
                 lora_weights = metadata.get('loras', {})
                 latent_window_size_val = metadata.get('latent_window_size')
+                resolutionW_val = metadata.get('resolutionW')
+                resolutionH_val = metadata.get('resolutionH')
+                blend_sections_val = metadata.get('blend_sections')
+                teacache_num_steps_val = metadata.get('teacache_num_steps')
+                teacache_rel_l1_thresh_val = metadata.get('teacache_rel_l1_thresh')
                 
                 # Get the names of the selected LoRAs from the metadata
                 selected_lora_names = list(lora_weights.keys())
@@ -2204,12 +2211,19 @@ def create_interface(
                 # Create a list of UI updates
                 updates = [
                     gr.update(value=prompt_val) if prompt_val is not None else gr.update(),
+                    gr.update(value=n_prompt_val) if n_prompt_val is not None else gr.update(),
                     gr.update(value=seed_val) if seed_val is not None else gr.update(),
+                    gr.update(value=steps_val) if steps_val is not None else gr.update(),
                     gr.update(value=total_second_length_val) if total_second_length_val is not None else gr.update(),
                     gr.update(value=end_frame_strength_val) if end_frame_strength_val is not None else gr.update(),
                     gr.update(value=model_type_val) if model_type_val else gr.update(),
                     gr.update(value=selected_lora_names) if selected_lora_names else gr.update(),
-                    gr.update(value=latent_window_size_val) if latent_window_size_val is not None else gr.update()
+                    gr.update(value=latent_window_size_val) if latent_window_size_val is not None else gr.update(),
+                    gr.update(value=resolutionW_val) if resolutionW_val is not None else gr.update(),
+                    gr.update(value=resolutionH_val) if resolutionH_val is not None else gr.update(),
+                    gr.update(value=blend_sections_val) if blend_sections_val is not None else gr.update(),
+                    gr.update(value=teacache_num_steps_val) if teacache_num_steps_val is not None else gr.update(),
+                    gr.update(value=teacache_rel_l1_thresh_val) if teacache_rel_l1_thresh_val is not None else gr.update()
                 ]
 
                 # Update LoRA sliders based on loaded weights
@@ -2235,13 +2249,20 @@ def create_interface(
             fn=load_metadata_from_json,
             inputs=[json_upload],
             outputs=[
-                prompt, 
-                seed, 
-                total_second_length, 
+                prompt,
+                n_prompt,
+                seed,
+                steps,
+                total_second_length,
                 end_frame_strength_original,
                 model_type,
                 lora_selector,
-                latent_window_size
+                latent_window_size,
+                resolutionW,
+                resolutionH,
+                blend_sections,
+                teacache_num_steps,
+                teacache_rel_l1_thresh
             ] + [lora_sliders[lora] for lora in lora_names]
         )
 
