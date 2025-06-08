@@ -437,17 +437,20 @@ def create_interface(
                                 gr.Markdown("### Are you sure you want to delete this preset?")
                                 confirm_delete_yes_btn = gr.Button("Yes, Delete", variant="stop")
                                 confirm_delete_no_btn = gr.Button("No, Go Back")
-                        with gr.Group():
-                            with gr.Row("Resolution"):
-                                resolutionW = gr.Slider(
-                                    label="Width", minimum=128, maximum=768, value=640, step=32, 
-                                    info="Nearest valid width will be used."
-                                )
-                                resolutionH = gr.Slider(
-                                    label="Height", minimum=128, maximum=768, value=640, step=32, 
-                                    info="Nearest valid height will be used."
-                                )
-                            resolution_text = gr.Markdown(value="<div style='text-align:right; padding:5px 15px 5px 5px;'>Selected bucket for resolution: 640 x 640</div>", label="", show_label=False)
+                        with gr.Accordion("Basic Parameters", open=True, visible=True) as preset_accordion:
+                            with gr.Group():
+                                total_second_length = gr.Slider(label="Video Length (Seconds)", minimum=1, maximum=120, value=6, step=0.1)
+                                with gr.Row("Resolution"):
+                                    resolutionW = gr.Slider(
+                                        label="Width", minimum=128, maximum=768, value=640, step=32, 
+                                        info="Nearest valid width will be used."
+                                    )
+                                    resolutionH = gr.Slider(
+                                        label="Height", minimum=128, maximum=768, value=640, step=32, 
+                                        info="Nearest valid height will be used."
+                                    )
+                                resolution_text = gr.Markdown(value="<div style='text-align:right; padding:5px 15px 5px 5px;'>Selected bucket for resolution: 640 x 640</div>", label="", show_label=False)
+
                         with gr.Group(visible=False) as xy_group:  # Default visibility: True
                             xy_plot_axis_options = {
                                 # "type": [
@@ -1058,7 +1061,6 @@ def create_interface(
                             with gr.Accordion("Generation Parameters", open=True):
                                 with gr.Row():
                                     steps = gr.Slider(label="Steps", minimum=1, maximum=100, value=25, step=1)
-                                    total_second_length = gr.Slider(label="Video Length (Seconds)", minimum=1, maximum=120, value=6, step=0.1)
                                 def on_input_image_change(img):
                                     if img is not None:
                                         return gr.update(info="Nearest valid bucket size will be used. Height will be adjusted automatically."), gr.update(visible=False)
