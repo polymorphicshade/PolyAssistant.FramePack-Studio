@@ -616,12 +616,12 @@ def monitor_job(job_id=None):
 
         elif job.status == JobStatus.COMPLETED:
             # Show the final video and reset the button text
-            yield job.result, str(job_id), last_preview, 'Completed', make_progress_bar_html(100, 'Completed'), gr.update(value="Add to Queue"), gr.update(interactive=True, value="Cancel Current Job", visible=False)
+            yield job.result, last_preview, 'Completed', make_progress_bar_html(100, 'Completed'), gr.update(value="Add to Queue"), gr.update(interactive=True, value="Cancel Current Job", visible=False)
             break
 
         elif job.status == JobStatus.FAILED:
             # Show error and reset the button text
-            yield job.result, str(job_id), last_preview, f'Error: {job.error}', make_progress_bar_html(0, 'Failed'), gr.update(value="Add to Queue"), gr.update(interactive=True, value="Cancel Current Job", visible=False)
+            yield job.result, last_preview, f'Error: {job.error}', make_progress_bar_html(0, 'Failed'), gr.update(value="Add to Queue"), gr.update(interactive=True, value="Cancel Current Job", visible=False)
             break
 
         elif job.status == JobStatus.CANCELLED:
