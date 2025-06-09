@@ -10,6 +10,7 @@ from PIL import Image, ImageDraw, ImageFont
 import numpy as np
 import base64
 import io
+import functools
 
 from modules.version import APP_VERSION, APP_VERSION_DISPLAY
 
@@ -27,8 +28,10 @@ from modules.prompt_handler import get_section_boundaries, get_quick_prompts, pa
 from diffusers_helper.gradio.progress_bar import make_progress_bar_css, make_progress_bar_html
 from diffusers_helper.bucket_tools import find_nearest_bucket
 from modules.pipelines.metadata_utils import create_metadata
-from modules.toolbox_app import tb_create_video_toolbox_ui, tb_get_formatted_toolbar_stats
 from modules import DUMMY_LORA_NAME # Import the constant
+
+from modules.toolbox_app import tb_create_video_toolbox_ui, tb_get_formatted_toolbar_stats
+from modules.xy_plot_ui import create_xy_plot_ui, xy_plot_process
 
 # Define the dummy LoRA name as a constant
 
@@ -424,7 +427,7 @@ def create_interface(
                 with gr.Row():
                     with gr.Column(scale=2):
                         model_type = gr.Radio(
-                            choices=[("Original", "Original"), ("Original with Endframe", "Original with Endframe"), ("F1", "F1"), ("Video", "Video"), ("Video with Endframe", "Video with Endframe"), ("Video F1", "Video F1")],
+                            choices=[("Original", "Original"), ("Original with Endframe", "Original with Endframe"), ("F1", "F1"), ("Video", "Video"), ("Video with Endframe", "Video with Endframe"), ("Video F1", "Video F1"), ("XY Plot", "XY Plot")], # ADDED XY Plot option
                             value="Original",
                             label="Generation Type"
                         )
@@ -453,545 +456,17 @@ def create_interface(
                                     )
                                 resolution_text = gr.Markdown(value="<div style='text-align:right; padding:5px 15px 5px 5px;'>Selected bucket for resolution: 640 x 640</div>", label="", show_label=False)
 
-                        with gr.Group(visible=False) as xy_group:  # Default visibility: True
-                            xy_plot_axis_options = {
-                                # "type": [
-                                #     "dropdown(checkboxGroup), textbox or number", 
-                                #     "empty if textbox, dtype if number, [] if dropdown", 
-                                #     "standard values", 
-                                #     "True if multi axis - like prompt replace, False is only on one axis - like steps"
-                                # ],
-                                "Nothing": ["nothing", "", "", True],
-                                "Model type": ["dropdown", ["Original", "F1"], ["Original", "F1"], False],
-                                "End frame influence": ["number", "float", "0.05-0.95[3]", False],
-                                "Latent type": ["dropdown", ["Black", "White", "Noise", "Green Screen"], ["Black", "Noise"], False],
-                                "Prompt add": ["textbox", "", "", True],
-                                "Prompt replace": ["textbox", "", "", True],
-                                "Blend sections": ["number", "int", "3-7 [3]", False],
-                                "Steps": ["number", "int", "15-30 [3]", False],
-                                "Seed": ["number", "int", "1000-10000 [3]", False],
-                                "Use teacache": ["dropdown", [True, False], [True, False], False],
-                                "TeaCache steps": ["number", "int", "5-25 [3]", False],
-                                "TeaCache rel_l1_thresh": ["number", "float", "0.01-0.3 [3]", False],
-                                # "CFG": ["number", "float", "", False],
-                                "Distilled CFG Scale": ["number", "float", "5-15 [3]", False],
-                                # "RS": ["number", "float", "", False],
-                                # "Use weighted embeddings": ["dropdown", [True, False], [True, False], False],
-                            }
-                            text_to_base_keys = {
-                                "Model type": "model_type",
-                                "End frame influence": "end_frame_strength_original",
-                                "Latent type": "latent_type",
-                                "Prompt add": "prompt",
-                                "Prompt replace": "prompt",
-                                "Blend sections": "blend_sections",
-                                "Steps": "steps",
-                                "Seed": "seed",
-                                "Use teacache": "use_teacache",
-                                "TeaCache steps":"teacache_num_steps",
-                                "TeaCache rel_l1_thresh":"teacache_rel_l1_thresh",
-                                "Latent window size": "latent_window_size",
-                                # "CFG": "",
-                                "Distilled CFG Scale": "gs",
-                                # "RS": "",
-                                # "Use weighted embeddings": "",
-                            }
+                        # --- START OF REFACTORED XY PLOT SECTION ---
+                        xy_plot_components = create_xy_plot_ui(
+                            lora_names=lora_names,
+                            default_prompt=default_prompt,
+                            DUMMY_LORA_NAME=DUMMY_LORA_NAME,
+                        )
+                        xy_group = xy_plot_components["group"]
+                        xy_plot_status = xy_plot_components["status"]
+                        xy_plot_output = xy_plot_components["output"]
+                        # --- END OF REFACTORED XY PLOT SECTION ---
 
-                            def xy_plot_parse_input(text):
-                                text = text.strip()
-                                if ',' in text:
-                                    return [x.strip() for x in text.split(",")]
-                                match = re.match(r'^\s*(-?\d*\.?\d*)\s*-\s*(-?\d*\.?\d*)\s*\[\s*(\d+)\s*\]$', text)
-                                if match:
-                                    start, end, count = map(float, match.groups())
-                                    result = np.linspace(start, end, int(count))
-                                    if np.allclose(result, np.round(result)):
-                                        result = np.round(result).astype(int)
-                                    return result.tolist()
-                                return []
-                            def xy_plot_axis_change(updated_value_type):
-                                if xy_plot_axis_options[updated_value_type][0] == "textbox" or xy_plot_axis_options[updated_value_type][0] == "number":
-                                    return gr.update(visible=True, value=xy_plot_axis_options[updated_value_type][2]), gr.update(visible=False, value=[], choices=[])
-                                elif xy_plot_axis_options[updated_value_type][0] == "dropdown":
-                                    return gr.update(visible=False), gr.update(visible=True, value=xy_plot_axis_options[updated_value_type][2], choices=xy_plot_axis_options[updated_value_type][1])
-                                else:
-                                    return gr.update(visible=False), gr.update(visible=False, value=[], choices=[])
-                            def xy_plot_process(
-                                    model_type, input_image, end_frame_image_original, 
-                                    end_frame_strength_original, latent_type, 
-                                    prompt, blend_sections, steps, total_second_length, 
-                                    resolutionW, resolutionH, seed, randomize_seed, use_teacache, 
-                                    teacache_num_steps, teacache_rel_l1_thresh, latent_window_size, 
-                                    cfg, gs, rs, gpu_memory_preservation, mp4_crf, 
-                                    axis_x_switch, axis_x_value_text, axis_x_value_dropdown, 
-                                    axis_y_switch, axis_y_value_text, axis_y_value_dropdown, 
-                                    axis_z_switch, axis_z_value_text, axis_z_value_dropdown,
-                                    selected_loras,
-                                    *lora_slider_values
-                                    ):
-                                # print(model_type, input_image, latent_type, 
-                                #     prompt, blend_sections, steps, total_second_length, 
-                                #     resolutionW, resolutionH, seed, randomize_seed, use_teacache, 
-                                #     latent_window_size, cfg, gs, rs, gpu_memory_preservation, 
-                                #     mp4_crf, 
-                                #     axis_x_switch, axis_x_value_text, axis_x_value_dropdown, 
-                                #     axis_y_switch, axis_y_value_text, axis_y_value_dropdown, 
-                                #     axis_z_switch, axis_z_value_text, axis_z_value_dropdown, sep=", ")
-                                if axis_x_switch == "Nothing" and axis_y_switch == "Nothing" and axis_z_switch == "Nothing":
-                                    return "Not selected any axis for plot", gr.update()
-                                if (axis_x_switch == "Nothing" or axis_y_switch == "Nothing") and axis_z_switch != "Nothing":
-                                    return "For using Z axis, first use X and Y axis", gr.update()
-                                if axis_x_switch == "Nothing" and axis_y_switch != "Nothing":
-                                    return "For using Y axis, first use X axis", gr.update()
-                                if xy_plot_axis_options[axis_x_switch][0] == "dropdown" and len(axis_x_value_dropdown) < 1:
-                                    return "No values for axis X", gr.update()
-                                if xy_plot_axis_options[axis_y_switch][0] == "dropdown" and len(axis_y_value_dropdown) < 1:
-                                    return "No values for axis Y", gr.update()
-                                if xy_plot_axis_options[axis_z_switch][0] == "dropdown" and len(axis_z_value_dropdown) < 1:
-                                    return "No values for axis Z", gr.update()
-                                if not xy_plot_axis_options[axis_x_switch][3]:
-                                    if axis_x_switch == axis_y_switch: 
-                                        return "Axis type on X and Y axis are same, you can't do that generation.<br>Multi axis supported only for \"Prompt add\" and \"Prompt replace\".", gr.update()
-                                    if axis_x_switch == axis_z_switch: 
-                                        return "Axis type on X and Z axis are same, you can't do that generation.<br>Multi axis supported only for \"Prompt add\" and \"Prompt replace\".", gr.update()
-                                if not xy_plot_axis_options[axis_y_switch][3]:
-                                    if axis_y_switch == axis_z_switch: 
-                                        return "Axis type on Y and Z axis are same, you can't do that generation.<br>Multi axis supported only for \"Prompt add\" and \"Prompt replace\".", gr.update()
-
-                                base_generator_vars = {
-                                    "model_type": model_type,
-                                    "input_image": input_image,
-                                    "end_frame_image": None,
-                                    "end_frame_strength": 1.0,
-                                    "input_video": None,
-                                    "end_frame_image_original": end_frame_image_original,
-                                    "end_frame_strength_original": end_frame_strength_original,
-                                    "prompt_text": prompt,
-                                    "n_prompt": "",
-                                    "seed": seed,
-                                    "total_second_length": total_second_length,
-                                    "latent_window_size": latent_window_size,
-                                    "steps": steps,
-                                    "cfg": cfg,
-                                    "gs": gs,
-                                    "rs": rs,
-                                    "use_teacache": use_teacache,
-                                    "teacache_num_steps": teacache_num_steps,
-                                    "teacache_rel_l1_thresh": teacache_rel_l1_thresh,
-                                    "has_input_image": True if input_image is not None else False,
-                                    "save_metadata_checked": True,
-                                    "blend_sections": blend_sections,
-                                    "latent_type": latent_type,
-                                    "selected_loras": selected_loras,
-                                    "resolutionW": resolutionW,
-                                    "resolutionH": resolutionH,
-                                    "lora_loaded_names": lora_names,
-                                    "lora_values": lora_slider_values
-                                }
-
-                                def xy_plot_convert_values(type, value_textbox, value_dropdown):
-                                    retVal = []
-                                    if type[0] == "dropdown":
-                                        retVal = value_dropdown
-                                    elif type[0] == "textbox":
-                                        retVal = xy_plot_parse_input(value_textbox)
-                                    elif type[0] == "number":
-                                        if type[1] == "int":
-                                            retVal = [int(float(x)) for x in xy_plot_parse_input(value_textbox)]
-                                        else:
-                                            retVal = [float(x) for x in xy_plot_parse_input(value_textbox)]
-                                    return retVal
-                                prompt_replace_initial_values = {}
-                                all_axis_values = {
-                                    axis_x_switch+" -> X": xy_plot_convert_values(xy_plot_axis_options[axis_x_switch], axis_x_value_text, axis_x_value_dropdown)
-                                }
-                                if axis_x_switch == "Prompt replace":
-                                    prompt_replace_initial_values["X"] = all_axis_values[axis_x_switch+" -> X"][0]
-                                    if prompt_replace_initial_values["X"] not in base_generator_vars["prompt"]:
-                                        return "Prompt for replacing in X axis not present in generation prompt", gr.update()
-                                if axis_y_switch != "Nothing":
-                                    all_axis_values[axis_y_switch+" -> Y"] = xy_plot_convert_values(xy_plot_axis_options[axis_y_switch], axis_y_value_text, axis_y_value_dropdown)
-                                    if axis_y_switch == "Prompt replace":
-                                        prompt_replace_initial_values["Y"] = all_axis_values[axis_y_switch+" -> Y"][0]
-                                        if prompt_replace_initial_values["Y"] not in base_generator_vars["prompt"]:
-                                            return "Prompt for replacing in Y axis not present in generation prompt", gr.update()
-                                if axis_z_switch != "Nothing":
-                                    all_axis_values[axis_z_switch+" -> Z"] = xy_plot_convert_values(xy_plot_axis_options[axis_z_switch], axis_z_value_text, axis_z_value_dropdown)
-                                    if axis_z_switch == "Prompt replace":
-                                        prompt_replace_initial_values["Z"] = all_axis_values[axis_z_switch+" -> Z"][0]
-                                        if prompt_replace_initial_values["Z"] not in base_generator_vars["prompt"]:
-                                            return "Prompt for replacing in Z axis not present in generation prompt", gr.update()
-
-                                active_axes = list(all_axis_values.keys())
-                                value_lists = [all_axis_values[axis] for axis in active_axes]
-                                output_generator_vars = []
-
-                                combintion_plot = itertools.product(*value_lists)
-                                for combo in combintion_plot:
-                                    vars_copy = base_generator_vars.copy()
-                                    for axis, value in zip(active_axes, combo):
-                                        splitted_axis_name = axis.split(" -> ")
-                                        if splitted_axis_name[0] == "Prompt add":
-                                            vars_copy["prompt_text"] = vars_copy["prompt_text"] + " " + str(value)
-                                        elif splitted_axis_name[0] == "Prompt replace":
-                                            orig_copy_prompt_text = vars_copy["prompt_text"]
-                                            vars_copy["prompt_text"] = orig_copy_prompt_text.replace(prompt_replace_initial_values[splitted_axis_name[1]], str(value))
-                                        else:
-                                            vars_copy[text_to_base_keys[splitted_axis_name[0]]] = value
-                                        vars_copy[splitted_axis_name[1]+"_axis_on_plot"] = str(value)
-                                    
-                                    worker_params = {k: v for k, v in vars_copy.items() if k not in ["X_axis_on_plot", "Y_axis_on_plot", "Z_axis_on_plot"]}
-                                    output_generator_vars.append(worker_params)
-                                # print("----- BEFORE GENERATED VIDS VARS START -----")
-                                # for v in output_generator_vars:
-                                #     print(v)
-                                # print("------ BEFORE GENERATED VIDS VARS END ------")
-
-                                from modules.video_queue import JobType
-                                job_queue.add_job(
-                                    params=base_generator_vars,
-                                    job_type=JobType.GRID,
-                                    child_job_params_list=output_generator_vars
-                                )
-                                return "Grid job added to the queue.", gr.update(visible=False)
-                                # print("----- GENERATED VIDS VARS START -----")
-                                # for v in output_generator_vars:
-                                #     print(v)
-                                # print("------ GENERATED VIDS VARS END ------")
-
-                                # -------------------------- connect with settings --------------------------
-                                # Ensure settings is available in this scope or passed in.
-                                # Assuming 'settings' object is available from create_interface's scope.
-                                output_dir_setting = settings.get("output_dir", "outputs")
-                                mp4_crf_setting = settings.get("mp4_crf", 16) # Default CRF if not in settings
-                                # -------------------------- connect with settings --------------------------
-
-                                font_path = None
-                                common_font_names = ["DejaVuSans-Bold.ttf", "arial.ttf", "LiberationSans-Bold.ttf"]
-                                for fp_name in common_font_names:
-                                    try:
-                                        ImageFont.truetype(fp_name, 10) # Try loading with a small size
-                                        font_path = fp_name
-                                        print(f"XY Plot: Using font '{font_path}' for labels.")
-                                        break
-                                    except OSError:
-                                        pass # Font not found, try next
-                                
-                                if not font_path:
-                                    print("XY Plot Warning: Could not find DejaVuSans-Bold, Arial, or LiberationSans-Bold. Text labels might use a basic Pillow font or not render optimally.")
-                                    # Pillow might use a default bitmap font if path is invalid.
-
-                                timestamp_generation = generate_timestamp()
-                                output_path = os.path.join(output_dir_setting, f"{timestamp_generation}_grid_XY.mp4")
-                                
-                                has_y_axis = any('Y_axis_on_plot' in v for v in output_generator_vars)
-
-                                x_labels_unique = []
-                                y_labels_unique = []
-                                video_grid_data = {}
-
-                                for item in output_generator_vars:
-                                    x_val = str(item['X_axis_on_plot'])
-                                    y_val = str(item.get('Y_axis_on_plot', 'single_row'))
-                                    if x_val not in x_labels_unique:
-                                        x_labels_unique.append(x_val)
-                                    if y_val not in y_labels_unique:
-                                        y_labels_unique.append(y_val)
-                                    video_grid_data[(y_val, x_val)] = item['result']
-
-                                if not output_generator_vars or not video_grid_data:
-                                    return "No videos generated for XY plot.", gr.update(visible=False)
-
-                                first_video_path = next(iter(video_grid_data.values()), None)
-                                if not first_video_path or not os.path.exists(first_video_path):
-                                    return f"First video for grid base parameters not found: {first_video_path}", gr.update(visible=False)
-
-                                default_fps = 10 # Fallback FPS
-                                frame_height, frame_width = resolutionH, resolutionW # Use UI resolution as fallback
-                                try:
-                                    with imageio.get_reader(first_video_path, 'ffmpeg') as reader:
-                                        meta_data = reader.get_meta_data()
-                                        fps = meta_data.get('fps', default_fps)
-                                        if reader.count_frames() > 0 : # Check if count_frames is valid
-                                            first_frame_shape = reader.get_data(0).shape
-                                            frame_height, frame_width = first_frame_shape[0], first_frame_shape[1]
-                                        else: # Fallback if count_frames is 0 or not available
-                                            print(f"Warning: Could not get frame dimensions from {first_video_path}, using UI resolution {frame_width}x{frame_height}")
-
-                                except Exception as e:
-                                    print(f"XY Plot Error: Could not read first video {first_video_path} for metadata: {e}. Using UI defaults.")
-                                    fps = default_fps
-
-
-                                num_cols = len(x_labels_unique)
-                                num_rows = len(y_labels_unique)
-                                if num_rows == 1 and y_labels_unique[0] == 'single_row':
-                                    has_y_axis = False
-
-                                video_readers = {}
-                                min_total_frames = float('inf')
-                                video_paths_for_readers = {}
-
-                                for y_label_val in y_labels_unique:
-                                    for x_label_val in x_labels_unique:
-                                        path = video_grid_data.get((y_label_val, x_label_val))
-                                        video_paths_for_readers[(y_label_val, x_label_val)] = path # Store for deferred opening
-
-                                # Determine min_total_frames by checking all videos first
-                                for (y_label_val, x_label_val), path in video_paths_for_readers.items():
-                                    if not path or not os.path.exists(path):
-                                        print(f"XY Plot Warning: Missing video for X={x_label_val}, Y={y_label_val}. Will use black frames.")
-                                        # Assume it contributes 0 frames to min_total_frames effectively, or handle later
-                                        continue
-                                    try:
-                                        with imageio.get_reader(path, 'ffmpeg') as r:
-                                            n_frames = r.count_frames()
-                                            if n_frames == float('inf') or n_frames == 0: # Handle streaming or unknown length
-                                                duration = r.get_meta_data().get('duration')
-                                                if duration: n_frames = int(duration * fps)
-                                                else: n_frames = int(total_second_length * fps) # Fallback to UI length
-                                            if n_frames < min_total_frames:
-                                                min_total_frames = n_frames
-                                    except Exception as e:
-                                        print(f"XY Plot Error: Could not get frame count for {path}: {e}")
-                                
-                                if min_total_frames == float('inf') or min_total_frames == 0:
-                                    min_total_frames = int(total_second_length * fps) # Fallback if no video had countable frames
-                                    print(f"XY Plot Warning: Could not determine minimum frame count. Defaulting to {min_total_frames} based on UI video length.")
-                                min_total_frames = int(min_total_frames)
-
-
-                                font_size = 20 # Increased font size
-                                text_color = (255, 255, 255)
-                                box_color = (0, 0, 0, 180) # Slightly more opaque box
-                                pil_font = None
-                                if font_path: # font_path is the name found earlier e.g. "arial.ttf"
-                                    try:
-                                        pil_font = ImageFont.truetype(font_path, font_size)
-                                    except Exception as e:
-                                        print(f"XY Plot Warning: Error loading font '{font_path}' with Pillow: {e}. Text may not render well.")
-                                if not pil_font: # Fallback if specific font failed or wasn't found
-                                    try: pil_font = ImageFont.load_default() # Pillow's built-in basic font
-                                    except: pass # Should not fail, but just in case
-                                    print("XY Plot Warning: Using Pillow's default bitmap font for labels.")
-
-
-                                def draw_text_on_frame(numpy_frame_array, text_str, is_x_label):
-                                    if not pil_font or not text_str: return numpy_frame_array
-                                    img_pil = Image.fromarray(numpy_frame_array)
-                                    draw = ImageDraw.Draw(img_pil, "RGBA")
-                                    
-                                    try:
-                                        text_bbox = draw.textbbox((0,0), text_str, font=pil_font)
-                                        text_w, text_h = text_bbox[2] - text_bbox[0], text_bbox[3] - text_bbox[1]
-                                    except Exception as e:
-                                        print(f"XY Plot Warning: Could not get text dimensions for '{text_str}': {e}")
-                                        return numpy_frame_array
-
-                                    padding = 5
-                                    if is_x_label: # Top-center for X labels
-                                        x = (img_pil.width - text_w) // 2
-                                        y = padding - text_bbox[1] # Adjust for precise vertical alignment from bbox
-                                        rect_coords = [x - padding, padding, x + text_w + padding, padding + text_h + padding]
-                                    else: # Center-left for Y labels
-                                        x = padding
-                                        y = (img_pil.height - text_h) // 2 - text_bbox[1] # Adjust for precise vertical alignment
-                                        rect_coords = [padding, (img_pil.height - text_h) // 2 - padding, padding + text_w + padding, (img_pil.height + text_h) // 2 + padding]
-                                    
-                                    draw.rectangle(rect_coords, fill=box_color)
-                                    draw.text((x, y), text_str, font=pil_font, fill=text_color)
-                                    return np.array(img_pil.convert("RGB"))
-
-                                black_frame_template = np.zeros((frame_height, frame_width, 3), dtype=np.uint8)
-
-                                try:
-                                    with imageio.get_writer(output_path, 'ffmpeg', fps=fps, quality=1, macro_block_size=1) as writer: # Set quality to 1 (highest for imageio-ffmpeg)
-                                        for frame_num in range(min_total_frames):
-                                            grid_row_strips = []
-                                            for y_idx, y_label_val in enumerate(y_labels_unique):
-                                                current_row_frames = []
-                                                for x_idx, x_label_val in enumerate(x_labels_unique):
-                                                    reader_key = (y_label_val, x_label_val)
-                                                    current_frame = None
-                                                    
-                                                    if reader_key not in video_readers: # Open reader on demand
-                                                        path_to_open = video_paths_for_readers.get(reader_key)
-                                                        if path_to_open and os.path.exists(path_to_open):
-                                                            try:
-                                                                video_readers[reader_key] = imageio.get_reader(path_to_open, 'ffmpeg')
-                                                            except Exception as e:
-                                                                print(f"XY Plot Error: Failed to open reader for {path_to_open}: {e}")
-                                                                video_readers[reader_key] = None # Mark as failed
-                                                        else:
-                                                            video_readers[reader_key] = None # No path or not exists
-
-                                                    active_reader = video_readers.get(reader_key)
-                                                    if active_reader:
-                                                        try:
-                                                            current_frame = active_reader.get_data(frame_num)
-                                                            # Ensure frame is correct shape/type
-                                                            if current_frame.shape[0] != frame_height or current_frame.shape[1] != frame_width:
-                                                                # Basic resize if needed, though ideally all inputs are consistent
-                                                                pil_img_temp = Image.fromarray(current_frame).resize((frame_width, frame_height))
-                                                                current_frame = np.array(pil_img_temp)
-                                                            if current_frame.dtype != np.uint8:
-                                                                current_frame = current_frame.astype(np.uint8)
-
-                                                        except IndexError: # Frame out of bounds for this specific video
-                                                            current_frame = black_frame_template.copy()
-                                                        except Exception as e:
-                                                            print(f"XY Plot Error: Reading frame {frame_num} from video for X={x_label_val}, Y={y_label_val}: {e}")
-                                                            current_frame = black_frame_template.copy()
-                                                    else: # Reader failed or no video
-                                                        current_frame = black_frame_template.copy()
-
-                                                    # Apply labels
-                                                    if y_idx == 0: # Top row videos get X-axis labels
-                                                        current_frame = draw_text_on_frame(current_frame, x_label_val, is_x_label=True)
-                                                    if x_idx == 0 and has_y_axis: # First column videos get Y-axis labels
-                                                        current_frame = draw_text_on_frame(current_frame, y_label_val, is_x_label=False)
-                                                    
-                                                    current_row_frames.append(current_frame)
-                                                
-                                                if current_row_frames:
-                                                    grid_row_strips.append(np.hstack(current_row_frames))
-                                            
-                                            if grid_row_strips:
-                                                final_frame_for_video = np.vstack(grid_row_strips)
-                                                writer.append_data(final_frame_for_video)
-                                            
-                                            if frame_num % int(fps * 5) == 0: # Log every 5 seconds of video
-                                                 print(f"XY Plot Grid: Assembled frame {frame_num + 1}/{min_total_frames}")
-                                
-                                except Exception as e:
-                                    import traceback
-                                    tb_str = traceback.format_exc()
-                                    err_msg = f"XY Plot Error: Failed during imageio grid creation: {e}\nTraceback:\n{tb_str}"
-                                    print(err_msg)
-                                    return err_msg, gr.update(visible=False)
-                                finally:
-                                    for r in video_readers.values():
-                                        if r and hasattr(r, 'close'):
-                                            r.close()
-                                
-                                print(f"XY Plot grid video successfully saved to: {output_path}")
-                                return "", gr.update(value=output_path, visible=True)
-
-                            with gr.Row():
-                                xy_plot_model_type = gr.Radio(
-                                    ["Original", "F1"], 
-                                    label="Model Type", 
-                                    value="F1",
-                                    info="Select which model to use for generation"
-                                )
-                            with gr.Group():
-                                with gr.Row():
-                                    with gr.Column(scale=1):
-                                        xy_plot_input_image = gr.Image(
-                                            sources='upload',
-                                            type="numpy",
-                                            label="Image (optional)",
-                                            height=420,
-                                            image_mode="RGB",
-                                            elem_classes="contain-image"
-                                        )
-                                    with gr.Column(scale=1):
-                                        xy_plot_end_frame_image_original = gr.Image(
-                                            sources='upload',
-                                            type="numpy",
-                                            label="End Frame (Optional)", 
-                                            height=420, 
-                                            elem_classes="contain-image",
-                                            image_mode="RGB",
-                                            show_download_button=False,
-                                            show_label=True,
-                                            container=True
-                                        )
-                                with gr.Group():
-                                    xy_plot_end_frame_strength_original = gr.Slider(
-                                        label="End Frame Influence",
-                                        minimum=0.05,
-                                        maximum=1.0,
-                                        value=1.0,
-                                        step=0.05,
-                                        info="Controls how strongly the end frame guides the generation. 1.0 is full influence."
-                                    )
-                            with gr.Accordion("Latent Image Options", open=False):
-                                xy_plot_latent_type = gr.Dropdown(
-                                    ["Black", "White", "Noise", "Green Screen"], 
-                                    label="Latent Image", 
-                                    value="Black", 
-                                    info="Used as a starting point if no image is provided"
-                                )
-                            xy_plot_prompt = gr.Textbox(label="Prompt", value=default_prompt)
-                            with gr.Accordion("Prompt Parameters", open=False):
-                                xy_plot_blend_sections = gr.Slider(
-                                    minimum=0, maximum=10, value=4, step=1,
-                                    label="Number of sections to blend between prompts"
-                                )
-                            with gr.Accordion("Generation Parameters", open=True):
-                                with gr.Row():
-                                    xy_plot_steps = gr.Slider(label="Steps", minimum=1, maximum=100, value=5, step=1)
-                                    xy_plot_total_second_length = gr.Slider(label="Video Length (Seconds)", minimum=0.1, maximum=120, value=1, step=0.1)
-                                with gr.Row():
-                                    xy_plot_seed = gr.Number(label="Seed", value=31337, precision=0)
-                                    xy_plot_randomize_seed = gr.Checkbox(label="Randomize", value=False, info="Generate a new random seed for each job")
-                                with gr.Row("LoRAs"):
-                                    xy_plot_lora_selector = gr.Dropdown(
-                                        choices=lora_names,
-                                        label="Select LoRAs to Load",
-                                        multiselect=True,
-                                        value=[],
-                                        info="Select one or more LoRAs to use for this job"
-                                    )
-                                    xy_plot_lora_names_states = gr.State(lora_names)
-                                    xy_plot_lora_sliders = {}
-                                    for lora in lora_names:
-                                        xy_plot_lora_sliders[lora] = gr.Slider(
-                                            minimum=0.0, maximum=2.0, value=1.0, step=0.01,
-                                            label=f"{lora} Weight", visible=False, interactive=True
-                                        )
-                            with gr.Accordion("Advanced Parameters", open=False):
-                                with gr.Row("TeaCache"):
-                                    xy_plot_use_teacache = gr.Checkbox(label='Use TeaCache', value=True, info='Faster speed, but often makes hands and fingers slightly worse.')
-                                    xy_plot_teacache_num_steps = gr.Slider(label="TeaCache steps", minimum=1, maximum=50, step=1, value=25, visible=True, info='How many intermediate sections to keep in the cache')
-                                    xy_plot_teacache_rel_l1_thresh = gr.Slider(label="TeaCache rel_l1_thresh", minimum=0.01, maximum=1.0, step=0.01, value=0.15, visible=True, info='Relative L1 Threshold')
-                                    xy_plot_use_teacache.change(lambda enabled: (gr.update(visible=enabled), gr.update(visible=enabled)), inputs=xy_plot_use_teacache, outputs=[xy_plot_teacache_num_steps, xy_plot_teacache_rel_l1_thresh])
-
-                                xy_plot_latent_window_size = gr.Slider(label="Latent Window Size", minimum=1, maximum=33, value=9, step=1, visible=True, info='Change at your own risk, very experimental')  # Should not change
-                                xy_plot_cfg = gr.Slider(label="CFG Scale", minimum=1.0, maximum=32.0, value=1.0, step=0.01, visible=False)  # Should not change
-                                xy_plot_gs = gr.Slider(label="Distilled CFG Scale", minimum=1.0, maximum=32.0, value=10.0, step=0.01)
-                                xy_plot_rs = gr.Slider(label="CFG Re-Scale", minimum=0.0, maximum=1.0, value=0.0, step=0.01, visible=False)  # Should not change
-                                xy_plot_gpu_memory_preservation = gr.Slider(label="GPU Inference Preserved Memory (GB) (larger means slower)", minimum=1, maximum=128, value=6, step=0.1, info="Set this number to a larger value if you encounter OOM. Larger value causes slower speed.")
-                            with gr.Accordion("Output Parameters", open=False):
-                                xy_plot_mp4_crf = gr.Slider(label="MP4 Compression", minimum=0, maximum=100, value=16, step=1, info="Lower means better quality. 0 is uncompressed. Change to 16 if you get black outputs. ")
-                            with gr.Accordion("Plot Parameters", open=True):
-                                def xy_plot_axis_change(updated_value_type):
-                                    if xy_plot_axis_options[updated_value_type][0] == "textbox" or xy_plot_axis_options[updated_value_type][0] == "number":
-                                        return gr.update(visible=True, value=xy_plot_axis_options[updated_value_type][2]), gr.update(visible=False, value=[], choices=[])
-                                    elif xy_plot_axis_options[updated_value_type][0] == "dropdown":
-                                        return gr.update(visible=False), gr.update(visible=True, value=xy_plot_axis_options[updated_value_type][2], choices=xy_plot_axis_options[updated_value_type][1])
-                                    else:
-                                        return gr.update(visible=False), gr.update(visible=False, value=[], choices=[])
-                                with gr.Row():
-                                    xy_plot_axis_x_switch = gr.Dropdown(label="X axis type for plotting", choices=list(xy_plot_axis_options.keys()))
-                                    xy_plot_axis_x_value_text = gr.Textbox(label="X axis comma separated text", visible=False)
-                                    xy_plot_axis_x_value_dropdown = gr.CheckboxGroup(label="X axis values", visible=False) #, multiselect=True)
-                                    xy_plot_axis_x_switch.change(fn=xy_plot_axis_change, inputs=[xy_plot_axis_x_switch], outputs=[xy_plot_axis_x_value_text, xy_plot_axis_x_value_dropdown])
-                                with gr.Row():
-                                    xy_plot_axis_y_switch = gr.Dropdown(label="Y axis type for plotting", choices=list(xy_plot_axis_options.keys()))
-                                    xy_plot_axis_y_value_text = gr.Textbox(label="Y axis comma separated text", visible=False)
-                                    xy_plot_axis_y_value_dropdown = gr.CheckboxGroup(label="Y axis values", visible=False) #, multiselect=True)
-                                    xy_plot_axis_y_switch.change(fn=xy_plot_axis_change, inputs=[xy_plot_axis_y_switch], outputs=[xy_plot_axis_y_value_text, xy_plot_axis_y_value_dropdown])
-                                with gr.Row(visible=False): # not implemented Z axis
-                                    xy_plot_axis_z_switch = gr.Dropdown(label="Z axis type for plotting", choices=list(xy_plot_axis_options.keys()))
-                                    xy_plot_axis_z_value_text = gr.Textbox(label="Z axis comma separated text", visible=False)
-                                    xy_plot_axis_z_value_dropdown = gr.CheckboxGroup(label="Z axis values", visible=False) #, multiselect=True)
-                                    xy_plot_axis_z_switch.change(fn=xy_plot_axis_change, inputs=[xy_plot_axis_z_switch], outputs=[xy_plot_axis_z_value_text, xy_plot_axis_z_value_dropdown])
-
-                            # xy_plot_result_video = gr.Video(label="Finished Frames", autoplay=True, show_share_button=False, height=256, loop=True)
-                            xy_plot_status = gr.HTML("")
-                            xy_plot_output = gr.Video(autoplay=True, loop=True, sources=[], height=256, visible=False) # or Gallery, but return need value=[paths] instead of value=video
                         with gr.Group(visible=True) as standard_generation_group:    # Default visibility: True because "Original" model is not "Video"
                             with gr.Group(visible=True) as image_input_group: # This group now only contains the start frame image
                                 with gr.Row():
@@ -1080,20 +555,6 @@ def create_interface(
                                 resolutionW.change(fn=on_resolution_change, inputs=[input_image, resolutionW, resolutionH], outputs=[resolution_text], show_progress="hidden")
                                 resolutionH.change(fn=on_resolution_change, inputs=[input_image, resolutionW, resolutionH], outputs=[resolution_text], show_progress="hidden")
                                 
-
-                                with gr.Row("Metadata"):
-                                    json_upload = gr.File(
-                                        label="Upload Metadata JSON (optional)",
-                                        file_types=[".json"],
-                                        type="filepath",
-                                        height=100,
-                                    )
-                                with gr.Row("TeaCache"):
-                                    use_teacache = gr.Checkbox(label='Use TeaCache', value=True, info='Faster speed, but often makes hands and fingers slightly worse.')
-                                    teacache_num_steps = gr.Slider(label="TeaCache steps", minimum=1, maximum=50, step=1, value=25, visible=True, info='How many intermediate sections to keep in the cache')
-                                    teacache_rel_l1_thresh = gr.Slider(label="TeaCache rel_l1_thresh", minimum=0.01, maximum=1.0, step=0.01, value=0.15, visible=True, info='Relative L1 Threshold')
-                                    use_teacache.change(lambda enabled: (gr.update(visible=enabled), gr.update(visible=enabled)), inputs=use_teacache, outputs=[teacache_num_steps, teacache_rel_l1_thresh])
-
                                 with gr.Row():
                                     seed = gr.Number(label="Seed", value=2500, precision=0)
                                     randomize_seed = gr.Checkbox(label="Randomize", value=True, info="Generate a new random seed for each job")
@@ -1122,6 +583,18 @@ def create_interface(
                                 cfg = gr.Slider(label="CFG Scale", minimum=1.0, maximum=32.0, value=1.0, step=0.01, visible=False)  # Should not change
                                 gs = gr.Slider(label="Distilled CFG Scale", minimum=1.0, maximum=32.0, value=10.0, step=0.01)
                                 rs = gr.Slider(label="CFG Re-Scale", minimum=0.0, maximum=1.0, value=0.0, step=0.01, visible=False)  # Should not change
+                                with gr.Row("TeaCache"):
+                                    use_teacache = gr.Checkbox(label='Use TeaCache', value=True, info='Faster speed, but often makes hands and fingers slightly worse.')
+                                    teacache_num_steps = gr.Slider(label="TeaCache steps", minimum=1, maximum=50, step=1, value=25, visible=True, info='How many intermediate sections to keep in the cache')
+                                    teacache_rel_l1_thresh = gr.Slider(label="TeaCache rel_l1_thresh", minimum=0.01, maximum=1.0, step=0.01, value=0.15, visible=True, info='Relative L1 Threshold')
+                                    use_teacache.change(lambda enabled: (gr.update(visible=enabled), gr.update(visible=enabled)), inputs=use_teacache, outputs=[teacache_num_steps, teacache_rel_l1_thresh])
+                            with gr.Row("Metadata"):
+                                json_upload = gr.File(
+                                    label="Upload Metadata JSON (optional)",
+                                    file_types=[".json"],
+                                    type="filepath",
+                                    height=140,
+                                )
 
                     with gr.Column():
                         preview_image = gr.Image(
@@ -1284,6 +757,7 @@ def create_interface(
                             thumbnail_container.elem_classes = ["thumbnail-container"]
 
                         # Add CSS for thumbnails
+                        
             with gr.Tab("Outputs", id="outputs_tab"): # Ensure 'id' is present for tab switching
                 outputDirectory_video = settings.get("output_dir", settings.default_settings['output_dir'])
                 outputDirectory_metadata = settings.get("metadata_dir", settings.default_settings['metadata_dir'])
@@ -1858,20 +1332,38 @@ def create_interface(
             outputs=[start_button, video_input_required_message]
         )
 
-        xy_plot_inputs = [xy_plot_model_type, xy_plot_input_image, xy_plot_end_frame_image_original,
-            xy_plot_end_frame_strength_original, xy_plot_latent_type, 
-            xy_plot_prompt, xy_plot_blend_sections, xy_plot_steps, xy_plot_total_second_length, 
-            resolutionW, resolutionH, xy_plot_seed, xy_plot_randomize_seed, 
-            xy_plot_use_teacache, xy_plot_teacache_num_steps, xy_plot_teacache_rel_l1_thresh, 
-            xy_plot_latent_window_size, xy_plot_cfg, xy_plot_gs, xy_plot_rs, 
-            xy_plot_gpu_memory_preservation, xy_plot_mp4_crf, 
-            xy_plot_axis_x_switch, xy_plot_axis_x_value_text, xy_plot_axis_x_value_dropdown, 
-            xy_plot_axis_y_switch, xy_plot_axis_y_value_text, xy_plot_axis_y_value_dropdown, 
-            xy_plot_axis_z_switch, xy_plot_axis_z_value_text, xy_plot_axis_z_value_dropdown,
-            xy_plot_lora_selector
+        # --- START OF REFACTORED XY PLOT EVENT WIRING ---
+        # Get the process button from the created components
+        xy_plot_process_btn = xy_plot_components["process_btn"]
+        
+        # Prepare the process function with its static dependencies (job_queue, settings)
+        fn_xy_process_with_deps = functools.partial(xy_plot_process, job_queue, settings)
+        
+        # Construct the full list of inputs for the click handler in the correct order
+        c = xy_plot_components
+        xy_plot_input_components = [
+            c["model_type"], c["input_image"], c["end_frame_image_original"],
+            c["end_frame_strength_original"], c["latent_type"], c["prompt"], 
+            c["blend_sections"], c["steps"], c["total_second_length"], 
+            resolutionW, resolutionH, # The components from the main UI
+            c["seed"], c["randomize_seed"], c["use_teacache"], 
+            c["teacache_num_steps"], c["teacache_rel_l1_thresh"], 
+            c["latent_window_size"], c["cfg"], c["gs"], c["rs"], 
+            c["gpu_memory_preservation"], c["mp4_crf"], 
+            c["axis_x_switch"], c["axis_x_value_text"], c["axis_x_value_dropdown"], 
+            c["axis_y_switch"], c["axis_y_value_text"], c["axis_y_value_dropdown"], 
+            c["axis_z_switch"], c["axis_z_value_text"], c["axis_z_value_dropdown"],
+            c["lora_selector"]
         ]
-        xy_plot_inputs.extend(xy_plot_lora_sliders.values())
-        xy_plot_process_btn.click(fn=xy_plot_process, inputs=xy_plot_inputs, outputs=[xy_plot_status, xy_plot_output]).then(
+        # LoRA sliders are in a dictionary, so we add their values to the list
+        xy_plot_input_components.extend(c["lora_sliders"].values())
+
+        # Wire the click handler for the XY Plot button
+        xy_plot_process_btn.click(
+            fn=fn_xy_process_with_deps, 
+            inputs=xy_plot_input_components, 
+            outputs=[xy_plot_status, xy_plot_output]
+        ).then(
             fn=update_stats,
             inputs=None, 
             outputs=[queue_status, queue_stats_display]
@@ -1880,43 +1372,25 @@ def create_interface(
             inputs=None, 
             outputs=[current_job_id, result_video, preview_image, progress_desc, progress_bar]
         )
-        
-        def xy_plot_update_lora_sliders(selected_loras):
-            updates = []
-            # Suppress dummy LoRA from workaround for the single lora bug.
-            # Filter out the dummy LoRA for display purposes in the dropdown
-            actual_selected_loras_for_display = [lora for lora in selected_loras if lora != DUMMY_LORA_NAME]
-            updates.append(gr.update(value=actual_selected_loras_for_display)) # First update is for the dropdown itself
+        # --- END OF REFACTORED XY PLOT EVENT WIRING ---
 
-            # lora_names is from the create_interface scope.
-            for lora_name_key in lora_names: # Iterate using lora_names to maintain order
-                 if lora_name_key == DUMMY_LORA_NAME: # Check for dummy LoRA
-                     updates.append(gr.update(visible=False))
-                 else:
-                     # Visibility of sliders should be based on actual_selected_loras_for_display
-                     updates.append(gr.update(visible=(lora_name_key in actual_selected_loras_for_display)))
-            return updates # This list will be correctly ordered
 
-        xy_plot_lora_selector.change(
-            fn=xy_plot_update_lora_sliders,
-            inputs=[xy_plot_lora_selector],
-            outputs=[xy_plot_lora_selector] + [xy_plot_lora_sliders[lora] for lora in lora_names if lora in xy_plot_lora_sliders] # Add selector, ensure keys exist
-        )
 
-        #putting this here for now because this file is way too big
+        # MODIFIED: on_model_type_change to handle new "XY Plot" option
         def on_model_type_change(selected_model):
             is_xy_plot = selected_model == "XY Plot"
-            shows_end_frame = selected_model in ["Original with Endframe", "Video with Endframe"] # F1 with Endframe is not a direct option
+            is_ui_video_model_flag = is_video_model(selected_model)
+            shows_end_frame = selected_model in ["Original with Endframe", "Video with Endframe"]
 
             return (
                 gr.update(visible=not is_xy_plot),  # standard_generation_group
                 gr.update(visible=is_xy_plot),      # xy_group
-                gr.update(visible=not is_xy_plot and not is_video_model(selected_model)),  # image_input_group
-                gr.update(visible=not is_xy_plot and is_video_model(selected_model)),      # video_input_group
+                gr.update(visible=not is_xy_plot and not is_ui_video_model_flag),  # image_input_group
+                gr.update(visible=not is_xy_plot and is_ui_video_model_flag),      # video_input_group
                 gr.update(visible=not is_xy_plot and shows_end_frame),     # end_frame_group_original
                 gr.update(visible=not is_xy_plot and shows_end_frame),      # end_frame_slider_group
                 gr.update(visible=not is_xy_plot),   # start_button
-                gr.update(visible=is_xy_plot)    # xy_plot_process_btn
+                gr.update(visible=is_xy_plot)       # xy_plot_process_btn
             )
 
         # Model change listener
@@ -1931,7 +1405,7 @@ def create_interface(
                 end_frame_group_original,
                 end_frame_slider_group,
                 start_button,
-                xy_plot_process_btn
+                xy_plot_process_btn # This is the button returned from the dictionary
             ]
         ).then( # Also trigger validation after model type changes
             fn=update_start_button_state,
