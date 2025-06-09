@@ -2238,6 +2238,7 @@ def create_interface(
                 blend_sections_val = metadata.get('blend_sections')
                 teacache_num_steps_val = metadata.get('teacache_num_steps')
                 teacache_rel_l1_thresh_val = metadata.get('teacache_rel_l1_thresh')
+                latent_type_val = metadata.get('latent_type')
                 
                 # Get the names of the selected LoRAs from the metadata
                 selected_lora_names = list(lora_weights.keys())
@@ -2260,7 +2261,8 @@ def create_interface(
                     gr.update(value=resolutionH_val) if resolutionH_val is not None else gr.update(),
                     gr.update(value=blend_sections_val) if blend_sections_val is not None else gr.update(),
                     gr.update(value=teacache_num_steps_val) if teacache_num_steps_val is not None else gr.update(),
-                    gr.update(value=teacache_rel_l1_thresh_val) if teacache_rel_l1_thresh_val is not None else gr.update()
+                    gr.update(value=teacache_rel_l1_thresh_val) if teacache_rel_l1_thresh_val is not None else gr.update(),
+                    gr.update(value=latent_type_val) if latent_type_val else gr.update(),
                 ]
 
                 # Update LoRA sliders based on loaded weights
@@ -2299,7 +2301,8 @@ def create_interface(
                 resolutionH,
                 blend_sections,
                 teacache_num_steps,
-                teacache_rel_l1_thresh
+                teacache_rel_l1_thresh,
+                latent_type
             ] + [lora_sliders[lora] for lora in lora_names]
         )
 
