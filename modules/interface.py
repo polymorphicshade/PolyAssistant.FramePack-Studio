@@ -2213,7 +2213,7 @@ def create_interface(
         # Function to load metadata from JSON file
         def load_metadata_from_json(json_path):
             # Define the total number of output components to handle errors gracefully
-            num_outputs = 14 + len(lora_sliders)
+            num_outputs = 15 + len(lora_sliders)
 
             if not json_path:
                 # Return empty updates for all components if no file is provided
