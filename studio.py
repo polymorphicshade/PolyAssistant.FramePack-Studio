@@ -49,6 +49,7 @@ from modules.video_queue import VideoJobQueue, JobStatus
 from modules.prompt_handler import parse_timestamped_prompt
 from modules.interface import create_interface, format_queue_status
 from modules.settings import Settings
+from modules import DUMMY_LORA_NAME # Import the constant
 from modules.pipelines.metadata_utils import create_metadata
 from modules.pipelines.worker import worker
 
@@ -210,6 +211,9 @@ if os.path.isdir(lora_folder_from_settings):
                     lora_name = str(PurePath(lora_relative_path).with_suffix(''))
                     lora_names.append(lora_name)
         print(f"Found LoRAs: {lora_names}")
+        # Temp solution for only 1 lora
+        if len(lora_names) == 1:
+            lora_names.append(DUMMY_LORA_NAME)
     except Exception as e:
         print(f"Error scanning LoRA directory '{lora_folder_from_settings}': {e}")
 else:

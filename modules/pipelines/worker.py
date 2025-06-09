@@ -17,6 +17,7 @@ from modules.video_queue import JobStatus
 from modules.prompt_handler import parse_timestamped_prompt
 from modules.generators import create_model_generator
 from modules.pipelines.video_tools import combine_videos_sequentially_from_tensors
+from modules import DUMMY_LORA_NAME # Import the constant
 from . import create_pipeline
 
 import __main__ as studio_module # Get a reference to the __main__ module object
@@ -87,10 +88,22 @@ def worker(
     save_metadata_checked=True  # Add save_metadata_checked parameter
 ):
     """
-    Worker function for video generation using the pipeline architecture.
+    Worker function for video generation.
     """
-
-
+    # Filter out the dummy LoRA from selected_loras at the very beginning of the worker
+    actual_selected_loras_for_worker = []
+    if isinstance(selected_loras, list):
+        actual_selected_loras_for_worker = [lora for lora in selected_loras if lora != DUMMY_LORA_NAME]
+        if DUMMY_LORA_NAME in selected_loras and DUMMY_LORA_NAME in actual_selected_loras_for_worker: # Should not happen if filter works
+            print(f"Worker.py: Error - '{DUMMY_LORA_NAME}' was selected but not filtered out.")
+        elif DUMMY_LORA_NAME in selected_loras:
+             print(f"Worker.py: Filtered out '{DUMMY_LORA_NAME}' from selected LoRAs.")
+    elif selected_loras is not None: # If it's a single string (should not happen with multiselect dropdown)
+        if selected_loras != DUMMY_LORA_NAME:
+            actual_selected_loras_for_worker = [selected_loras]
+    selected_loras = actual_selected_loras_for_worker
+    print(f"Worker: Selected LoRAs for this worker: {selected_loras}")
+    
     # Import globals from the main module
     from __main__ import high_vram, args, text_encoder, text_encoder_2, tokenizer, tokenizer_2, vae, image_encoder, feature_extractor, prompt_embedding_cache, settings, stream
     
