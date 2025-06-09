@@ -10,4 +10,4 @@ RUN pip install -r requirements.txt
 
 RUN mkdir -p /workspace/input /workspace/output
 
-CMD ["python3", "app.py", "--input", "/workspace/input", "--output", "/workspace/output"]
+CMD ["python3", "studio.py", "--input", "/workspace/input", "--output", "/workspace/output"]
