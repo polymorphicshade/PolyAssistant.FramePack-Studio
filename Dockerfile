@@ -4,7 +4,7 @@ RUN apt-get update && apt-get install -y \
     python3 python3-pip git ffmpeg wget curl \
  && pip3 install --upgrade pip
 
-RUN git clone https://github.com/colinurbs/FramePack-Studio.git /app
+RUN git clone https://github.com/polymorphicshade/PolyAssistant.FramePack-Studio /app
 WORKDIR /app
 RUN pip install -r requirements.txt
 
