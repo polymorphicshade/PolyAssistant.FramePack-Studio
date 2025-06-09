@@ -496,21 +496,35 @@ class VideoJobQueue:
             if not os.path.exists(input_files_dir):
                 return
 
+            # Normalize the managed input_files_dir path once
+            norm_input_files_dir = os.path.normpath(input_files_dir)
             referenced_video_paths = set()
+
             with self.lock: # Access self.jobs safely
                 for job_id_uuid in current_job_ids_uuids: # Iterate using the provided UUIDs
                     job = self.jobs.get(job_id_uuid)
-                    if job and job.params:
-                        # For Video models, job.params['input_image'] is the path after studio.py copy.
-                        # This is the path that decord will try to open.
-                        video_path_from_job_params = job.params.get('input_image')
-                        if isinstance(video_path_from_job_params, str) and os.path.isabs(video_path_from_job_params) and input_files_dir in os.path.normpath(video_path_from_job_params):
-                            referenced_video_paths.add(os.path.normpath(video_path_from_job_params))
-                        
-                        # Also consider 'input_image_path' which might be used by other logic or older jobs.
-                        input_image_path_val = job.params.get('input_image_path')
-                        if isinstance(input_image_path_val, str) and os.path.isabs(input_image_path_val) and input_files_dir in os.path.normpath(input_image_path_val):
-                             referenced_video_paths.add(os.path.normpath(input_image_path_val))
+                    if not (job and job.params):
+                        continue
+
+                    # Collect all potential video paths from the job parameters
+                    paths_to_consider = []
+                    p1 = job.params.get('input_image') # Primary path used by worker
+                    if isinstance(p1, str): paths_to_consider.append(p1)
+                    
+                    p2 = job.params.get('input_image_path') # Secondary/metadata path
+                    if isinstance(p2, str) and p2 != p1: paths_to_consider.append(p2)
+
+                    p3 = job.params.get('input_video') # Explicitly set during import
+                    if isinstance(p3, str) and p3 != p1 and p3 != p2: paths_to_consider.append(p3)
+
+                    for rel_or_abs_path in paths_to_consider:
+                        # Resolve to absolute path. If already absolute, abspath does nothing.
+                        # If relative, it's resolved against CWD (current working directory).
+                        abs_path = os.path.abspath(rel_or_abs_path)
+                        norm_abs_path = os.path.normpath(abs_path)
+                        # Check if this path is within the managed input_files_dir
+                        if norm_abs_path.startswith(norm_input_files_dir):
+                            referenced_video_paths.add(norm_abs_path)
 
             removed_count = 0
             for filename in os.listdir(input_files_dir):
@@ -1050,15 +1064,17 @@ class VideoJobQueue:
                             print(f"Error loading input image for job {job_id}: {e}")
                     
                     # Load video from disk if saved path exists
-                    if "input_video" in job_data and os.path.exists(job_data["input_video"]):
-                        try:
-                            video_path = job_data["input_video"]
-                            print(f"Loading video from {video_path}")
-                            params['input_image'] = video_path
-                            params['input_image_path'] = video_path
-                            params['has_input_image'] = True
-                        except Exception as e:
-                            print(f"Error loading video for job {job_id}: {e}")
+                    input_video_val = job_data.get("input_video") # Get value safely
+                    if isinstance(input_video_val, str): # Check if it's a string path
+                        if os.path.exists(input_video_val): # Now it's safe to call os.path.exists
+                            try:
+                                video_path = input_video_val # Use the validated string path
+                                print(f"Loading video from {video_path}")
+                                params['input_image'] = video_path
+                                params['input_image_path'] = video_path
+                                params['has_input_image'] = True
+                            except Exception as e:
+                                print(f"Error loading video for job {job_id}: {e}")
                     
                     # Load end frame image from disk if saved path exists
                     if "saved_end_frame_image_path" in job_data and os.path.exists(job_data["saved_end_frame_image_path"]):
@@ -1211,13 +1227,15 @@ class VideoJobQueue:
                 shutil.rmtree(temp_dir)
                 return 0
             
+            # Define target_queue_images_dir and ensure it exists
+            # This needs to be defined regardless of whether queue_images exists in the zip,
+            # as it's used later for path updates.
+            target_queue_images_dir = "queue_images"
+            os.makedirs(target_queue_images_dir, exist_ok=True)
+
             # Check if queue_images directory exists in the extracted files
             queue_images_dir = os.path.join(temp_dir, "queue_images")
             if os.path.exists(queue_images_dir) and os.path.isdir(queue_images_dir):
-                # Copy the queue_images directory to the current directory
-                target_queue_images_dir = "queue_images"
-                os.makedirs(target_queue_images_dir, exist_ok=True)
-                
                 # Copy all files from the extracted queue_images directory to the target directory
                 for file in os.listdir(queue_images_dir):
                     src_path = os.path.join(queue_images_dir, file)
@@ -1228,18 +1246,26 @@ class VideoJobQueue:
             
             # Check if input_files directory exists in the extracted files
             input_files_dir = os.path.join(temp_dir, "input_files")
+            print(f"DEBUG: Checking for input_files directory in zip: {input_files_dir}") # DEBUG
             if os.path.exists(input_files_dir) and os.path.isdir(input_files_dir):
+                print(f"DEBUG: Found input_files directory in zip. Contents: {os.listdir(input_files_dir)}") # DEBUG
                 # Copy the input_files directory to the current directory
                 target_input_files_dir = "input_files"
                 os.makedirs(target_input_files_dir, exist_ok=True)
                 
                 # Copy all files from the extracted input_files directory to the target directory
                 for file in os.listdir(input_files_dir):
+                    print(f"DEBUG: Processing file from zip's input_files: {file}") # DEBUG
                     src_path = os.path.join(input_files_dir, file)
                     dst_path = os.path.join(target_input_files_dir, file)
                     if os.path.isfile(src_path):
+                        print(f"DEBUG: Attempting to copy video file: {src_path} to {dst_path}") # DEBUG
                         shutil.copy2(src_path, dst_path)
                         print(f"Copied {src_path} to {dst_path}")
+                    else: # DEBUG
+                        print(f"DEBUG: Skipped copy, {src_path} is not a file.") # DEBUG
+            else: # DEBUG
+                print(f"DEBUG: Directory {input_files_dir} does not exist or is not a directory.") # DEBUG
                 
             # Update paths in the queue.json file to reflect the new location of the images
             try:
@@ -1273,10 +1299,28 @@ class VideoJobQueue:
                         job_data["saved_end_frame_image_path"] = os.path.join(target_queue_images_dir, os.path.basename(job_data["saved_end_frame_image_path"]))
                         print(f"Updated existing end frame image path for job {job_id}")
 
-                    if "input_video" in job_data:
-                        job_data["input_video"] = os.path.join("input_files", os.path.basename(job_data["input_video"]))
-                        print(f"Updated video path for job {job_id}: {job_data['input_video']}")
+                    # Handle video path update for job_data["input_video"]
+                    current_input_video = job_data.get("input_video")
+                    current_input_image_path = job_data.get("input_image_path")
+                    model_type_for_job = job_data.get("model_type")
+                    video_extensions = ('.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.gif') # Add more if needed
 
+                    # Prioritize input_video if it's already a string path
+                    if isinstance(current_input_video, str):
+                        job_data["input_video"] = os.path.join("input_files", os.path.basename(current_input_video))
+                        print(f"Updated video path for job {job_id} from 'input_video': {job_data['input_video']}")
+                    # If input_video is None, but input_image_path is a video path (for Video/Video F1 models)
+                    elif current_input_video is None and \
+                         isinstance(current_input_image_path, str) and \
+                         model_type_for_job in ("Video", "Video F1") and \
+                         current_input_image_path.lower().endswith(video_extensions):
+                        
+                        video_basename = os.path.basename(current_input_image_path)
+                        job_data["input_video"] = os.path.join("input_files", video_basename)
+                        print(f"Updated video path for job {job_id} from 'input_image_path' ('{current_input_image_path}') to '{job_data['input_video']}'")
+                    elif current_input_video is None:
+                        # If input_video is None and input_image_path is not a usable video path, keep input_video as None
+                        print(f"Video path for job {job_id} is None and 'input_image_path' ('{current_input_image_path}') not used for 'input_video'. 'input_video' remains None.")
                 # Write the updated queue.json back to the file
                 with open(queue_json_path, 'w') as f:
                     json.dump(queue_data, f, indent=2)
