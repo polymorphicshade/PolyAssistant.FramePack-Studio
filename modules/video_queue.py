@@ -475,11 +475,47 @@ class VideoJobQueue:
             
             # Clean up images for jobs that no longer exist
             self.cleanup_orphaned_images(job_ids)
+            self.cleanup_orphaned_videos(job_ids)
                 
             print(f"Saved {len(serialized_jobs)} jobs to queue.json")
         except Exception as e:
             print(f"Error saving queue to JSON: {e}")
     
+    def cleanup_orphaned_videos(self, current_job_ids):
+        """
+        Remove video files for jobs that no longer exist in the queue.
+        
+        Args:
+            current_job_ids: List of job IDs currently in the queue
+        """
+        try:
+            input_files_dir = "input_files"
+            if not os.path.exists(input_files_dir):
+                return
+            
+            # Convert to set for faster lookups
+            current_job_ids = set(current_job_ids)
+            
+            # Check all files in the input_files directory
+            removed_count = 0
+            for filename in os.listdir(input_files_dir):
+                # Only process video files
+                if filename.endswith(".mp4"):
+                    # If the filename is not in the current job ids, remove the file
+                    if filename.split("_")[0] not in current_job_ids:
+                        file_path = os.path.join(input_files_dir, filename)
+                        try:
+                            os.remove(file_path)
+                            removed_count += 1
+                            print(f"Removed orphaned video: {filename}")
+                        except Exception as e:
+                            print(f"Error removing orphaned video {filename}: {e}")
+            
+            if removed_count > 0:
+                print(f"Cleaned up {removed_count} orphaned videos")
+        except Exception as e:
+            print(f"Error cleaning up orphaned videos: {e}")
+
     def cleanup_orphaned_images(self, current_job_ids):
         """
         Remove image files for jobs that no longer exist in the queue.
@@ -881,6 +917,21 @@ class VideoJobQueue:
                     print(f"Warning: {queue_images_dir} directory not found or empty")
                     # Create the directory if it doesn't exist
                     os.makedirs(queue_images_dir, exist_ok=True)
+
+                # Add input_files directory to the zip file if it exists
+                input_files_dir = "input_files"
+                if os.path.exists(input_files_dir) and os.path.isdir(input_files_dir):
+                    for root, _, files in os.walk(input_files_dir):
+                        for file in files:
+                            file_path = os.path.join(root, file)
+                            # Add file to zip with path relative to input_files_dir
+                            arcname = os.path.join(os.path.basename(input_files_dir), file)
+                            zipf.write(file_path, arcname)
+                            print(f"Added {file_path} to {output_path}")
+                else:
+                    print(f"Warning: {input_files_dir} directory not found or empty")
+                    # Create the directory if it doesn't exist
+                    os.makedirs(input_files_dir, exist_ok=True)
             
             print(f"Queue exported to {output_path}")
             return output_path
@@ -982,6 +1033,17 @@ class VideoJobQueue:
                             params['has_input_image'] = True
                         except Exception as e:
                             print(f"Error loading input image for job {job_id}: {e}")
+                    
+                    # Load video from disk if saved path exists
+                    if "input_video" in job_data and os.path.exists(job_data["input_video"]):
+                        try:
+                            video_path = job_data["input_video"]
+                            print(f"Loading video from {video_path}")
+                            params['input_image'] = video_path
+                            params['input_image_path'] = video_path
+                            params['has_input_image'] = True
+                        except Exception as e:
+                            print(f"Error loading video for job {job_id}: {e}")
                     
                     # Load end frame image from disk if saved path exists
                     if "saved_end_frame_image_path" in job_data and os.path.exists(job_data["saved_end_frame_image_path"]):
@@ -1148,46 +1210,65 @@ class VideoJobQueue:
                     if os.path.isfile(src_path):
                         shutil.copy2(src_path, dst_path)
                         print(f"Copied {src_path} to {dst_path}")
+            
+            # Check if input_files directory exists in the extracted files
+            input_files_dir = os.path.join(temp_dir, "input_files")
+            if os.path.exists(input_files_dir) and os.path.isdir(input_files_dir):
+                # Copy the input_files directory to the current directory
+                target_input_files_dir = "input_files"
+                os.makedirs(target_input_files_dir, exist_ok=True)
                 
-                # Update paths in the queue.json file to reflect the new location of the images
-                try:
-                    with open(queue_json_path, 'r') as f:
-                        queue_data = json.load(f)
+                # Copy all files from the extracted input_files directory to the target directory
+                for file in os.listdir(input_files_dir):
+                    src_path = os.path.join(input_files_dir, file)
+                    dst_path = os.path.join(target_input_files_dir, file)
+                    if os.path.isfile(src_path):
+                        shutil.copy2(src_path, dst_path)
+                        print(f"Copied {src_path} to {dst_path}")
+                
+            # Update paths in the queue.json file to reflect the new location of the images
+            try:
+                with open(queue_json_path, 'r') as f:
+                    queue_data = json.load(f)
+                
+                # Update paths for each job
+                for job_id, job_data in queue_data.items():
+                    # Check for files with job_id in the name to identify input and end frame images
+                    input_image_filename = f"{job_id}_input.png"
+                    end_frame_image_filename = f"{job_id}_end_frame.png"
                     
-                    # Update paths for each job
-                    for job_id, job_data in queue_data.items():
-                        # Check for files with job_id in the name to identify input and end frame images
-                        input_image_filename = f"{job_id}_input.png"
-                        end_frame_image_filename = f"{job_id}_end_frame.png"
-                        
-                        # Check if these files exist in the target directory
-                        input_image_path = os.path.join(target_queue_images_dir, input_image_filename)
-                        end_frame_image_path = os.path.join(target_queue_images_dir, end_frame_image_filename)
-                        
-                        # Update paths in job_data
-                        if os.path.exists(input_image_path):
-                            job_data["saved_input_image_path"] = input_image_path
-                            print(f"Updated input image path for job {job_id}: {input_image_path}")
-                        elif "saved_input_image_path" in job_data:
-                            # Fallback to updating the existing path
-                            job_data["saved_input_image_path"] = os.path.join(target_queue_images_dir, os.path.basename(job_data["saved_input_image_path"]))
-                            print(f"Updated existing input image path for job {job_id}")
-                        
-                        if os.path.exists(end_frame_image_path):
-                            job_data["saved_end_frame_image_path"] = end_frame_image_path
-                            print(f"Updated end frame image path for job {job_id}: {end_frame_image_path}")
-                        elif "saved_end_frame_image_path" in job_data:
-                            # Fallback to updating the existing path
-                            job_data["saved_end_frame_image_path"] = os.path.join(target_queue_images_dir, os.path.basename(job_data["saved_end_frame_image_path"]))
-                            print(f"Updated existing end frame image path for job {job_id}")
+                    # Check if these files exist in the target directory
+                    input_image_path = os.path.join(target_queue_images_dir, input_image_filename)
+                    end_frame_image_path = os.path.join(target_queue_images_dir, end_frame_image_filename)
                     
-                    # Write the updated queue.json back to the file
-                    with open(queue_json_path, 'w') as f:
-                        json.dump(queue_data, f, indent=2)
+                    # Update paths in job_data
+                    if os.path.exists(input_image_path):
+                        job_data["saved_input_image_path"] = input_image_path
+                        print(f"Updated input image path for job {job_id}: {input_image_path}")
+                    elif "saved_input_image_path" in job_data:
+                        # Fallback to updating the existing path
+                        job_data["saved_input_image_path"] = os.path.join(target_queue_images_dir, os.path.basename(job_data["saved_input_image_path"]))
+                        print(f"Updated existing input image path for job {job_id}")
                     
-                    print(f"Updated image paths in queue.json to reflect new location")
-                except Exception as e:
-                    print(f"Error updating paths in queue.json: {e}")
+                    if os.path.exists(end_frame_image_path):
+                        job_data["saved_end_frame_image_path"] = end_frame_image_path
+                        print(f"Updated end frame image path for job {job_id}: {end_frame_image_path}")
+                    elif "saved_end_frame_image_path" in job_data:
+                        # Fallback to updating the existing path
+                        job_data["saved_end_frame_image_path"] = os.path.join(target_queue_images_dir, os.path.basename(job_data["saved_end_frame_image_path"]))
+                        print(f"Updated existing end frame image path for job {job_id}")
+
+                    if "input_video" in job_data:
+                        job_data["input_video"] = os.path.join("input_files", os.path.basename(job_data["input_video"]))
+                        print(f"Updated video path for job {job_id}: {job_data['input_video']}")
+
+                # Write the updated queue.json back to the file
+                with open(queue_json_path, 'w') as f:
+                    json.dump(queue_data, f, indent=2)
+                
+                print(f"Updated image paths in queue.json to reflect new location")
+            except Exception as e:
+                print(f"Error updating paths in queue.json: {e}")
             
             # Load the queue from the extracted queue.json
             loaded_count = self.load_queue_from_json(queue_json_path)
