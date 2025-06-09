@@ -8,6 +8,6 @@ RUN git clone https://github.com/polymorphicshade/PolyAssistant.FramePack-Studio
 WORKDIR /app
 RUN pip install -r requirements.txt
 
-RUN mkdir -p /workspace/input /workspace/output
+# RUN mkdir -p /workspace/input /workspace/output
 
-CMD ["python3", "studio.py", "--input", "/workspace/input", "--output", "/workspace/output"]
+CMD ["python3", "studio.py"]
