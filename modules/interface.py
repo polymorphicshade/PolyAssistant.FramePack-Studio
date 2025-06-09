@@ -426,7 +426,7 @@ def create_interface(
                             value="Original",
                             label="Generation Type"
                         )
-                        with gr.Accordion("Original Presets", open=True, visible=True) as preset_accordion:
+                        with gr.Accordion("Original Presets", open=False, visible=True) as preset_accordion:
                             with gr.Row():
                                 preset_dropdown = gr.Dropdown(label="Select Preset", choices=load_presets("Original"), interactive=True, scale=2)
                                 delete_preset_button = gr.Button("Delete", variant="stop", scale=1)
