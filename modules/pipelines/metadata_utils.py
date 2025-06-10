@@ -282,3 +282,43 @@ def create_metadata(job_params, job_id, settings, save_placeholder=False):
             traceback.print_exc()
         
     return metadata_dict
+
+def save_last_video_frame(job_params, job_id, settings, last_frame_np):
+    """
+    Saves the last frame of the input video to the output directory with metadata.
+    """
+    output_dir_path = job_params.get("output_dir") or settings.get("output_dir")
+    
+    if not output_dir_path:
+        print(f"[SAVE_LAST_FRAME_ERROR] No output directory found.")
+        return False
+        
+    os.makedirs(output_dir_path, exist_ok=True)
+
+    last_frame_path = os.path.join(output_dir_path, f'{job_id}.png')
+
+    metadata_dict = create_metadata(job_params, job_id, settings)
+    
+    if last_frame_np is not None and isinstance(last_frame_np, np.ndarray):
+        try:
+            png_metadata = PngInfo()
+            for key, value in metadata_dict.items():
+                if isinstance(value, (str, int, float, bool)) or value is None:
+                    png_metadata.add_text(key, str(value))
+
+            image_to_save_np = last_frame_np
+            if last_frame_np.dtype != np.uint8:
+                if last_frame_np.max() <= 1.0 and last_frame_np.min() >= -1.0 and last_frame_np.dtype in [np.float32, np.float64]:
+                     image_to_save_np = ((last_frame_np + 1.0) / 2.0 * 255.0).clip(0, 255).astype(np.uint8)
+                elif last_frame_np.max() <= 1.0 and last_frame_np.min() >= 0.0 and last_frame_np.dtype in [np.float32, np.float64]:
+                     image_to_save_np = (last_frame_np * 255.0).clip(0,255).astype(np.uint8)
+                else:
+                     image_to_save_np = last_frame_np.clip(0, 255).astype(np.uint8)
+
+            last_frame_pil = Image.fromarray(image_to_save_np)
+            last_frame_pil.save(last_frame_path, pnginfo=png_metadata)
+            print(f"Saved last video frame for job {job_id} to {last_frame_path}")
+            return True
+        except Exception as e:
+            traceback.print_exc()
+    return False

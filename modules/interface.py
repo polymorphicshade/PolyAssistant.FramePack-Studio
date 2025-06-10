@@ -780,10 +780,17 @@ def create_interface(
                     selected_file = None
                     for f in os.listdir(outputDirectory_video):
                         if f.startswith(prefix + "_") and f.endswith(".mp4"):
-                            num = int(f.replace(prefix + "_", '').replace(".mp4", ''))
-                            if num > max_number:
-                                max_number = num
-                                selected_file = f
+                            # Skip files that include "combined" in their name
+                            if "combined" in f:
+                                continue
+                            try:
+                                num = int(f.replace(prefix + "_", '').replace(".mp4", ''))
+                                if num > max_number:
+                                    max_number = num
+                                    selected_file = f
+                            except ValueError:
+                                # Ignore files that do not have a valid number in their name
+                                continue
                     return selected_file
                 # load_video_and_info_from_prefix now also returns button visibility
                 def load_video_and_info_from_prefix(prefix):

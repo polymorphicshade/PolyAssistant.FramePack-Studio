@@ -351,6 +351,14 @@ def worker(
                 input_files_dir=job_params['input_files_dir']
             )
 
+            if end_of_input_video_image_np is not None:
+                try:
+                    from modules.pipelines.metadata_utils import save_last_video_frame
+                    save_last_video_frame(job_params, job_id, settings, end_of_input_video_image_np)
+                except Exception as e:
+                    print(f"Error saving last video frame: {e}")
+                    traceback.print_exc()
+
             # RT_BORG: retained only until we make our final decisions on how to handle combining videos
             # Only necessary to retain resized frames to produce a combined video with source frames of the right dimensions 
             #if combine_with_source:
