@@ -586,14 +586,14 @@ def tb_get_formatted_toolbar_stats():
         ram_info_psutil = psutil.virtual_memory() 
         ram_used_gb = ram_info_psutil.used / (1024**3)
         ram_total_gb = ram_info_psutil.total / (1024**3)
-        ram_full_str = f"RAM: {ram_used_gb:.1f}/{ram_total_gb:.1f}GB ({ram_info_psutil.percent}%)"
+        ram_full_str = f"RAM: {ram_used_gb:.1f}/{round(ram_total_gb)}GB ({round(ram_info_psutil.percent)}%)"
 
         if torch.cuda.is_available(): 
             _, nvidia_metrics, _ = SystemMonitor.get_nvidia_gpu_info()
             if nvidia_metrics:
                 vram_used = nvidia_metrics.get('memory_used_gb', 0.0)
                 vram_total = nvidia_metrics.get('memory_total_gb', 0.0)
-                vram_full_str = f"VRAM: {vram_used:.1f}/{vram_total:.1f}GB"
+                vram_full_str = f"VRAM: {vram_used:.1f}/{round(vram_total)}GB"
                 vram_component_visible = True
                 
                 temp = nvidia_metrics.get('temperature', 0.0)
@@ -669,7 +669,7 @@ def tb_create_video_toolbox_ui():
                 tb_video_analysis_output = gr.Textbox(
                     # label="Video Analysis",
                     container=False,
-                    lines=12,
+                    lines=10,
                     show_label=False,
                     interactive=False,
                     elem_classes="analysis-box",
@@ -682,7 +682,7 @@ def tb_create_video_toolbox_ui():
                     tb_resource_monitor_output = gr.Textbox(
                         show_label=False,
                         container=False,
-                        lines=9,
+                        max_lines=8,
                         interactive=False,
                         visible=False, # Initially hidden
                     )
