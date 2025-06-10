@@ -111,7 +111,7 @@ class VideoBaseModelGenerator(BaseModelGenerator):
 
         max_latents_used_for_context = 27
         if self.get_model_name() == "Video":
-            max_latents_used_for_context = 19
+            max_latents_used_for_context = 27  # Weird results on 19
         elif self.get_model_name() == "Video F1":
             max_latents_used_for_context = 27  # Enough for even Video F1 with cleaned_frames input of 10
         else:
