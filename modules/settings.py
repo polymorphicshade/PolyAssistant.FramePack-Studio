@@ -21,7 +21,7 @@ class Settings:
             "gradio_temp_dir": str(project_root / "temp"),
             "input_files_dir": str(project_root / "input_files"),  # New setting for input files
             "auto_save_settings": True,
-            "gradio_theme": "base",
+            "gradio_theme": "default",
             "mp4_crf": 16,
             "clean_up_videos": True,
             "cleanup_temp_folder": False,

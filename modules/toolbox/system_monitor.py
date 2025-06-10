@@ -276,8 +276,8 @@ class SystemMonitor:
                     )
 
                 # VRAM Reserved (NVIDIA specific from nvidia-smi, or placeholder)
-                if 'memory_reserved_gb' in metrics and torch.cuda.is_available() and not (platform.system() == "Darwin"): # Show for NVIDIA, not Mac
-                    gpu_info_lines.append(f"💾 VRAM Reserved: {metrics.get('memory_reserved_gb', 0.0):.1f}GB")
+                # if 'memory_reserved_gb' in metrics and torch.cuda.is_available() and not (platform.system() == "Darwin"): # Show for NVIDIA, not Mac
+                    # gpu_info_lines.append(f"💾 VRAM Reserved: {metrics.get('memory_reserved_gb', 0.0):.1f}GB")
                 
                 if 'temperature' in metrics and metrics.get('temperature', 0.0) > 0: # Only show if temp is valid
                     gpu_info_lines.append(f"🌡️ GPU Temp: {metrics.get('temperature', 0.0):.0f}°C")
