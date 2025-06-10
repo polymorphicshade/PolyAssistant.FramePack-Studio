@@ -839,6 +839,36 @@ def create_interface(
                             info="If checked, temporary files will be cleaned up after each generation."
                         )
                         
+                        # gr.Markdown("---")
+                        # gr.Markdown("### Startup Settings")
+                        gr.Markdown("") 
+                        # Initial values for startup preset dropdown
+                        # Ensure settings and load_presets are available in this scope
+                        initial_startup_model_val = settings.get("startup_model_type", "None")
+                        initial_startup_presets_choices_val = []
+                        initial_startup_preset_value_val = None
+
+                        if initial_startup_model_val and initial_startup_model_val != "None":
+                            # load_presets is defined further down in create_interface
+                            initial_startup_presets_choices_val = load_presets(initial_startup_model_val)
+                            saved_preset_for_initial_model_val = settings.get("startup_preset_name")
+                            if saved_preset_for_initial_model_val in initial_startup_presets_choices_val:
+                                initial_startup_preset_value_val = saved_preset_for_initial_model_val
+                        
+                        startup_model_type_dropdown = gr.Dropdown(
+                            label="Startup Model Type",
+                            choices=["None"] + [choice[0] for choice in model_type.choices if choice[0] != "XY Plot"], # model_type is the Radio on Generate tab
+                            value=initial_startup_model_val,
+                            info="Select a model type to load on startup. 'None' to disable."
+                        )
+                        startup_preset_name_dropdown = gr.Dropdown(
+                            label="Startup Preset",
+                            choices=initial_startup_presets_choices_val,
+                            value=initial_startup_preset_value_val,
+                            info="Select a preset for the startup model. Updates when Startup Model Type changes.",
+                            interactive=True # Must be interactive to be updated by another component
+                        )
+
                         with gr.Accordion("System Prompt", open=False):
                             with gr.Row(equal_height=True): # New Row to contain checkbox and reset button
                                 override_system_prompt = gr.Checkbox(
@@ -894,7 +924,7 @@ def create_interface(
                         status = gr.HTML("")
                         cleanup_output = gr.Textbox(label="Cleanup Status", interactive=False)
 
-                        def save_settings(save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, cleanup_temp_folder, override_system_prompt_value, system_prompt_template_value, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, selected_theme):
+                        def save_settings(save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, cleanup_temp_folder, override_system_prompt_value, system_prompt_template_value, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, selected_theme, startup_model_type_val, startup_preset_name_val):
                             """Handles the manual 'Save Settings' button click."""
                             # This function is for the manual save button.
                             # It collects all current UI values and saves them.
@@ -920,7 +950,9 @@ def create_interface(
                                     lora_dir=lora_dir,
                                     gradio_temp_dir=gradio_temp_dir,
                                     auto_save_settings=auto_save,
-                                    gradio_theme=selected_theme
+                                    gradio_theme=selected_theme,
+                                    startup_model_type=startup_model_type_val,
+                                    startup_preset_name=startup_preset_name_val
                                 )
                                 # settings.save_settings() is called inside settings.save_settings if auto_save is true,
                                 # but for the manual button, we ensure it saves regardless of the auto_save flag's previous state.
@@ -956,7 +988,7 @@ def create_interface(
 
                         save_btn.click(
                             fn=save_settings,
-                            inputs=[save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, cleanup_temp_folder, override_system_prompt, system_prompt_template, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, theme_dropdown],
+                            inputs=[save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, cleanup_temp_folder, override_system_prompt, system_prompt_template, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, theme_dropdown, startup_model_type_dropdown, startup_preset_name_dropdown],
                             outputs=[status]
                         )
 
@@ -1021,6 +1053,31 @@ def create_interface(
                         
                         auto_save.change(lambda v: handle_individual_setting_change("auto_save_settings", v, "Auto-save Settings"), inputs=[auto_save], outputs=[status])
                         theme_dropdown.change(lambda v: handle_individual_setting_change("gradio_theme", v, "Theme"), inputs=[theme_dropdown], outputs=[status])
+
+                        # Event handlers for startup settings
+                        def update_startup_preset_dropdown_choices(selected_startup_model_type_from_ui):
+                            if not selected_startup_model_type_from_ui or selected_startup_model_type_from_ui == "None":
+                                return gr.update(choices=[], value=None)
+
+                            loaded_presets_for_model = load_presets(selected_startup_model_type_from_ui)
+                            
+                            # Get the preset name that was saved for the *previous* model type
+                            current_saved_startup_preset = settings.get("startup_preset_name")
+
+                            # Default to None
+                            value_to_select = None
+                            # If the previously saved preset name exists for the new model, select it
+                            if current_saved_startup_preset and current_saved_startup_preset in loaded_presets_for_model:
+                                value_to_select = current_saved_startup_preset
+                            
+                            return gr.update(choices=loaded_presets_for_model, value=value_to_select)
+
+                        startup_model_type_dropdown.change(
+                            fn=lambda v: handle_individual_setting_change("startup_model_type", v, "Startup Model Type"), 
+                            inputs=[startup_model_type_dropdown], outputs=[status]
+                        ).then( # Chain the update to the preset dropdown
+                            fn=update_startup_preset_dropdown_choices, inputs=[startup_model_type_dropdown], outputs=[startup_preset_name_dropdown])
+                        startup_preset_name_dropdown.change(lambda v: handle_individual_setting_change("startup_preset_name", v, "Startup Preset Name"), inputs=[startup_preset_name_dropdown], outputs=[status])
 
         # --- Event Handlers and Connections (Now correctly indented) ---
 
@@ -1396,13 +1453,6 @@ def create_interface(
             inputs=[model_type, input_video],
             outputs=[start_button, video_input_required_message]
         )
-        
-        # Connect the auto-check function to the interface load event
-        block.load(
-            fn=check_for_current_job_and_monitor, # Use the new combined function
-            inputs=[],
-            outputs=[current_job_id, result_video, preview_image, progress_desc, progress_bar, queue_status, queue_stats_display]
-        )
 
         cleanup_btn.click(
             fn=cleanup_temp_files,
@@ -1571,6 +1621,14 @@ def create_interface(
             return gr.update(choices=load_presets(model_type), value=None), gr.update(visible=True), gr.update(visible=False)
 
         # --- Connect Preset UI ---
+        # Without this refresh, if you define a new preset for the Startup Model Type, and then try to select it in settings, it won't show up.
+        def refresh_settings_tab_startup_presets_if_needed(generate_tab_model_type_value, settings_tab_startup_model_type_value):
+            # generate_tab_model_type_value is the model for which a preset was just saved
+            # settings_tab_startup_model_type_value is the current selection in the startup model dropdown on settings tab
+            if generate_tab_model_type_value == settings_tab_startup_model_type_value and settings_tab_startup_model_type_value != "None":
+                return update_startup_preset_dropdown_choices(settings_tab_startup_model_type_value)
+            return gr.update()
+
         ui_components = {
             "steps": steps, "total_second_length": total_second_length, "resolutionW": resolutionW,
             "resolutionH": resolutionH, "seed": seed, "randomize_seed": randomize_seed,
@@ -1598,7 +1656,11 @@ def create_interface(
         save_preset_button.click(
             fn=save_preset,
             inputs=[preset_name_textbox, model_type, *list(ui_components.values())],
-            outputs=[preset_dropdown]
+            outputs=[preset_dropdown] # preset_dropdown is on Generate tab
+        ).then(
+            fn=refresh_settings_tab_startup_presets_if_needed,
+            inputs=[model_type, startup_model_type_dropdown], # model_type (Generate tab), startup_model_type_dropdown (Settings tab)
+            outputs=[startup_preset_name_dropdown] # startup_preset_name_dropdown (Settings tab)
         )
         
         def show_delete_confirmation():
@@ -1622,6 +1684,39 @@ def create_interface(
             inputs=[preset_dropdown, model_type],
             outputs=[preset_dropdown, save_preset_button, confirm_delete_row]
         )
+
+        # --- Definition of apply_startup_settings (AFTER ui_components and apply_preset are defined) ---
+        # This function needs access to `settings`, `model_type` (Generate tab Radio),
+        # `preset_dropdown` (Generate tab Dropdown), `preset_name_textbox` (Generate tab Textbox),
+        # `ui_components` (dict of all other UI elements), `load_presets`, and `apply_preset`.
+        # All these are available in the scope of `create_interface`.
+        def apply_startup_settings():
+            startup_model_val = settings.get("startup_model_type", "None")
+            startup_preset_val = settings.get("startup_preset_name", None)
+
+            # Default updates (no change)
+            model_type_update = gr.update()
+            preset_dropdown_update = gr.update()
+            preset_name_textbox_update = gr.update()
+            
+            # ui_components is now defined
+            ui_components_updates_list = [gr.update() for _ in ui_components] 
+
+            if startup_model_val and startup_model_val != "None":
+                model_type_update = gr.update(value=startup_model_val)
+                
+                presets_for_startup_model = load_presets(startup_model_val) # load_presets is defined earlier
+                preset_dropdown_update = gr.update(choices=presets_for_startup_model)
+                preset_name_textbox_update = gr.update(value="")
+
+                if startup_preset_val and startup_preset_val in presets_for_startup_model:
+                    preset_dropdown_update = gr.update(choices=presets_for_startup_model, value=startup_preset_val)
+                    preset_name_textbox_update = gr.update(value=startup_preset_val)
+                    
+                    # apply_preset is now defined
+                    ui_components_updates_list = apply_preset(startup_preset_val, startup_model_val) 
+            
+            return tuple([model_type_update, preset_dropdown_update, preset_name_textbox_update] + ui_components_updates_list)
 
 
         # --- Auto-refresh for Toolbar System Stats Monitor (Timer) ---
@@ -1945,6 +2040,21 @@ def create_interface(
             # </script>
         # """)
 
+        # Connect the auto-check function to the interface load event
+        block.load(
+            fn=check_for_current_job_and_monitor, # Use the new combined function
+            inputs=[],
+            outputs=[current_job_id, result_video, preview_image, progress_desc, progress_bar, queue_status, queue_stats_display]
+        ).then(
+            fn=apply_startup_settings, # apply_startup_settings is now defined
+            inputs=None,
+            outputs=[model_type, preset_dropdown, preset_name_textbox] + list(ui_components.values()) # ui_components is now defined
+        ).then(
+            fn=update_start_button_state, # Ensure button state is correct after startup settings
+            inputs=[model_type, input_video], 
+            outputs=[start_button, video_input_required_message]
+        )
+        
         return block
 
 # --- Top-level Helper Functions (Used by Gradio callbacks, must be defined outside create_interface) ---
