@@ -1632,7 +1632,7 @@ def create_interface(
             "resolutionH": resolutionH, "seed": seed, "randomize_seed": randomize_seed,
             "use_teacache": use_teacache, "teacache_num_steps": teacache_num_steps,
             "teacache_rel_l1_thresh": teacache_rel_l1_thresh, "latent_window_size": latent_window_size,
-            "gs": gs, "lora_selector": lora_selector, **lora_sliders
+            "gs": gs, "combine_with_source": combine_with_source, "lora_selector": lora_selector, **lora_sliders
         }
         
         model_type.change(
@@ -1697,7 +1697,7 @@ def create_interface(
         # Function to load metadata from JSON file
         def load_metadata_from_json(json_path):
             # Define the total number of output components to handle errors gracefully
-            num_outputs = 16 + len(lora_sliders)
+            num_outputs = 17 + len(lora_sliders)
 
             if not json_path:
                 # Return empty updates for all components if no file is provided
@@ -1724,6 +1724,7 @@ def create_interface(
                 teacache_num_steps_val = metadata.get('teacache_num_steps')
                 teacache_rel_l1_thresh_val = metadata.get('teacache_rel_l1_thresh')
                 latent_type_val = metadata.get('latent_type')
+                combine_with_source_val = metadata.get('combine_with_source')
                 
                 # Get the names of the selected LoRAs from the metadata
                 selected_lora_names = list(lora_weights.keys())
@@ -1749,6 +1750,7 @@ def create_interface(
                     gr.update(value=teacache_num_steps_val) if teacache_num_steps_val is not None else gr.update(),
                     gr.update(value=teacache_rel_l1_thresh_val) if teacache_rel_l1_thresh_val is not None else gr.update(),
                     gr.update(value=latent_type_val) if latent_type_val else gr.update(),
+                    gr.update(value=combine_with_source_val) if combine_with_source_val else gr.update(),
                 ]
 
                 # Update LoRA sliders based on loaded weights
@@ -1789,7 +1791,8 @@ def create_interface(
                 use_teacache,
                 teacache_num_steps,
                 teacache_rel_l1_thresh,
-                latent_type
+                latent_type,
+                combine_with_source
             ] + [lora_sliders[lora] for lora in lora_names]
         )
 
