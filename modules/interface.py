@@ -427,7 +427,7 @@ def create_interface(
                 with gr.Row():
                     with gr.Column(scale=2):
                         model_type = gr.Radio(
-                            choices=[("Original", "Original"), ("Original with Endframe", "Original with Endframe"), ("F1", "F1"), ("Video", "Video"), ("Video with Endframe", "Video with Endframe"), ("Video F1", "Video F1"), ("XY Plot", "XY Plot")], # ADDED XY Plot option
+                            choices=[("Original", "Original"), ("Original with Endframe", "Original with Endframe"), ("F1", "F1"), ("Video", "Video"), ("Video with Endframe", "Video with Endframe"), ("Video F1", "Video F1")],
                             value="Original",
                             label="Generation Type"
                         )
@@ -929,11 +929,11 @@ def create_interface(
                             value=settings.get("auto_save_settings", True)
                         )
                         # Add Gradio Theme Dropdown
-                        gradio_themes = ["default", "base", "soft", "glass", "mono", "huggingface"]
+                        gradio_themes = ["default", "base", "soft", "glass", "mono", "origin", "citrus", "monochrome", "ocean", "NoCrypt/miku", "earneleh/paris", "gstaff/xkcd"]
                         theme_dropdown = gr.Dropdown(
                             label="Theme",
                             choices=gradio_themes,
-                            value=settings.get("gradio_theme", "soft"),
+                            value=settings.get("gradio_theme", "default"),
                             info="Select the Gradio UI theme. Requires restart."
                         )
                         save_btn = gr.Button("Save Settings")
@@ -1227,13 +1227,13 @@ def create_interface(
 
         # MODIFIED handle_send_video_to_toolbox:
         def handle_send_video_to_toolbox(original_path_from_state): # Input is now the original path from gr.State
-            print(f"Button clicked. Sending ORIGINAL video path (from State) to Post-processing: {original_path_from_state}")
+            print(f"Sending selected Outputs' video to Post-processing: {original_path_from_state}")
 
             if original_path_from_state and isinstance(original_path_from_state, str) and os.path.exists(original_path_from_state):
                 # tb_target_video_input will now process the ORIGINAL path (e.g., "outputs/my_actual_video.mp4").
                 return gr.update(value=original_path_from_state), gr.update(selected="toolbox_tab")
             else:
-                print(f"No valid original video path from State to send. Path: {original_path_from_state}")
+                print(f"No valid video path (from State) found to send. Path: {original_path_from_state}")
                 return gr.update(), gr.update()
 
         send_to_toolbox_btn.click(

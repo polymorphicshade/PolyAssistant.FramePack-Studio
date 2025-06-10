@@ -40,16 +40,16 @@ def setup_ffmpeg():
     ffprobe_path = os.path.join(bin_dir, ffprobe_name)
 
     if os.path.exists(ffmpeg_path) and os.path.exists(ffprobe_path):
-        print(f"FFmpeg and FFprobe already exist for {platform} in {bin_dir}")
+        print(f"FFmpeg is already set up in: {bin_dir}")
         return
 
     archive_path = os.path.join(bin_dir, archive_name)
 
     try:
-        print(f"Setting up FFmpeg for {platform}...")
+        print(f"FFmpeg not found. Downloading and setting up for {platform}...")
         download_ffmpeg(download_url, archive_path)
 
-        print(f"Extracting {archive_path}")
+        print("Download complete. Installing...")
         temp_extract_dir = os.path.join(bin_dir, 'temp_ffmpeg_extract')
         os.makedirs(temp_extract_dir, exist_ok=True)
 
@@ -79,23 +79,20 @@ def setup_ffmpeg():
         if not os.path.exists(source_ffmpeg_path) or not os.path.exists(source_ffprobe_path):
             raise FileNotFoundError(f"Could not find ffmpeg/ffprobe in the expected location: {source_bin_dir}")
 
-        print(f"Copying '{source_ffmpeg_path}' to '{ffmpeg_path}'")
         shutil.copy(source_ffmpeg_path, ffmpeg_path)
-        print(f"Copying '{source_ffprobe_path}' to '{ffprobe_path}'")
         shutil.copy(source_ffprobe_path, ffprobe_path)
 
         if platform == "linux":
             os.chmod(ffmpeg_path, 0o755)
             os.chmod(ffprobe_path, 0o755)
 
-        print(f"FFmpeg and FFprobe successfully installed to {bin_dir}")
+        print(f"✅ FFmpeg setup complete. Binaries are in: {bin_dir}")
 
     except Exception as e:
-        print(f"Error setting up FFmpeg: {e}")
-        # Add traceback for better debugging
+        print(f"\n❌ Error setting up FFmpeg: {e}")
         import traceback
         traceback.print_exc()
-        print("Please download FFmpeg manually and place ffmpeg/ffprobe in the 'bin' directory.")
+        print("\nPlease download FFmpeg manually and place the 'ffmpeg' and 'ffprobe' executables in the 'bin' directory.")
         print(f"Download for Windows: https://www.gyan.dev/ffmpeg/builds/")
         print(f"Download for Linux: https://johnvansickle.com/ffmpeg/")
     finally:
@@ -108,13 +105,14 @@ def setup_ffmpeg():
 def download_ffmpeg(url, destination):
     """Download a file with progress bar"""
     response = requests.get(url, stream=True)
+    response.raise_for_status() # Raise an exception for bad status codes
     total_size = int(response.headers.get('content-length', 0))
     block_size = 1024
 
-    print(f"Downloading {url} to {destination}")
-
+    # The calling function now handles the initial "Downloading..." message.
+    # This keeps the download function focused on its single responsibility.
     with open(destination, 'wb') as file, tqdm(
-            desc=destination,
+            desc=os.path.basename(destination), # Use basename for a cleaner progress bar
             total=total_size,
             unit='iB',
             unit_scale=True,
