@@ -866,12 +866,14 @@ def create_interface(
                             value=settings.get("save_metadata", 6),
                         )
                         gpu_memory_preservation = gr.Slider(
-                            label="GPU Inference Preserved Memory (GB) (larger means slower)",
+                            label="Memory Buffer for Stability (VRAM GB)",
                             minimum=1,
                             maximum=128,
                             step=0.1,
                             value=settings.get("gpu_memory_preservation", 6),
-                            info="Set this number to a larger value if you encounter OOM. Larger value causes slower speed."
+                            info="Increase reserve if you see computer freezes, stagnant generation, or super slow sampling steps (try 1G at a time).\
+                                 Otherwise smaller buffer is faster. Some models and lora need more buffer than others. \
+                                 (5.5 - 8.5 is a common range)"
                         )
                         mp4_crf = gr.Slider(
                             label="MP4 Compression",
