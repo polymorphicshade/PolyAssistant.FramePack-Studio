@@ -252,16 +252,16 @@ class VideoBaseModelGenerator(BaseModelGenerator):
             print(f"Frames preprocessed: {input_frames_resized_np.shape}")
 
             resized_frames_time_millis = time_millis()
-            print("======================================================")
-            memory_bytes = input_frames_resized_np.nbytes
-            memory_kb = memory_bytes / 1024
-            memory_mb = memory_kb / 1024
-
-            print(f"    *****    input_frames_resized_np: {input_frames_resized_np.shape}")
-            print(f"    *****    Memory usage: {int(memory_mb)} MB")
-            duration_ms = resized_frames_time_millis - encode_start_time_millis
-            print(f"    *****    Time taken to process frames tensor: {duration_ms / 1000.0:.2f} seconds")
-            print("======================================================")
+            if (False): # We really need a logger
+                print("======================================================")
+                memory_bytes = input_frames_resized_np.nbytes
+                memory_kb = memory_bytes / 1024
+                memory_mb = memory_kb / 1024
+                print(f"    *****    input_frames_resized_np: {input_frames_resized_np.shape}")
+                print(f"    *****    Memory usage: {int(memory_mb)} MB")
+                duration_ms = resized_frames_time_millis - encode_start_time_millis
+                print(f"    *****    Time taken to process frames tensor: {duration_ms / 1000.0:.2f} seconds")
+                print("======================================================")
 
             return input_frames_resized_np, fps, target_height, target_width
         except Exception as e:
@@ -366,14 +366,14 @@ class VideoBaseModelGenerator(BaseModelGenerator):
             start_latent = history_latents[:, :, :1]  # Shape: (1, channels, 1, height//8, width//8)
             print(f"Start latent shape: {start_latent.shape}")
 
-            print("======================================================")
-            memory_bytes = history_latents.nbytes
-            memory_kb = memory_bytes / 1024
-            memory_mb = memory_kb / 1024
-
-            print(f"    *****    history_latents: {history_latents.shape}")
-            print(f"    *****    Memory usage: {int(memory_mb)} MB")
-            print("======================================================")
+            if (False): # We really need a logger
+                print("======================================================")
+                memory_bytes = history_latents.nbytes
+                memory_kb = memory_bytes / 1024
+                memory_mb = memory_kb / 1024
+                print(f"    *****    history_latents: {history_latents.shape}")
+                print(f"    *****    Memory usage: {int(memory_mb)} MB")
+                print("======================================================")
 
             # Move VAE back to CPU to free GPU memory
             if device == "cuda":
