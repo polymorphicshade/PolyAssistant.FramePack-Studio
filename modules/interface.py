@@ -1623,7 +1623,7 @@ def create_interface(
             "resolutionH": resolutionH, "seed": seed, "randomize_seed": randomize_seed,
             "use_teacache": use_teacache, "teacache_num_steps": teacache_num_steps,
             "teacache_rel_l1_thresh": teacache_rel_l1_thresh, "latent_window_size": latent_window_size,
-            "gs": gs, "lora_selector": lora_selector, **lora_sliders
+            "gs": gs, "combine_with_source": combine_with_source, "lora_selector": lora_selector, **lora_sliders
         }
         
         model_type.change(
