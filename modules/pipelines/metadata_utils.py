@@ -219,6 +219,9 @@ def create_metadata(job_params, job_id, settings, save_placeholder=False):
         "y_param": job_params.get('y_param', None),
         "x_values": job_params.get('x_values', None),
         "y_values": job_params.get('y_values', None),
+
+        # Combine with source video
+        "combine_with_source": job_params.get('combine_with_source', False),
         
         # Tea cache parameters
         "use_teacache": job_params.get('use_teacache', False),
