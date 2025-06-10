@@ -625,10 +625,11 @@ def create_interface(
                     with gr.Column():
                         with gr.Row() as queue_controls_row:
                             refresh_button = gr.Button("Refresh Queue")
-                            clear_queue_button = gr.Button("Cancel Queue", variant="stop")
-                            clear_complete_button = gr.Button("Clear Complete", variant="secondary")
-                            load_queue_button = gr.Button("Load Queue")
+                            load_queue_button = gr.Button("Resume Queue")
                             queue_export_button = gr.Button("Export Queue")
+                            clear_complete_button = gr.Button("Clear Complete", variant="secondary")
+                            clear_queue_button = gr.Button("Cancel Queued Jobs", variant="stop")
+                        with gr.Row():
                             import_queue_file = gr.File(
                                 label="Import Queue",
                                 file_types=[".json", ".zip"],
