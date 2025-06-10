@@ -1049,6 +1049,7 @@ class VideoJobQueue:
                         'teacache_num_steps': job_data.get('teacache_num_steps', 25),
                         'teacache_rel_l1_thresh': job_data.get('teacache_rel_l1_thresh', 0.15),
                         'has_input_image': job_data.get('has_input_image', True),
+                        'combine_with_source': job_data.get('combine_with_source', False),
                     }
                     
                     # Load input image from disk if saved path exists
