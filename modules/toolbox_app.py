@@ -755,7 +755,7 @@ def tb_create_video_toolbox_ui():
 
 
             with gr.TabItem("🎨 Video Filters (FFmpeg)"):
-                gr.Markdown("Apply visual enhancements using FFmpeg filters. Ensure FFmpeg is fully installed for best results.")
+                gr.Markdown("Apply visual enhancements using FFmpeg filters.")
 
                 # Filter Sliders...
                 with gr.Row():
@@ -821,7 +821,7 @@ def tb_create_video_toolbox_ui():
                 )
                 tb_process_speed_factor = gr.Slider(
                     minimum=0.25, maximum=4.0, step=0.05, value=1.0, label="Adjust Video Speed Factor",
-                    info="Values < 1.0 slow down the video, values > 1.0 speed it up. Affects video and audio (if present & FFmpeg is available)."
+                    info="Values < 1.0 slow down the video, values > 1.0 speed it up. Affects video and audio."
                 )
                 tb_process_frames_btn = gr.Button("🚀 Process Frames", variant="primary")
 
@@ -933,13 +933,6 @@ def tb_create_video_toolbox_ui():
 
 *   The main Studio interface will automatically reload this model when you start a new generation task there.
 
-
-**Important Dependency: FFmpeg**
-*   Audio functions in this toolbox and reliable video analysis depend on **FFmpeg**.
-*   The application will use a "lite" version of FFmpeg bundled with `imageio-ffmpeg`.
-*   **For best results and full functionality (especially audio handling):** It's highly recommended to have a full, up-to-date version of FFmpeg (with `ffprobe`) installed on your system and accessible in your system's PATH.
-*   If FFmpeg or ffprobe is not found or not fully functional, audio handling operations might be limited and produce silent video. Check the 'Console Messages' for status.
-*   Adding ffprobe and/or full ffmpeg is likely in a future update!
 
 
 **Check Console Messages:**
