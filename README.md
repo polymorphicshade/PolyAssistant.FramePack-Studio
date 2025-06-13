@@ -7,6 +7,10 @@
 
 FramePack Studio is an AI video generation application based on FramePack that strives to provide everything you need to create high quality video projects. 
 
+![screencapture-127-0-0-1-7860-2025-06-12-19_50_37](https://github.com/user-attachments/assets/b86a8422-f4ce-452b-80eb-2ba91945f2ea)
+![screencapture-127-0-0-1-7860-2025-06-12-19_52_33](https://github.com/user-attachments/assets/ebfb31ca-85b7-4354-87c6-aaab6d1c77b1)
+
+
 ## Current Features
 
 - **F1 and Original FramePack Models**: Run both in a single queue
