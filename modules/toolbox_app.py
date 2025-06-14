@@ -32,9 +32,8 @@ functional_tensor_mod = types.ModuleType('functional_tensor')
 functional_tensor_mod.rgb_to_grayscale = rgb_to_grayscale
 sys.modules.setdefault('torchvision.transforms.functional_tensor', functional_tensor_mod)
 
-
+# --- additional instance of this for standalone mode ---
 # Try to suppress annoyingly persistent Windows asyncio proactor errors
-# additional instance of this for standalone mode
 if os.name == 'nt':  # Windows only
     import asyncio
     from functools import wraps
@@ -146,7 +145,8 @@ def tb_handle_update_monitor(monitor_enabled): # This updates the TOOLBOX TAB's 
 def tb_handle_analyze_video(video_path):
     tb_message_mgr.clear()
     analysis = tb_processor.tb_analyze_video_input(video_path)
-    return tb_update_messages(), analysis
+    # Return a third value to control the accordion's 'open' state
+    return tb_update_messages(), analysis, gr.update(open=True)
 
 def tb_handle_process_frames(video_path, fps_mode, speed_factor, progress=gr.Progress()):
     tb_message_mgr.clear()
@@ -271,8 +271,6 @@ def tb_handle_reassemble_frames(
         progress=progress
     )
     return output_video, tb_update_messages()
-
-# --- NEW/MODIFIED HANDLERS for Frames Studio ---
 
 def tb_handle_extract_frames(video_path, extraction_rate, progress=gr.Progress()):
     tb_message_mgr.clear()
@@ -406,80 +404,114 @@ def tb_handle_input_tab_change(evt: gr.SelectData):
         visibility_update, # tb_batch_include_frame_adjust
         visibility_update  # tb_batch_include_loop
     )
-    
-# --- BATCH PROCESSING HANDLER ---
-def tb_handle_batch_process(
-    input_video_paths,
+
+def tb_handle_start_pipeline(
+    # 1. Active Tab Index
+    active_tab_index,
+    # 2. Selected Operations
+    selected_ops,
+    # Inputs
+    single_video_path, batch_video_paths,
     # Upscale
-    include_upscale, model_key, output_scale_factor, tile_size, enhance_face, denoise_strength,
+    model_key, output_scale_factor, tile_size, enhance_face, denoise_strength,
     # Frame Adjust
-    include_frame_adjust, fps_mode, speed_factor,
-    # Loop
-    include_loop, loop_type, num_loops,
-    # Filters
-    include_filters, brightness, contrast, saturation, temperature, sharpen, blur, denoise, vignette, s_curve_contrast, film_grain_strength,
+    fps_mode, speed_factor,
+    # Loop (Now before Filters to match the input list order)
+    loop_type, num_loops,
+    # Filters (Now after Loop)
+    brightness, contrast, saturation, temperature, sharpen, blur, denoise, vignette, s_curve_contrast, film_grain_strength,
     progress=gr.Progress()
 ):
     tb_message_mgr.clear()
-    if not input_video_paths:
-        tb_message_mgr.add_warning("No videos were uploaded for batch processing.")
+    input_paths_to_process = []
+    
+    if active_tab_index == 1 and batch_video_paths and len(batch_video_paths) > 0:
+        # Process batch only if the batch tab is active and it has files
+        input_paths_to_process = batch_video_paths
+        tb_message_mgr.add_message(f"Starting BATCH pipeline for {len(input_paths_to_process)} videos (from active Batch tab).")
+    elif active_tab_index == 0 and single_video_path:
+        # Process single video only if the single tab is active and it has a video
+        input_paths_to_process = [single_video_path]
+        tb_message_mgr.add_message(f"Starting SINGLE video pipeline for {os.path.basename(single_video_path)} (from active Single tab).")
+    else:
+        # Handle cases where the active tab is empty
+        if active_tab_index == 1:
+            tb_message_mgr.add_warning("Batch Input tab is active, but no files were provided.")
+        else: # active_tab_index == 0 or default
+            tb_message_mgr.add_warning("Single Video Input tab is active, but no video was provided.")
         return None, tb_update_messages()
 
+    if not selected_ops:
+        tb_message_mgr.add_warning("No operations selected for the pipeline. Please check at least one box in 'Pipeline Steps'.")
+        return None, tb_update_messages()
+
+    # Map checkbox labels to operation keys
+    op_map = {
+        "upscale": "upscale",
+        "frames": "frame_adjust",
+        "loop": "loop",
+        "filters": "filters"
+    }
+    
+    # Define the execution order
+    execution_order = ["upscale", "frame_adjust", "filters", "loop"]
+    
     pipeline_config = {"operations": []}
 
-    # Build the pipeline configuration based on user selections
-    # The order here defines the execution order
-    if include_upscale:
-        pipeline_config["operations"].append({
-            "name": "upscale",
-            "params": {
-                "model_key": model_key,
-                "output_scale_factor_ui": float(output_scale_factor),
-                "tile_size": int(tile_size),
-                "enhance_face": enhance_face,
-                "denoise_strength_ui": denoise_strength
-            }
-        })
-
-    if include_frame_adjust:
-        pipeline_config["operations"].append({
-            "name": "frame_adjust",
-            "params": {
-                "target_fps_mode": fps_mode,
-                "speed_factor": speed_factor
-            }
-        })
-    
-    if include_loop:
-        pipeline_config["operations"].append({
-            "name": "loop",
-            "params": {
-                "loop_type": loop_type,
-                "num_loops": num_loops
-            }
-        })
+    # Build the pipeline configuration based on user selections in the correct order
+    for op_key in execution_order:
+        # Find the display name from the op_map that corresponds to the current key
+        display_name = next((d_name for d_name, k_name in op_map.items() if k_name == op_key), None)
         
-    if include_filters:
-        pipeline_config["operations"].append({
-            "name": "filters",
-            "params": {
-                "brightness": brightness, "contrast": contrast, "saturation": saturation, "temperature": temperature,
-                "sharpen": sharpen, "blur": blur, "denoise": denoise, "vignette": vignette,
-                "s_curve_contrast": s_curve_contrast, "film_grain_strength": film_grain_strength
-            }
-        })
+        if display_name and display_name in selected_ops:
+            if op_key == "upscale":
+                pipeline_config["operations"].append({
+                    "name": "upscale",
+                    "params": {
+                        "model_key": model_key,
+                        "output_scale_factor_ui": float(output_scale_factor),
+                        "tile_size": int(tile_size),
+                        "enhance_face": enhance_face,
+                        "denoise_strength_ui": denoise_strength
+                    }
+                })
+            elif op_key == "frame_adjust":
+                pipeline_config["operations"].append({
+                    "name": "frame_adjust",
+                    "params": { "target_fps_mode": fps_mode, "speed_factor": speed_factor }
+                })
+            elif op_key == "loop":
+                pipeline_config["operations"].append({
+                    "name": "loop",
+                    "params": { "loop_type": loop_type, "num_loops": num_loops }
+                })
+            elif op_key == "filters":
+                pipeline_config["operations"].append({
+                    "name": "filters",
+                    "params": {
+                        "brightness": brightness, "contrast": contrast, "saturation": saturation, "temperature": temperature,
+                        "sharpen": sharpen, "blur": blur, "denoise": denoise, "vignette": vignette,
+                        "s_curve_contrast": s_curve_contrast, "film_grain_strength": film_grain_strength
+                    }
+                })
 
-    if not pipeline_config["operations"]:
-        tb_message_mgr.add_warning("You clicked 'Start Batch Process', but no operations were included. Please check at least one 'Include in Batch' box.")
-        return None, tb_update_messages()
-    
-    # Call the new batch processor method
-    tb_processor.tb_process_video_batch(input_video_paths, pipeline_config, progress)
-    
-    # Since batch processing can have many outputs, we don't display one in the player.
-    # We just return the messages.
-    return None, tb_update_messages()
+    # Call the batch processor, which now handles both single and batch jobs
+    final_video_path = tb_processor.tb_process_video_batch(input_paths_to_process, pipeline_config, progress)
 
+    # Return the final video path to the player (will be None for batch, path for single)
+    return final_video_path, tb_update_messages()
+    
+def tb_handle_tab_change_debug(evt: gr.SelectData):
+    """Debug handler to confirm tab selection is being registered."""
+    if not evt: # Should not happen in practice but good for safety
+        return 0, tb_update_messages()
+        
+    index = evt.index
+    tab_name = "Single Video" if index == 0 else "Batch Video"
+    tb_message_mgr.add_message(f"DEBUG: Active tab changed to -> {tab_name} (Index: {index})")
+    
+    # Return the new index for the state and the updated messages
+    return index, tb_update_messages()
 
 def tb_handle_upscale_video(video_path, model_key_selected, output_scale_factor_from_slider, tile_size, enhance_face_ui, denoise_strength_from_slider, progress=gr.Progress()):
     tb_message_mgr.clear()
@@ -722,17 +754,46 @@ def tb_handle_clear_temp_files():
 def tb_handle_use_processed_as_input(processed_video_path):
     if not processed_video_path:
         tb_message_mgr.add_warning("No processed video available to use as input.")
-        return gr.update(), tb_update_messages()
+        # Return updates for all 3 outputs, changing nothing.
+        return gr.update(), tb_update_messages(), gr.update()
     else:
         tb_message_mgr.add_message("Moved processed video to input.")
-        return processed_video_path, tb_update_messages()
+        # Return new value for input, messages, and None to clear analysis.
+        return processed_video_path, tb_update_messages(), None
 
-def tb_clear_processed_on_successful_move(original_processed_video_path_from_click_input):
-    if original_processed_video_path_from_click_input:
-        return None, None
-    else:
-        return gr.update(), gr.update()
+def tb_handle_join_videos(video_files_list, custom_output_name, progress=gr.Progress()): # Add new parameter
+    tb_message_mgr.clear()
+    
+    if not video_files_list:
+        tb_message_mgr.add_warning("No video files were uploaded to join.")
+        return None, tb_update_messages()
+        
+    video_paths = [file.name for file in video_files_list]
+    
+    # Pass the custom name to the processor
+    output_video = tb_processor.tb_join_videos(video_paths, custom_output_name, progress)
+    return output_video, tb_update_messages()
 
+def tb_handle_export_video(video_path, export_format, quality, max_width, custom_name, progress=gr.Progress()):
+    tb_message_mgr.clear()
+    if not video_path:
+        tb_message_mgr.add_warning("No input video in the top-left player to export.")
+        # Return None for the video player and the message update
+        return None, tb_update_messages()
+
+    # The input video for this operation is ALWAYS the one in the main input player.
+    output_file = tb_processor.tb_export_video(
+        video_path,
+        export_format,
+        quality,
+        max_width,
+        custom_name,
+        progress
+    )
+    
+    # Return the path to the new video and the updated messages.
+    return output_file, tb_update_messages()
+    
 def tb_get_formatted_toolbar_stats():
     vram_full_str = "VRAM: N/A"
     gpu_full_str = "GPU: N/A"
@@ -790,72 +851,76 @@ def tb_create_video_toolbox_ui():
     with gr.Column() as tb_toolbox_ui_main_container:
         with gr.Row():
             with gr.Column(scale=1):
-                # --- NEW: Input Area with Tabs ---
-                with gr.Tabs(elem_id="toolbox_input_tabs") as tb_input_tabs: # Assign to variable
+                # Replace gr.State with a hidden gr.Number for robust state passing
+                tb_active_tab_index_storage = gr.Number(value=0, visible=False)
+
+                with gr.Tabs(elem_id="toolbox_input_tabs") as tb_input_tabs:
                     with gr.TabItem("Single Video Input", id=0):
                         tb_input_video_component = gr.Video(
-                            label="Upload Video for post-processing",
+                            label="Upload Video for processing",
                             autoplay=True,
                             elem_classes="video-size",
                             elem_id="toolbox-video-player"
                         )
-                        tb_analyze_button = gr.Button("📊 Analyze Video")
                     with gr.TabItem("Batch Video Input", id=1):
                         tb_batch_input_files = gr.File(
                             label="Upload Multiple Videos for Batch Processing",
                             file_count="multiple",
-                            type="filepath" # Returns a list of file paths
+                            type="filepath"
                         )
-                        tb_start_batch_btn = gr.Button("🚀 Start Batch Process", variant="primary", visible=False)
-                        gr.Markdown("Configure operations in the tabs below and check 'Include in Batch' for each one you want to apply.")
 
-
+                with gr.Column(elem_id="pipeline-controls-wrapper"): # Wrapper for CSS targeting
+                    with gr.Accordion("Processing Pipeline - optional for single - required for batch", open=True):
+                        with gr.Group():
+                            tb_pipeline_steps_chkbox = gr.CheckboxGroup(
+                                label="Pipeline Steps (executed in order)",
+                                choices=["upscale", "frames", "filters", "loop"],
+                                value=[], # Default to no steps selected
+                                info="1: configure your settings in the operations tab down below. 2: use this panel to select which to apply. 3: press 'Start Pipeline Processing'"
+                            )
+                            with gr.Row():                              
+                                tb_start_pipeline_btn = gr.Button("🚀 Start Pipeline Processing", variant="primary", size="sm")
+                        
             with gr.Column(scale=1):
                 with gr.Tabs(elem_id="toolbox_output_tabs"):
                     with gr.TabItem("Video Output"):
                         tb_processed_video_output = gr.Video(
                             label="Processed Video",
-                            # info="For single video operations, the output appears here. Batch outputs are saved to disk.",
                             autoplay=True,
                             interactive=False,
                             elem_classes="video-size"
                         )
                         with gr.Row():
-                            tb_use_processed_as_input_btn = gr.Button("🔄 Use Processed as Input", scale=3)
-                            tb_manual_save_btn = gr.Button(
-                                "💾 Save to Permanent Folder",
-                                variant="secondary",
-                                scale=3,
-                                visible=not initial_autosave_state
-                            )
-                            tb_autosave_checkbox = gr.Checkbox(
-                                label="Autosave",
-                                value=initial_autosave_state,
-                                scale=1
-                            )
-    with gr.Accordion("💡 Video Analysis and System Monitor", open=True):
-        with gr.Row():
-            with gr.Column(scale=1):
-                tb_video_analysis_output = gr.Textbox(
-                    container=False, lines=10, show_label=False,
-                    interactive=False, elem_classes="analysis-box",
-                )
-            with gr.Column(scale=1):
-                with gr.Row(scale=4):
-                    tb_monitor_toggle_checkbox = gr.Checkbox(label="Live System Monitoring", scale=1, value=False)
-                    tb_delete_studio_transformer_btn = gr.Button("📤 Unload Studio Model", scale=3, variant="stop")
-                with gr.Row():
+                            tb_use_processed_as_input_btn = gr.Button("Use as Input", size="sm", scale=4)
+                            tb_manual_save_btn = gr.Button("Manual Save", variant="secondary", size="sm", scale=4, visible=not initial_autosave_state)
+                
+        with gr.Row():                  
+            with gr.Column():
+                with gr.Group():                        
+                    tb_analyze_button = gr.Button("Click to Analyze Input Video", size="sm", variant="huggingface")
+                    with gr.Accordion("Video Analysis Results", open=False) as tb_analysis_accordion:
+                        tb_video_analysis_output = gr.Textbox(
+                            container=False, lines=10, show_label=False,
+                            interactive=False, elem_classes="analysis-box",
+                        )
+                        
+            with gr.Column():                        
+                with gr.Group():
+                    with gr.Row():
+                        tb_monitor_toggle_checkbox = gr.Checkbox(label="Live System Monitoring", value=False)
+                        tb_autosave_checkbox = gr.Checkbox(label="Autosave", value=initial_autosave_state)
                     tb_resource_monitor_output = gr.Textbox(
                         show_label=False, container=False, max_lines=8,
                         interactive=False, visible=False,
                     )
+                    with gr.Row():                          
+                        tb_delete_studio_transformer_btn = gr.Button("Click to Unload Studio Model", size="sm", scale=3, variant="stop")
 
     with gr.Accordion("Operations", open=True):
         with gr.Tabs():
             with gr.TabItem("📈 Upscale Video (ESRGAN)"):
                 with gr.Row():
                     gr.Markdown("Upscale video resolution using Real-ESRGAN.")
-                    tb_batch_include_upscale = gr.Checkbox(label="Include in Batch", value=False, visible=False)
                 with gr.Row():
                     with gr.Column(scale=2):
                         tb_upscale_model_select = gr.Dropdown(
@@ -905,10 +970,22 @@ def tb_create_video_toolbox_ui():
                 with gr.Row():
                     tb_upscale_video_btn = gr.Button("🚀 Upscale Video", variant="primary")
 
+            with gr.TabItem("🎞️ Frame Adjust (Speed & Interpolation)"):
+                with gr.Row():
+                    gr.Markdown("Adjust video speed and interpolate frames using RIFE AI.")
+                tb_process_fps_mode = gr.Radio(
+                    choices=["No Interpolation", "2x Frames", "4x Frames"], value="No Interpolation", label="RIFE Frame Interpolation",
+                    info="Select '2x' or '4x' RIFE Interpolation to double or quadruple the frame rate, creating smoother motion. 4x is more intensive and runs the 2x process twice."
+                )
+                tb_process_speed_factor = gr.Slider(
+                    minimum=0.25, maximum=4.0, step=0.05, value=1.0, label="Adjust Video Speed Factor",
+                    info="Values < 1.0 slow down the video, values > 1.0 speed it up. Affects video and audio."
+                )
+                tb_process_frames_btn = gr.Button("🚀 Process Frames", variant="primary")
+
             with gr.TabItem("🎨 Video Filters (FFmpeg)"):
                 with gr.Row():
                     gr.Markdown("Apply visual enhancements using FFmpeg filters.")
-                    tb_batch_include_filters = gr.Checkbox(label="Include in Batch", value=False, visible=False)
                 with gr.Row():
                     tb_filter_brightness = gr.Slider(-100, 100, value=TB_DEFAULT_FILTER_SETTINGS["brightness"], step=1, label="Brightness (%)", info="Adjusts overall image brightness.")
                     tb_filter_contrast = gr.Slider(0, 3, value=TB_DEFAULT_FILTER_SETTINGS["contrast"], step=0.05, label="Contrast (Linear)", info="Increases/decreases difference between light/dark areas.")
@@ -944,29 +1021,11 @@ def tb_create_video_toolbox_ui():
                             tb_delete_preset_btn = gr.Button("🗑️ Delete", variant="stop", scale=1)
                         with gr.Row():
                             tb_reset_filters_btn = gr.Button("🔄 Reset All Sliders to 'None' Preset")
-
-            with gr.TabItem("🎞️ Frame Adjust (Speed & Interpolation)"):
-                with gr.Row():
-                    gr.Markdown("Adjust video speed and interpolate frames using RIFE AI.")
-                    # MODIFIED: Set visible=False initially
-                    tb_batch_include_frame_adjust = gr.Checkbox(label="Include in Batch", value=False, visible=False)
-                # ... (rest of Frame Adjust tab is unchanged) ...
-                tb_process_fps_mode = gr.Radio(
-                    choices=["No Interpolation", "2x RIFE Interpolation"], value="No Interpolation", label="RIFE Frame Interpolation",
-                    info="Select '2x RIFE Interpolation' to double the frame rate, creating smoother motion."
-                )
-                tb_process_speed_factor = gr.Slider(
-                    minimum=0.25, maximum=4.0, step=0.05, value=1.0, label="Adjust Video Speed Factor",
-                    info="Values < 1.0 slow down the video, values > 1.0 speed it up. Affects video and audio."
-                )
-                tb_process_frames_btn = gr.Button("🚀 Process Frames", variant="primary")
-
+                            
             with gr.TabItem("🔄 Video Loop"):
                 with gr.Row():
                     gr.Markdown("Create looped or ping-pong versions of the video.")
-                    # MODIFIED: Set visible=False initially
-                    tb_batch_include_loop = gr.Checkbox(label="Include in Batch", value=False, visible=False)
-                # ... (rest of Video Loop tab is unchanged) ...
+
                 tb_loop_type_select = gr.Radio(choices=["loop", "ping-pong"], value="loop", label="Loop Type")
                 tb_num_loops_slider = gr.Slider(
                     minimum=1, maximum=10, step=1, value=1, label="Number of Loops/Repeats",
@@ -977,6 +1036,9 @@ def tb_create_video_toolbox_ui():
             with gr.TabItem("🖼️ Frames Studio"):
                 with gr.Column():
                     gr.Markdown("### 1. Extract Frames from Video")
+                    gr.Markdown(
+                        "⚠️ **Warning:** Extracting frames from high-resolution (e.g., 4K+) or long videos can consume a significant amount of disk space (many gigabytes) and may cause the Frames Studio gallery to load slowly. Proceed with caution."
+                    )
                     gr.Markdown("Extract frames from the **uploaded video (top-left)** as images. These folders can then be loaded into the Frames Studio below.")
                     with gr.Row():
                         tb_extract_rate_slider = gr.Number(
@@ -1005,10 +1067,12 @@ def tb_create_video_toolbox_ui():
 
                     # Redesigned Studio Area
                     with gr.Column(variant="panel"):
-                        tb_frames_gallery = gr.Gallery(
-                            label="Extracted Frames", show_label=False, elem_id="toolbox_frames_gallery",
-                            columns=8, height=600, object_fit="contain", preview=True
-                        )
+                        with gr.Column(elem_id="gallery-scroll-wrapper"):
+                            tb_frames_gallery = gr.Gallery(
+                                label="Extracted Frames", show_label=False, elem_id="toolbox_frames_gallery",
+                                columns=8, # height is now controlled by the wrapper's CSS
+                                object_fit="contain", preview=True
+                            )
                         with gr.Row():
                             with gr.Column(scale=1, min_width=220):
                                 tb_save_selected_frame_btn = gr.Button("💾 Save Selected Frame", interactive=False)
@@ -1026,9 +1090,62 @@ def tb_create_video_toolbox_ui():
                         tb_reassemble_video_name_input = gr.Textbox(label="Output Video Name (optional, .mp4 added)", placeholder="e.g., my_edited_video")
                     tb_reassemble_frames_btn = gr.Button("🧩 Reassemble From Studio", variant="primary")
 
+            with gr.TabItem("🧩 Join Videos (Concatenate)"):
+                with gr.Accordion("Select two or more videos to join them together into a single file", open=True):
+                    gr.Markdown(
+                        """
+                        *   **Input:** The Input accepts multiple videos dragged in or ctrl+clicked via `Click to Upload`**.
+                        *   **Output:** The result will appear in the **'Processed Video' player (top-right)** for you to review.
+                        *   **Saving:** The output is saved to your 'saved_videos' folder if 'Autosave' is enabled. Otherwise, you must click the 'Manual Save' button.
+                        """                    
+                    )
+                tb_join_videos_input = gr.File(
+                    label="Upload Videos to Join",
+                    file_count="multiple",
+                    file_types=["video", "file"]
+                )
 
-        with gr.Accordion("💡 Post-processing Guide & Tips", open=False):
-            gr.Markdown(value="""### This set of tools is designed to help you post-process your generated videos.
+                tb_join_video_name_input = gr.Textbox(
+                    label="Output Video Name (optional, .mp4 and timestamp added)", 
+                    placeholder="e.g., my_awesome_compilation"
+                )
+                
+                tb_join_videos_btn = gr.Button("🤝 Join Videos", variant="primary")
+                
+            with gr.TabItem("📦 Export & Compress"):
+                with gr.Accordion("Compress your final video and/or convert it into a shareable format", open=True):
+                    gr.Markdown(
+                        """
+                        *   **Input:** This operation always uses the video in the **'Upload Video' player (top-left)**.
+                        *   **Output:** The result will appear in the **'Processed Video' player (top-right)** for you to review.
+                        *   **Saving:** The output is saved to your 'saved_videos' folder if 'Autosave' is enabled. Otherwise, you must click the 'Manual Save' button.
+                        *   **Note:** WebM and GIF encoding can be slow for long or high-resolution videos. Please be patient!
+                        """
+                    )
+                with gr.Row():
+                    with gr.Column(scale=2):
+                        tb_export_format_radio = gr.Radio(
+                            ["MP4", "WebM", "GIF"], value="MP4", label="Output Format",
+                            info="MP4 is best for general use. WebM is great for web/Discord (smaller size). GIF is for universal animated images (no sound)."
+                        )
+                        tb_export_quality_slider = gr.Slider(
+                            0, 100, value=85, step=1, label="Quality",
+                            info="Higher quality means a larger file size. 80-90 is a good balance for MP4/WebM."
+                        )
+                    with gr.Column(scale=2):
+                        tb_export_resize_slider = gr.Slider(
+                            256, 2048, value=1024, step=64, label="Max Width (pixels)",
+                            info="Resizes the video to this maximum width while maintaining aspect ratio. A powerful way to reduce file size."
+                        )
+                        tb_export_name_input = gr.Textbox(
+                            label="Output Filename (optional)",
+                            placeholder="e.g., my_final_video_for_discord"
+                        )
+                
+                tb_export_video_btn = gr.Button("🚀 Export Video", variant="primary")
+                
+    with gr.Accordion("💡 Post-processing Guide & Tips", open=False):
+        gr.Markdown(value="""### This set of tools is designed to help you post-process your generated videos.
 
 
 **Core Workflow:**
@@ -1099,11 +1216,11 @@ def tb_create_video_toolbox_ui():
 *   The **'Console Messages' box** at the bottom of the tab provides important feedback, status updates, warnings, and error messages for all operations. Always check it if something doesn't seem right!
             """)
 
-        with gr.Row():
-            tb_message_output = gr.Textbox(label="Console Messages", lines=10, interactive=False, elem_classes="message-box", value=tb_update_messages)
-        with gr.Row():
-            tb_open_folder_button = gr.Button("📁 Open Output Folder", scale=4)
-            tb_clear_temp_button = gr.Button("🗑️ Clear Temporary Files", variant="stop", scale=1)
+    with gr.Row():
+        tb_message_output = gr.Textbox(label="Console Messages", lines=10, interactive=False, elem_classes="message-box", value=tb_update_messages)
+    with gr.Row():
+        tb_open_folder_button = gr.Button("📁 Open Output Folder", scale=4)
+        tb_clear_temp_button = gr.Button("🗑️ Clear Temporary Files", variant="stop", scale=1)
 
         # --- Event Handlers ---
 
@@ -1113,50 +1230,42 @@ def tb_create_video_toolbox_ui():
             tb_filter_s_curve_contrast, tb_filter_film_grain_strength
         ]
         
-        _BATCH_MODE_COMPONENTS_ = [
-            tb_start_batch_btn,
-            tb_batch_include_upscale,
-            tb_batch_include_filters,
-            tb_batch_include_frame_adjust,
-            tb_batch_include_loop
-        ]
-        
-        # --- BATCH PROCESS HANDLER ---
-        _ALL_BATCH_INPUTS_ = [
-            tb_batch_input_files,
+        _ALL_PIPELINE_INPUTS_ = [
+            tb_active_tab_index_storage, # Use the hidden gr.Number instead of gr.State
+            tb_pipeline_steps_chkbox,
+            # Inputs
+            tb_input_video_component, tb_batch_input_files,
             # Upscale
-            tb_batch_include_upscale, tb_upscale_model_select, tb_upscale_factor_slider, tb_upscale_tile_size_radio, tb_upscale_enhance_face_checkbox, tb_denoise_strength_slider,
+            tb_upscale_model_select, tb_upscale_factor_slider, tb_upscale_tile_size_radio, tb_upscale_enhance_face_checkbox, tb_denoise_strength_slider,
             # Frame Adjust
-            tb_batch_include_frame_adjust, tb_process_fps_mode, tb_process_speed_factor,
+            tb_process_fps_mode, tb_process_speed_factor,
             # Loop
-            tb_batch_include_loop, tb_loop_type_select, tb_num_loops_slider,
+            tb_loop_type_select, tb_num_loops_slider,
             # Filters
-            tb_batch_include_filters, * _ORDERED_FILTER_SLIDERS_
+            *_ORDERED_FILTER_SLIDERS_
         ]
-        tb_start_batch_btn.click(
-            fn=tb_handle_batch_process,
-            inputs=_ALL_BATCH_INPUTS_,
-            outputs=[tb_processed_video_output, tb_message_output]
-        )
-        
-        # MODIFIED: Add the new event listener for tab changes
-        tb_input_tabs.select(
-            fn=tb_handle_input_tab_change,
-            inputs=None, # The event data is passed implicitly
-            outputs=_BATCH_MODE_COMPONENTS_
-        )
-        tb_start_batch_btn.click(
-            fn=tb_handle_batch_process,
-            inputs=_ALL_BATCH_INPUTS_,
-            outputs=[tb_processed_video_output, tb_message_output]
-        )
 
+        tb_start_pipeline_btn.click(
+            fn=tb_handle_start_pipeline,
+            inputs=_ALL_PIPELINE_INPUTS_,
+            outputs=[tb_processed_video_output, tb_message_output]
+        )
+        # Listen for tab changes and update the state component
+        tb_input_tabs.select(
+            fn=tb_handle_tab_change_debug,
+            inputs=None, # evt is passed implicitly
+            outputs=[tb_active_tab_index_storage, tb_message_output]
+        )
 
         # --- SINGLE VIDEO HANDLERS ---
         tb_input_video_component.upload(fn=lambda: (tb_message_mgr.clear() or tb_update_messages(), None), outputs=[tb_message_output, tb_video_analysis_output])
         tb_input_video_component.clear(fn=lambda: (tb_message_mgr.clear() or tb_update_messages(), None, None), outputs=[tb_message_output, tb_video_analysis_output, tb_processed_video_output])
 
-        tb_analyze_button.click(fn=tb_handle_analyze_video, inputs=[tb_input_video_component], outputs=[tb_message_output, tb_video_analysis_output])
+        tb_analyze_button.click(
+            fn=tb_handle_analyze_video,
+            inputs=[tb_input_video_component],
+            outputs=[tb_message_output, tb_video_analysis_output, tb_analysis_accordion]
+        )
         tb_process_frames_btn.click(fn=tb_handle_process_frames, inputs=[tb_input_video_component, tb_process_fps_mode, tb_process_speed_factor], outputs=[tb_processed_video_output, tb_message_output])
         tb_create_loop_btn.click(fn=tb_handle_create_loop, inputs=[tb_input_video_component, tb_loop_type_select, tb_num_loops_slider], outputs=[tb_processed_video_output, tb_message_output])
 
@@ -1170,9 +1279,9 @@ def tb_create_video_toolbox_ui():
         tb_reset_filters_btn.click(fn=tb_handle_reset_all_filters, inputs=None, outputs=[tb_filter_preset_select, tb_new_preset_name_input, *_ORDERED_FILTER_SLIDERS_, tb_message_output])
 
         tb_use_processed_as_input_btn.click(
-            fn=tb_handle_use_processed_as_input, inputs=[tb_processed_video_output], outputs=[tb_input_video_component, tb_message_output]
-        ).then(
-            fn=tb_clear_processed_on_successful_move, inputs=[tb_processed_video_output], outputs=[tb_processed_video_output, tb_video_analysis_output]
+            fn=tb_handle_use_processed_as_input,
+            inputs=[tb_processed_video_output],
+            outputs=[tb_input_video_component, tb_message_output, tb_video_analysis_output]
         )
 
         tb_upscale_video_btn.click(
@@ -1208,7 +1317,6 @@ def tb_create_video_toolbox_ui():
             inputs=[tb_extracted_folders_dropdown], outputs=[tb_clear_selected_folder_btn]
         )
 
-        # New Studio Handlers
         tb_load_frames_to_studio_btn.click(
             fn=tb_handle_load_frames_to_studio,
             inputs=[tb_extracted_folders_dropdown],
@@ -1244,7 +1352,27 @@ def tb_create_video_toolbox_ui():
             inputs=[tb_extracted_folders_dropdown, tb_reassemble_output_fps, tb_reassemble_video_name_input],
             outputs=[tb_processed_video_output, tb_message_output]
         )
-
+        
+        tb_join_videos_btn.click(
+            fn=tb_handle_join_videos,
+            # Add the new textbox to the inputs list
+            inputs=[tb_join_videos_input, tb_join_video_name_input],
+            outputs=[tb_processed_video_output, tb_message_output]
+        )
+        
+        tb_export_video_btn.click(
+            fn=tb_handle_export_video,
+            inputs=[
+                tb_input_video_component, # The video to process
+                tb_export_format_radio,
+                tb_export_quality_slider,
+                tb_export_resize_slider,
+                tb_export_name_input
+            ],
+            # The outputs now include the video player.
+            outputs=[tb_processed_video_output, tb_message_output]
+        )
+        
         # --- Other System Handlers ---
         tb_open_folder_button.click(fn=lambda: tb_processor.tb_open_output_folder() or tb_update_messages(), outputs=[tb_message_output])
         tb_monitor_toggle_checkbox.change(fn=lambda is_enabled: gr.update(visible=is_enabled), inputs=[tb_monitor_toggle_checkbox], outputs=[tb_resource_monitor_output])
@@ -1254,6 +1382,7 @@ def tb_create_video_toolbox_ui():
         tb_manual_save_btn.click(fn=tb_handle_manually_save_video, inputs=[tb_processed_video_output], outputs=[tb_processed_video_output, tb_message_output])
 
         def tb_handle_autosave_toggle(autosave_is_on_ui_value):
+            settings_instance.set("toolbox_autosave_enabled", autosave_is_on_ui_value)
             tb_processor.set_autosave_mode(autosave_is_on_ui_value)
             return {
                 tb_manual_save_btn: gr.update(visible=not autosave_is_on_ui_value),
@@ -1263,8 +1392,10 @@ def tb_create_video_toolbox_ui():
         tb_clear_temp_button.click(fn=tb_handle_clear_temp_files, inputs=None, outputs=[tb_processed_video_output, tb_message_output])
 
     return tb_toolbox_ui_main_container, tb_input_video_component
-    
+ 
+ 
 # --- Main execution block for standalone mode ---
+
 if __name__ == "__main__":
     import argparse
 
@@ -1285,11 +1416,20 @@ if __name__ == "__main__":
         #toolbox-video-player .source-selection {
             display: none !important;
         }
-        /* control sizing for tb_input_video_component */    
+        /* control sizing for gr.Video components */    
         .video-size video {
             max-height: 60vh;
             min-height: 300px !important;
             object-fit: contain;
+        }
+        /* NEW: Closes the gap between input tabs and the pipeline accordion below them */
+        #pipeline-controls-wrapper {
+            margin-top: -15px !important; /* Adjust this value to get the perfect "snug" fit */
+        }
+        /* --- NEW CSS RULE FOR GALLERY SCROLLING --- */
+        #gallery-scroll-wrapper {
+            max-height: 600px; /* Set your desired fixed height */
+            overflow-y: auto;   /* Add a scrollbar only when needed */
         }
         """
 
