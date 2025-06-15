@@ -597,8 +597,11 @@ def tb_handle_delete_workflow_preset(preset_name):
         return gr.update(), gr.update(value=clean_name), *([gr.update()] * 23), tb_update_messages()
 
 def tb_handle_reset_workflow_to_defaults():
-    # This function simply loads the 'None' preset, which resets everything.
-    return tb_handle_load_workflow_preset("None")
+    # This function loads the 'None' preset to get the reset values for most components...
+    load_outputs = tb_handle_load_workflow_preset("None")
+    # ...then it PREPENDS an update specifically for the dropdown menu.
+    # The first value is for the dropdown, the rest are for the components in _WORKFLOW_LOAD_OUTPUTS_
+    return gr.update(value="None"), *load_outputs
 
 # --- END: New Workflow Preset Handlers ---
 
@@ -1520,12 +1523,14 @@ def tb_create_video_toolbox_ui():
         tb_workflow_delete_btn.click(
             fn=tb_handle_delete_workflow_preset,
             inputs=[tb_workflow_preset_name_input],
+            # This list now also needs the dropdown prepended
             outputs=[tb_workflow_preset_select, *_WORKFLOW_LOAD_OUTPUTS_]
         )
         tb_workflow_reset_btn.click(
             fn=tb_handle_reset_workflow_to_defaults,
             inputs=None,
-            outputs=_WORKFLOW_LOAD_OUTPUTS_
+            # The outputs list now starts with the dropdown, followed by the standard load outputs
+            outputs=[tb_workflow_preset_select, *_WORKFLOW_LOAD_OUTPUTS_]
         )
         # --- End Workflow Preset Handlers ---
 
