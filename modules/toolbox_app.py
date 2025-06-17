@@ -1307,7 +1307,7 @@ def tb_create_video_toolbox_ui():
                             tb_frames_gallery = gr.Gallery(
                                 label="Extracted Frames", show_label=False, elem_id="toolbox_frames_gallery",
                                 columns=8, # height is now controlled by the wrapper's CSS
-                                object_fit="contain", preview=True
+                                object_fit="contain", preview=False
                             )
                         with gr.Row():
                             with gr.Column(scale=1, min_width=220):
