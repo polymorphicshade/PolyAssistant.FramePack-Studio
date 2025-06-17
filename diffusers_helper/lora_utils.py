@@ -1,20 +1,22 @@
 from pathlib import Path, PurePath
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Union, Tuple
 from diffusers.loaders.lora_pipeline import _fetch_state_dict
 from diffusers.loaders.lora_conversion_utils import _convert_hunyuan_video_lora_to_diffusers
 from diffusers.utils.peft_utils import set_weights_and_activate_adapters
 from diffusers.loaders.peft import _SET_ADAPTER_SCALE_FN_MAPPING
 import torch
 
-def load_lora(transformer, lora_path: Path, weight_name: Optional[str] = "pytorch_lora_weights.safetensors"):
+def load_lora(transformer: torch.nn.Module, lora_path: Path, weight_name: str) -> Tuple[torch.nn.Module, str]:
     """
     Load LoRA weights into the transformer model.
 
     Args:
         transformer: The transformer model to which LoRA weights will be applied.
-        lora_path (Path): Path to the LoRA weights file.
-        weight_name (Optional[str]): Name of the weight to load.
+        lora_path: Path to the folder containing the LoRA weights file.
+        weight_name: Filename of the weight to load.
 
+    Returns:
+        A tuple containing the modified transformer and the canonical adapter name.
     """
     
     state_dict = _fetch_state_dict(
@@ -55,7 +57,7 @@ def load_lora(transformer, lora_path: Path, weight_name: Optional[str] = "pytorc
     transformer.load_lora_adapter(state_dict, network_alphas=None, adapter_name=adapter_name)
     print(f"LoRA weights '{adapter_name}' loaded successfully.")
     
-    return transformer
+    return transformer, adapter_name
 
 def unload_all_loras(transformer):
     """
@@ -100,32 +102,40 @@ def unload_all_loras(transformer):
     
     return transformer
 
-    
-# TODO(neph1): remove when HunyuanVideoTransformer3DModelPacked is in _SET_ADAPTER_SCALE_FN_MAPPING
 def set_adapters(
-        transformer,
-        adapter_names: Union[List[str], str],
-        weights: Optional[Union[float, Dict, List[float], List[Dict], List[None]]] = None,
-    ):
-
+    transformer: torch.nn.Module,
+    adapter_names: Union[List[str], str],
+    weights: Optional[Union[float, List[float]]] = None,
+):
+    """
+    Activates and sets the weights for one or more LoRA adapters.
+    """
     adapter_names = [adapter_names] if isinstance(adapter_names, str) else adapter_names
 
-    # Expand weights into a list, one entry per adapter
-    # examples for e.g. 2 adapters:  [{...}, 7] -> [7,7] ; None -> [None, None]
+    # Expand a single weight to apply to all adapters if needed
     if not isinstance(weights, list):
         weights = [weights] * len(adapter_names)
 
     if len(adapter_names) != len(weights):
         raise ValueError(
-            f"Length of adapter names {len(adapter_names)} is not equal to the length of their weights {len(weights)}."
+            f"The number of adapter names ({len(adapter_names)}) does not match the number of weights ({len(weights)})."
         )
 
-    # Set None values to default of 1.0
-    # e.g. [{...}, 7] -> [{...}, 7] ; [None, None] -> [1.0, 1.0]
-    weights = [w if w is not None else 1.0 for w in weights]
+    # Replace any None weights with a default value of 1.0
+    sanitized_weights = [w if w is not None else 1.0 for w in weights]
 
-    # e.g. [{...}, 7] -> [{expanded dict...}, 7]
-    scale_expansion_fn = _SET_ADAPTER_SCALE_FN_MAPPING["HunyuanVideoTransformer3DModel"]
-    weights = scale_expansion_fn(transformer, weights)
+    # Dynamically get the class name to find the correct scaling function.
+    transformer_class_name = transformer.__class__.__name__
+    scale_expansion_fn = _SET_ADAPTER_SCALE_FN_MAPPING.get(transformer_class_name)
+    
+    final_weights = []
+    if scale_expansion_fn:
+        print(f"Using scale expansion function for model class '{transformer_class_name}'...")
+        for weight in sanitized_weights:
+            expanded_weight = scale_expansion_fn(transformer, [weight])
+            final_weights.append(expanded_weight[0])
+    else:
+        print(f"Warning: No scale expansion function found for '{transformer_class_name}'. Using raw weights.")
+        final_weights = sanitized_weights
 
-    set_weights_and_activate_adapters(transformer, adapter_names, weights)
+    set_weights_and_activate_adapters(transformer, adapter_names, final_weights)
