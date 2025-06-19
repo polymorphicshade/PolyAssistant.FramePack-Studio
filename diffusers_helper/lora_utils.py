@@ -6,6 +6,10 @@ from diffusers.utils.peft_utils import set_weights_and_activate_adapters
 from diffusers.loaders.peft import _SET_ADAPTER_SCALE_FN_MAPPING
 import torch
 
+FALLBACK_CLASS_ALIASES = {
+    "HunyuanVideoTransformer3DModelPacked": "HunyuanVideoTransformer3DModel",
+}
+
 def load_lora(transformer: torch.nn.Module, lora_path: Path, weight_name: str) -> Tuple[torch.nn.Module, str]:
     """
     Load LoRA weights into the transformer model.
@@ -59,9 +63,15 @@ def load_lora(transformer: torch.nn.Module, lora_path: Path, weight_name: str) -
     
     return transformer, adapter_name
 
-def unload_all_loras(transformer):
+def unload_all_loras(transformer: torch.nn.Module) -> torch.nn.Module:
     """
     Completely unload all LoRA adapters from the transformer model.
+
+    Args:
+        transformer: The transformer model from which LoRA adapters will be removed.
+
+    Returns:
+        The transformer model after all LoRA adapters have been removed.
     """
     if hasattr(transformer, 'peft_config') and transformer.peft_config:
         # Get all adapter names
@@ -102,13 +112,50 @@ def unload_all_loras(transformer):
     
     return transformer
 
+def resolve_expansion_class_name(
+    transformer: torch.nn.Module, 
+    fallback_aliases: Dict[str, str], 
+    fn_mapping: Dict[str, callable]
+) -> Optional[str]:
+    """
+    Resolves the canonical class name for adapter scale expansion functions,
+    considering potential fallback aliases.
+
+    Args:
+        transformer: The transformer model instance.
+        fallback_aliases: A dictionary mapping model class names to fallback class names.
+        fn_mapping: A dictionary mapping class names to their respective scale expansion functions.
+
+    Returns:
+        The resolved class name as a string if a matching scale function is found,
+        otherwise None.
+    """
+    class_name = transformer.__class__.__name__
+
+    if class_name in fn_mapping:
+        return class_name
+
+    fallback_class = fallback_aliases.get(class_name)
+    if fallback_class in fn_mapping:
+        print(f"Warning: No scale function for '{class_name}'. Falling back to '{fallback_class}'")
+        return fallback_class
+
+    return None
+
 def set_adapters(
     transformer: torch.nn.Module,
     adapter_names: Union[List[str], str],
     weights: Optional[Union[float, List[float]]] = None,
 ):
     """
-    Activates and sets the weights for one or more LoRA adapters.
+    Activates and sets the weights for one or more LoRA adapters on the transformer model.
+
+    Args:
+        transformer: The transformer model to which LoRA adapters are applied.
+        adapter_names: A single adapter name (str) or a list of adapter names (List[str]) to activate.
+        weights: Optional. A single float weight or a list of float weights
+                 corresponding to each adapter name. If None, defaults to 1.0 for each adapter.
+                 If a single float, it will be applied to all adapters.
     """
     adapter_names = [adapter_names] if isinstance(adapter_names, str) else adapter_names
 
@@ -124,18 +171,24 @@ def set_adapters(
     # Replace any None weights with a default value of 1.0
     sanitized_weights = [w if w is not None else 1.0 for w in weights]
 
-    # Dynamically get the class name to find the correct scaling function.
+    resolved_class_name = resolve_expansion_class_name(
+        transformer,
+        fallback_aliases=FALLBACK_CLASS_ALIASES,
+        fn_mapping=_SET_ADAPTER_SCALE_FN_MAPPING
+    )
+
     transformer_class_name = transformer.__class__.__name__
-    scale_expansion_fn = _SET_ADAPTER_SCALE_FN_MAPPING.get(transformer_class_name)
-    
-    final_weights = []
-    if scale_expansion_fn:
-        print(f"Using scale expansion function for model class '{transformer_class_name}'...")
-        for weight in sanitized_weights:
-            expanded_weight = scale_expansion_fn(transformer, [weight])
-            final_weights.append(expanded_weight[0])
+
+    if resolved_class_name:
+        scale_expansion_fn = _SET_ADAPTER_SCALE_FN_MAPPING[resolved_class_name]
+        print(f"Using scale expansion function for model class '{resolved_class_name}' (original: '{transformer_class_name}')")
+        final_weights = [
+            scale_expansion_fn(transformer, [weight])[0] for weight in sanitized_weights
+        ]
     else:
         print(f"Warning: No scale expansion function found for '{transformer_class_name}'. Using raw weights.")
         final_weights = sanitized_weights
 
     set_weights_and_activate_adapters(transformer, adapter_names, final_weights)
+    
+    print(f"Adapters {adapter_names} activated with weights {final_weights}.")
