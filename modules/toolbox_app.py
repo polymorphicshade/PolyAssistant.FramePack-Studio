@@ -344,11 +344,20 @@ def tb_handle_clear_selected_folder(selected_folder_to_delete):
     tb_message_mgr.clear()
     if not selected_folder_to_delete:
         tb_message_mgr.add_warning("No folder selected from the dropdown to delete.")
-        return tb_update_messages(), gr.update()
+        return tb_update_messages(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update()
 
     success = tb_processor.tb_delete_extracted_frames_folder(selected_folder_to_delete)
     updated_folders = tb_processor.tb_get_extracted_frame_folders()
-    return tb_update_messages(), gr.update(choices=updated_folders, value=None)
+    
+    # Return updates for all components: messages, dropdown, gallery, info box, and the two frame action buttons.
+    return (
+        tb_update_messages(),
+        gr.update(choices=updated_folders, value=None), # Update dropdown
+        None,  # Clear the gallery
+        None,  # Clear the info box
+        gr.update(interactive=False),  # Disable save button
+        gr.update(interactive=False)   # Disable delete button
+    )
 
 def tb_handle_load_frames_to_studio(selected_folder):
     tb_message_mgr.clear()
@@ -406,26 +415,56 @@ def _get_frame_path_from_ui(selected_folder, frame_info_str):
     full_path = os.path.join(tb_processor.extracted_frames_target_path, selected_folder, filename_to_process)
     return full_path, None
 
+def tb_handle_delete_and_refresh_gallery(selected_folder, frame_info_str):
+    """
+    Deletes the selected frame, gets the updated frame list, and explicitly
+    determines the next frame to select to create a seamless workflow.
+    """
+    if not selected_folder:
+        tb_message_mgr.add_warning("Cannot delete frame: No folder selected.")
+        return gr.update(), gr.update(), gr.update(), gr.update(), tb_update_messages()
 
-def tb_handle_delete_selected_frame(selected_folder, frame_info_str):
-    """
-    Handler for the delete button. Calls backend and returns the status message.
-    The message log is NOT cleared here.
-    """
-    # NO tb_message_mgr.clear()
-    
-    full_path, error = _get_frame_path_from_ui(selected_folder, frame_info_str)
+    full_path_to_delete, error = _get_frame_path_from_ui(selected_folder, frame_info_str)
     if error:
-        # We can still add a main log message for critical errors if we want
-        tb_message_mgr.add_error(error)
-        return error, tb_update_messages() # Return error to both places
+        tb_message_mgr.add_error(f"Could not identify frame to delete: {error}")
+        return gr.update(), gr.update(), gr.update(), gr.update(), tb_update_messages()
 
-    # Call the processor, which now returns a message string
-    status_message = tb_processor.tb_delete_single_frame(full_path)
-    
-    # Return the status message for the info box, and any other messages for the main console
-    return status_message, tb_update_messages()
+    old_frame_list = tb_processor.tb_get_frames_from_folder(selected_folder)
+    try:
+        deleted_index = old_frame_list.index(full_path_to_delete)
+    except ValueError:
+        tb_message_mgr.add_error(f"Consistency error: Frame '{os.path.basename(full_path_to_delete)}' not found in its folder's frame list before deletion.")
+        # As a fallback, just delete and refresh to a safe state
+        tb_processor.tb_delete_single_frame(full_path_to_delete)
+        updated_frame_list_fallback = tb_processor.tb_get_frames_from_folder(selected_folder)
+        return updated_frame_list_fallback, "Select a frame...", gr.update(interactive=False), gr.update(interactive=False), tb_update_messages()
 
+    tb_processor.tb_delete_single_frame(full_path_to_delete) # This logs the success message
+    new_frame_list = tb_processor.tb_get_frames_from_folder(selected_folder)
+
+    if not new_frame_list:
+        # The folder is now empty
+        info_text = "All frames have been deleted."
+        return [], info_text, gr.update(interactive=False), gr.update(interactive=False), tb_update_messages()
+    else:
+        # Determine the index of the next frame to highlight.
+        # This keeps the selection at the same position, or on the new last item if the old last item was deleted.
+        next_selection_index = min(deleted_index, len(new_frame_list) - 1)
+        
+        # Explicitly generate the info for the frame that will now be selected.
+        new_selected_path = new_frame_list[next_selection_index]
+        filename = os.path.basename(new_selected_path)
+        info_text = f"File: {filename}"
+        try:
+            img = imageio.imread(new_selected_path)
+            h, w, *_ = img.shape
+            info_text += f"\nDimensions: {w}x{h}"
+        except Exception as e:
+            tb_message_mgr.add_warning(f"Could not read dimensions for new selection {filename}: {e}")
+
+        # Return all the new state information to update the UI in one go.
+        return new_frame_list, info_text, gr.update(interactive=True), gr.update(interactive=True), tb_update_messages()
+        
 def tb_handle_save_selected_frame(selected_folder, frame_info_str):
     """Handler for the save button. Calls the backend processor."""
     tb_message_mgr.clear()
@@ -1311,10 +1350,20 @@ def tb_create_video_toolbox_ui():
                             )
                         with gr.Row():
                             with gr.Column(scale=1, min_width=220):
-                                tb_save_selected_frame_btn = gr.Button("💾 Save Selected Frame", interactive=False)
-                                tb_delete_selected_frame_btn = gr.Button("🗑️ Delete Selected Frame", variant="stop", interactive=False)
+                                tb_save_selected_frame_btn = gr.Button("💾 Save Selected Frame", size="sm", interactive=False)
+                                tb_delete_selected_frame_btn = gr.Button("🗑️ Delete Selected Frame", size="sm", variant="stop", interactive=False)
                             with gr.Column(scale=3):
-                                tb_frame_info_box = gr.Textbox(label="Selected Frame Info", interactive=False, placeholder="Click a frame in the gallery above to select it.", lines=2)
+                                # This row now contains the info box and the new clear button
+                                with gr.Row():
+                                    tb_frame_info_box = gr.Textbox(
+                                        # label="Selected Frame Info",
+                                        interactive=False,
+                                        placeholder="Click a frame in the gallery above to select it.",
+                                        container=False,
+                                        lines=2,
+                                        scale=4
+                                    )
+                                    tb_clear_gallery_btn = gr.Button("🧹 Clear Gallery", size="sm", scale=1)
 
                 gr.Markdown("---")
 
@@ -1599,11 +1648,20 @@ def tb_create_video_toolbox_ui():
             inputs=[tb_extracted_folders_dropdown], outputs=[tb_clear_selected_folder_btn]
         )
         tb_clear_selected_folder_btn.click(
-            fn=tb_handle_clear_selected_folder, inputs=[tb_extracted_folders_dropdown],
-            outputs=[tb_message_output, tb_extracted_folders_dropdown]
+            fn=tb_handle_clear_selected_folder,
+            inputs=[tb_extracted_folders_dropdown],
+            outputs=[
+                tb_message_output,
+                tb_extracted_folders_dropdown,
+                tb_frames_gallery,
+                tb_frame_info_box,
+                tb_save_selected_frame_btn,
+                tb_delete_selected_frame_btn
+            ]
         ).then(
             fn=lambda selection: gr.update(interactive=bool(selection)),
-            inputs=[tb_extracted_folders_dropdown], outputs=[tb_clear_selected_folder_btn]
+            inputs=[tb_extracted_folders_dropdown],
+            outputs=[tb_clear_selected_folder_btn]
         )
 
         tb_load_frames_to_studio_btn.click(
@@ -1617,25 +1675,31 @@ def tb_create_video_toolbox_ui():
             outputs=[tb_frame_info_box, tb_save_selected_frame_btn, tb_delete_selected_frame_btn]
         )
         tb_delete_selected_frame_btn.click(
-            fn=tb_handle_delete_selected_frame,
+            fn=tb_handle_delete_and_refresh_gallery,
             inputs=[tb_extracted_folders_dropdown, tb_frame_info_box],
-            outputs=[tb_frame_info_box, tb_message_output] # Step 1: Delete and update logs. Info box gets delete status.
-        ).then(
-            # Step 2: Refresh the gallery content ONLY. Don't touch messages or the info box.
-            fn=tb_processor.tb_get_frames_from_folder,
-            inputs=[tb_extracted_folders_dropdown],
-            outputs=[tb_frames_gallery]
-        ).then(
-            # Step 3: Disable buttons, as the selection is now invalid.
-            fn=lambda: (gr.update(interactive=False), gr.update(interactive=False)),
-            inputs=None,
-            outputs=[tb_save_selected_frame_btn, tb_delete_selected_frame_btn]
-        )
+            outputs=[
+                tb_frames_gallery,
+                tb_frame_info_box,
+                tb_save_selected_frame_btn,
+                tb_delete_selected_frame_btn,
+                tb_message_output
+            ]
+        )        
         tb_save_selected_frame_btn.click(
             fn=tb_handle_save_selected_frame,
             inputs=[tb_extracted_folders_dropdown, tb_frame_info_box],
             outputs=[tb_message_output, tb_frame_info_box]
         )
+        tb_clear_gallery_btn.click(
+            fn=lambda: (None, "Click a frame in the gallery above to select it.", gr.update(interactive=False), gr.update(interactive=False)),
+            inputs=None,
+            outputs=[
+                tb_frames_gallery,
+                tb_frame_info_box,
+                tb_save_selected_frame_btn,
+                tb_delete_selected_frame_btn
+            ]
+        )        
         tb_reassemble_frames_btn.click(
             fn=tb_handle_reassemble_frames,
             inputs=[tb_extracted_folders_dropdown, tb_reassemble_output_fps, tb_reassemble_video_name_input],
