@@ -1640,11 +1640,35 @@ def create_interface(
             return gr.update()
 
         ui_components = {
-            "steps": steps, "total_second_length": total_second_length, "resolutionW": resolutionW,
-            "resolutionH": resolutionH, "seed": seed, "randomize_seed": randomize_seed,
-            "use_teacache": use_teacache, "teacache_num_steps": teacache_num_steps,
-            "teacache_rel_l1_thresh": teacache_rel_l1_thresh, "latent_window_size": latent_window_size,
-            "gs": gs, "combine_with_source": combine_with_source, "lora_selector": lora_selector, **lora_sliders
+            # Prompts
+            "prompt": prompt,
+            "n_prompt": n_prompt,
+            "blend_sections": blend_sections,
+            # Basic Params
+            "steps": steps,
+            "total_second_length": total_second_length,
+            "resolutionW": resolutionW,
+            "resolutionH": resolutionH,
+            "seed": seed,
+            "randomize_seed": randomize_seed,
+            # Advanced Params
+            "gs": gs,
+            "cfg": cfg,
+            "rs": rs,
+            "latent_window_size": latent_window_size,
+            # TeaCache
+            "use_teacache": use_teacache,
+            "teacache_num_steps": teacache_num_steps,
+            "teacache_rel_l1_thresh": teacache_rel_l1_thresh,
+            # Input Options
+            "latent_type": latent_type,
+            "end_frame_strength_original": end_frame_strength_original,
+            # Video Specific
+            "combine_with_source": combine_with_source,
+            "num_cleaned_frames": num_cleaned_frames,
+            # LoRAs
+            "lora_selector": lora_selector,
+            **lora_sliders
         }
         
         model_type.change(
