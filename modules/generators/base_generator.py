@@ -244,22 +244,21 @@ class BaseModelGenerator(ABC):
         strengths = []
 
         for idx, lora_base_name in enumerate(selected_loras):
-            found_path = None
+            lora_file = None
             for ext in (".safetensors", ".pt"):
-                path = lora_dir / f"{lora_base_name}{ext}"
-                if path.is_file():
-                    found_path = path
+                candidate_path_relative = f"{lora_base_name}{ext}"
+                candidate_path_full = lora_dir / candidate_path_relative
+                if candidate_path_full.is_file():
+                    lora_file = candidate_path_relative
                     break
             
-            if not found_path:
+            if not lora_file:
                 print(f"Warning: LoRA file for base name '{lora_base_name}' not found; skipping.")
                 continue
 
-            print(f"Loading LoRA from '{found_path.name}'...")
+            print(f"Loading LoRA from '{lora_file}'...")
             
-            self.transformer, adapter_name = lora_utils.load_lora(
-                self.transformer, lora_dir, found_path.name
-            )
+            self.transformer, adapter_name = lora_utils.load_lora(self.transformer, lora_dir, lora_file)
             adapter_names.append(adapter_name)
 
             weight = 1.0
