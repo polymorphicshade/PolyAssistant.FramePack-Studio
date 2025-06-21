@@ -35,7 +35,8 @@ class VideoProcessor:
         self.device_obj = torch.device(device_name_str) # Store device_obj
         self.esrgan_upscaler = ESRGANUpscaler(message_manager, self.device_obj)
         self.settings = settings
-
+        self.project_root = Path(__file__).resolve().parents[2]
+        
         # FFmpeg/FFprobe paths and status flags
         self.ffmpeg_exe = None
         self.ffprobe_exe = None
@@ -1697,35 +1698,63 @@ class VideoProcessor:
         except Exception as e:
             self.message_manager.add_error(f"Error opening folder {folder_path}: {e}")
 
-    def tb_clear_temporary_files(self):
-        temp_dir_path_str = str(self._base_temp_output_dir)
-        self.message_manager.add_message(f"Attempting to clear temporary files in: {temp_dir_path_str}", "INFO")
-        
-        cleared_successfully = False
-        if os.path.exists(temp_dir_path_str):
-            try:
-                # Count items for logging
-                items = os.listdir(temp_dir_path_str)
-                file_count = sum(1 for item in items if os.path.isfile(os.path.join(temp_dir_path_str, item)))
-                dir_count = sum(1 for item in items if os.path.isdir(os.path.join(temp_dir_path_str, item)))
-                
-                shutil.rmtree(temp_dir_path_str)
-                self.message_manager.add_success(
-                    f"Successfully removed temporary directory and its contents ({file_count} files, {dir_count} subdirectories)."
-                )
-                cleared_successfully = True
-            except Exception as e:
-                self.message_manager.add_error(f"Error deleting temporary directory '{temp_dir_path_str}': {e}")
-                self.message_manager.add_error(traceback.format_exc())
-        else:
-            self.message_manager.add_message("Temporary directory does not exist. Nothing to clear.", "INFO")
-            cleared_successfully = True
+    def _tb_clean_directory(self, dir_path, dir_description):
+        """
+        Helper to clean a single temp directory and return a single, formatted status line.
+        """
+        LABEL_WIDTH = 32  # Width for the description label for alignment
+        status_icon = "✅"
+        status_text = ""
+
+        # Make path relative for cleaner logging
+        try:
+            display_path = os.path.relpath(dir_path, self.project_root) if dir_path else "N/A"
+        except (ValueError, TypeError):
+            display_path = str(dir_path) # Fallback if path is weird
+
+        if not dir_path or not os.path.exists(dir_path):
+            status_icon = "ℹ️"
+            status_text = "Path not found or not set."
+            return f"[{status_icon}] {dir_description:<{LABEL_WIDTH}} : {status_text}"
 
         try:
-            os.makedirs(temp_dir_path_str, exist_ok=True) # Always recreate
-            if cleared_successfully: self.message_manager.add_message(f"Recreated temporary directory: {temp_dir_path_str}", "INFO")
-        except Exception as e_recreate:
-            self.message_manager.add_error(f"CRITICAL: Failed to recreate temporary directory '{temp_dir_path_str}': {e_recreate}. Processing may fail.")
-            self.message_manager.add_error(traceback.format_exc())
-            cleared_successfully = False
-        return cleared_successfully
+            items = os.listdir(dir_path)
+            file_count = sum(1 for item in items if os.path.isfile(os.path.join(dir_path, item)))
+            dir_count = sum(1 for item in items if os.path.isdir(os.path.join(dir_path, item)))
+            
+            if file_count == 0 and dir_count == 0:
+                 status_text = f"Already empty at '{display_path}'"
+            else:
+                shutil.rmtree(dir_path)
+                
+                # --- Dynamic String Building ---
+                summary_parts = []
+                if file_count > 0:
+                    summary_parts.append(f"{file_count} file{'s' if file_count != 1 else ''}")
+                if dir_count > 0:
+                    summary_parts.append(f"{dir_count} folder{'s' if dir_count != 1 else ''}")
+                
+                status_text = f"Cleaned ({' and '.join(summary_parts)}) from '{display_path}'"
+            
+            os.makedirs(dir_path, exist_ok=True)
+
+        except Exception as e:
+            status_icon = "❌"
+            status_text = f"ERROR cleaning '{display_path}': {e}"
+
+        return f"[{status_icon}] {dir_description:<{LABEL_WIDTH}} : {status_text}"
+        
+    def tb_clear_temporary_files(self):
+        """
+        Clears all temporary file locations and returns a formatted summary string.
+        """
+        # 1. Clean Post-processing Temp Folder
+        postproc_temp_dir = self._base_temp_output_dir
+        postproc_summary_line = self._tb_clean_directory(postproc_temp_dir, "Post-processing temp folder")
+
+        # 2. Clean Gradio Temp Folder
+        gradio_temp_dir = self.settings.get("gradio_temp_dir")
+        gradio_summary_line = self._tb_clean_directory(gradio_temp_dir, "Gradio temp folder")
+
+        # Join the individual lines into a single string for printing
+        return f"{postproc_summary_line}\n{gradio_summary_line}"

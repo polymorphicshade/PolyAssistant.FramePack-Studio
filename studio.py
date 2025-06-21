@@ -3,7 +3,7 @@ from diffusers_helper.hf_login import login
 import json
 import os
 import shutil
-from pathlib import PurePath
+from pathlib import PurePath, Path
 import time
 import argparse
 import traceback
@@ -199,6 +199,19 @@ os.makedirs(outputs_folder, exist_ok=True)
 # Initialize settings
 settings = Settings()
 
+# NEW: auto-cleanup on start-up option in Settings
+if settings.get("auto_cleanup_on_startup", False):
+    print("--- Running Automatic Startup Cleanup ---")
+    
+    # Import the processor instance
+    from modules.toolbox_app import tb_processor
+    
+    # Call the single cleanup function and print its summary.
+    cleanup_summary = tb_processor.tb_clear_temporary_files()
+    print(f"{cleanup_summary}") # This cleaner print handles the multiline string well
+    
+    print("--- Startup Cleanup Complete ---")
+        
 # --- Populate LoRA names AFTER settings are loaded ---
 lora_folder_from_settings: str = settings.get("lora_dir", default_lora_folder) # Use setting, fallback to default
 print(f"Scanning for LoRAs in: {lora_folder_from_settings}")

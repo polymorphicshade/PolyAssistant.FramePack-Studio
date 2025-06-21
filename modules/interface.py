@@ -30,6 +30,7 @@ from diffusers_helper.bucket_tools import find_nearest_bucket
 from modules.pipelines.metadata_utils import create_metadata
 from modules import DUMMY_LORA_NAME # Import the constant
 
+from modules.toolbox_app import tb_processor
 from modules.toolbox_app import tb_create_video_toolbox_ui, tb_get_formatted_toolbar_stats
 from modules.xy_plot_ui import create_xy_plot_ui, xy_plot_process
 
@@ -848,6 +849,11 @@ def create_interface(
                             value=settings.get("cleanup_temp_folder", True),
                             info="If checked, temporary files will be cleaned up after each generation."
                         )
+                        auto_cleanup_on_startup = gr.Checkbox(
+                            label="Automatically clean up temp folders on startup",
+                            value=settings.get("auto_cleanup_on_startup", False),
+                            info="If checked, temporary files (inc. post-processing) will be cleaned up when the application starts."
+                        )
                         
                         # gr.Markdown("---")
                         # gr.Markdown("### Startup Settings")
@@ -934,7 +940,7 @@ def create_interface(
                         status = gr.HTML("")
                         cleanup_output = gr.Textbox(label="Cleanup Status", interactive=False)
 
-                        def save_settings(save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, cleanup_temp_folder, override_system_prompt_value, system_prompt_template_value, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, selected_theme, startup_model_type_val, startup_preset_name_val):
+                        def save_settings(save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, cleanup_temp_folder, auto_cleanup_on_startup_val, override_system_prompt_value, system_prompt_template_value, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, selected_theme, startup_model_type_val, startup_preset_name_val):
                             """Handles the manual 'Save Settings' button click."""
                             # This function is for the manual save button.
                             # It collects all current UI values and saves them.
@@ -953,6 +959,7 @@ def create_interface(
                                     mp4_crf=mp4_crf,
                                     clean_up_videos=clean_up_videos,
                                     cleanup_temp_folder=cleanup_temp_folder,
+                                    auto_cleanup_on_startup=auto_cleanup_on_startup_val, # ADDED
                                     override_system_prompt=override_system_prompt_value,
                                     system_prompt_template=processed_template,
                                     output_dir=output_dir,
@@ -998,7 +1005,7 @@ def create_interface(
 
                         save_btn.click(
                             fn=save_settings,
-                            inputs=[save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, cleanup_temp_folder, override_system_prompt, system_prompt_template, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, theme_dropdown, startup_model_type_dropdown, startup_preset_name_dropdown],
+                            inputs=[save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, cleanup_temp_folder, auto_cleanup_on_startup, override_system_prompt, system_prompt_template, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, theme_dropdown, startup_model_type_dropdown, startup_preset_name_dropdown],
                             outputs=[status]
                         )
 
@@ -1012,34 +1019,17 @@ def create_interface(
                             lambda val_template, val_override: handle_individual_setting_change("system_prompt_template", val_template, "System Prompt Template") or handle_individual_setting_change("override_system_prompt", val_override, "Override System Prompt"),
                             inputs=[system_prompt_template, override_system_prompt], outputs=[status])
 
-                        def cleanup_temp_files():
-                            """Clean up temporary files and folders in the Gradio temp directory"""
-                            temp_dir = settings.get("gradio_temp_dir")
-                            if not temp_dir or not os.path.exists(temp_dir):
-                                return "No temporary directory found or directory does not exist."
-                            
-                            try:
-                                # Get all items in the temp directory
-                                items = os.listdir(temp_dir)
-                                removed_count = 0
-                                print(f"Finding items in {temp_dir}")
-                                for item in items:
-                                    item_path = os.path.join(temp_dir, item)
-                                    try:
-                                        if os.path.isfile(item_path) or os.path.islink(item_path):
-                                            print(f"Removing {item_path}")
-                                            os.remove(item_path)
-                                            removed_count += 1
-                                        elif os.path.isdir(item_path):
-                                            print(f"Removing directory {item_path}")
-                                            shutil.rmtree(item_path)
-                                            removed_count += 1
-                                    except Exception as e:
-                                        print(f"Error removing {item_path}: {e}")
-                                
-                                return f"Cleaned up {removed_count} temporary files/folders."
-                            except Exception as e:
-                                return f"Error cleaning up temporary files: {str(e)}"
+                        def manual_cleanup_handler():
+                            """UI handler for the manual cleanup button."""
+                            # This directly calls the toolbox_processor's cleanup method and returns the summary string.
+                            summary = tb_processor.tb_clear_temporary_files()
+                            return summary
+
+                        cleanup_btn.click(
+                            fn=manual_cleanup_handler,
+                            inputs=None,
+                            outputs=[cleanup_output]
+                        )
 
                         # Add .change handlers for auto-saving individual settings
                         save_metadata.change(lambda v: handle_individual_setting_change("save_metadata", v, "Save Metadata"), inputs=[save_metadata], outputs=[status])
@@ -1049,6 +1039,9 @@ def create_interface(
 
                         # This setting is not visible in the UI, but still handle it in case it's re-added to the UI
                         cleanup_temp_folder.change(lambda v: handle_individual_setting_change("cleanup_temp_folder", v, "Cleanup Temp Folder"), inputs=[cleanup_temp_folder], outputs=[status])
+                        
+                        # NEW: auto-cleanup temp files on startup checkbox
+                        auto_cleanup_on_startup.change(lambda v: handle_individual_setting_change("auto_cleanup_on_startup", v, "Auto Cleanup on Startup"), inputs=[auto_cleanup_on_startup], outputs=[status])
 
                         override_system_prompt.change(lambda v: handle_individual_setting_change("override_system_prompt", v, "Override System Prompt"), inputs=[override_system_prompt], outputs=[status])
                         # Using .blur for text changes so they are processed after the user finishes, not on every keystroke
@@ -1462,11 +1455,6 @@ def create_interface(
             fn=update_start_button_state,
             inputs=[model_type, input_video],
             outputs=[start_button, video_input_required_message]
-        )
-
-        cleanup_btn.click(
-            fn=cleanup_temp_files,
-            outputs=[cleanup_output]
         )
         
         # The "end_button" (Cancel Job) is the trigger for the next job's monitor.

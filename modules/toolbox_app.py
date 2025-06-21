@@ -1,76 +1,78 @@
-import gradio as gr
-import os
-import sys
-import torch
-import devicetorch
-import traceback
 import gc
-import psutil
 import json # for preset loading/saving
-import imageio # Added for reading frame dimensions
+import os
+import psutil
+import sys
+import traceback
+import types
 
 # --- Standalone Startup & Path Fix ---
-# This block allows the script to be run directly, without needing the main app.
-# It adjusts the Python path to include the parent 'app' directory,
-# so that imports like 'from modules.settings import Settings' work correctly.
+# This block runs only when the script is executed directly.
+# It sets up the environment for standalone operation.
 if __name__ == '__main__':
-    # Get the absolute path of the 'modules' directory
+    # Adjust the Python path to include the project root, so local imports work.
     modules_dir = os.path.dirname(os.path.abspath(__file__))
-    # Get the absolute path of the parent 'app' directory
     project_root = os.path.dirname(modules_dir)
-    # Add the project root to the Python path if it's not already there
     if project_root not in sys.path:
         print(f"--- Running Toolbox in Standalone Mode ---")
         print(f"Adding project root to sys.path: {project_root}")
         sys.path.insert(0, project_root)
-# --- End Standalone Startup & Path Fix ---
 
-# patch fix for basicsr
+    # Set the GRADIO_TEMP_DIR *before* Gradio is imported.
+    # This forces the standalone app to use the same temp folder as the main app.
+    from modules.settings import Settings
+    _settings_for_env = Settings()
+    _gradio_temp_dir = _settings_for_env.get("gradio_temp_dir")
+    if _gradio_temp_dir:
+        os.environ['GRADIO_TEMP_DIR'] = os.path.abspath(_gradio_temp_dir)
+        print(f"Set GRADIO_TEMP_DIR for standalone mode: {os.environ['GRADIO_TEMP_DIR']}")
+    del _settings_for_env, _gradio_temp_dir
+
+    # Suppress persistent Windows asyncio proactor errors when running standalone.
+    if os.name == 'nt':
+        import asyncio
+        from functools import wraps
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+        def silence_event_loop_closed(func):
+            @wraps(func)
+            def wrapper(self, *args, **kwargs):
+                try:
+                    return func(self, *args, **kwargs)
+                except RuntimeError as e:
+                    if str(e) != 'Event loop is closed': raise
+            return wrapper
+        if hasattr(asyncio.proactor_events._ProactorBasePipeTransport, '_call_connection_lost'):
+            asyncio.proactor_events._ProactorBasePipeTransport._call_connection_lost = silence_event_loop_closed(
+                asyncio.proactor_events._ProactorBasePipeTransport._call_connection_lost)
+
+# --- Third-Party Library Imports ---
+import devicetorch
+import gradio as gr
+import imageio # Added for reading frame dimensions
+import torch
 from torchvision.transforms.functional import rgb_to_grayscale
-import types
+
+# --- Patch for basicsr (must run after torchvision import) ---
 functional_tensor_mod = types.ModuleType('functional_tensor')
 functional_tensor_mod.rgb_to_grayscale = rgb_to_grayscale
 sys.modules.setdefault('torchvision.transforms.functional_tensor', functional_tensor_mod)
 
-# --- additional instance of this for standalone mode ---
-# Try to suppress annoyingly persistent Windows asyncio proactor errors
-if os.name == 'nt':  # Windows only
-    import asyncio
-    from functools import wraps
-    
-    # Replace the problematic proactor event loop with selector event loop
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-    
-    # Patch the base transport's close method
-    def silence_event_loop_closed(func):
-        @wraps(func)
-        def wrapper(self, *args, **kwargs):
-            try:
-                return func(self, *args, **kwargs)
-            except RuntimeError as e:
-                if str(e) != 'Event loop is closed':
-                    raise
-        return wrapper
-    
-    # Apply the patch
-    if hasattr(asyncio.proactor_events._ProactorBasePipeTransport, '_call_connection_lost'):
-        asyncio.proactor_events._ProactorBasePipeTransport._call_connection_lost = silence_event_loop_closed(
-            asyncio.proactor_events._ProactorBasePipeTransport._call_connection_lost)
-            
-
-from modules.toolbox.toolbox_processor import VideoProcessor
-from modules.toolbox.message_manager import MessageManager
-from modules.toolbox.system_monitor import SystemMonitor
+# --- Local Application Imports ---
 from modules.settings import Settings
+from modules.toolbox.esrgan_core import ESRGANUpscaler
+from modules.toolbox.message_manager import MessageManager
+from modules.toolbox.rife_core import RIFEHandler
 from modules.toolbox.setup_ffmpeg import setup_ffmpeg
+from modules.toolbox.system_monitor import SystemMonitor
+from modules.toolbox.toolbox_processor import VideoProcessor
 
+# Attempt to import helper, with a fallback if it's missing.
 try:
     from diffusers_helper.memory import cpu
 except ImportError:
     print("WARNING: Could not import cpu from diffusers_helper.memory. Falling back to torch.device('cpu')")
     cpu = torch.device('cpu')
-
-
+    
 # Check if FFmpeg is set up, if not, run the setup
 script_dir = os.path.dirname(os.path.abspath(__file__))
 # Construct the correct path to the target bin directory.
@@ -477,31 +479,9 @@ def tb_handle_save_selected_frame(selected_folder, frame_info_str):
     # The message is generated inside the processor, we just need to return it.
     return status_message, tb_update_messages()
 
-# --- End of Frames Studio Handlers ---
+# --- END: Frames Studio Handlers ---
 
-def tb_handle_input_tab_change(evt: gr.SelectData):
-    """
-    Handles the user switching between the 'Single Video' and 'Batch Video' input tabs.
-    Shows or hides all batch-related UI components based on the selected tab.
-    """
-    # The .select() event for gr.Tabs passes an event data object
-    # where evt.index is the index of the selected tab.
-    # 'Single Video' is at index 0, 'Batch Video' is at index 1.
-    is_batch_mode_active = (evt.index == 1)
-    
-    visibility_update = gr.update(visible=is_batch_mode_active)
-    
-    # Return an update for each component we want to toggle.
-    # The order must match the 'outputs' list in the .select() event listener.
-    return (
-        visibility_update, # tb_start_batch_btn
-        visibility_update, # tb_batch_include_upscale
-        visibility_update, # tb_batch_include_filters
-        visibility_update, # tb_batch_include_frame_adjust
-        visibility_update  # tb_batch_include_loop
-    )
-
-# --- START: New Workflow Preset Handlers ---
+# --- START: Workflow Preset Handlers ---
 
 def tb_handle_save_workflow_preset(preset_name, active_steps, *params):
     global tb_workflow_presets_data
@@ -753,10 +733,10 @@ def tb_handle_start_pipeline(
     # Return the final video path to the player (will be None for batch, path for single)
     return final_video_path, tb_update_messages()
 
-def tb_handle_tab_change_debug(evt: gr.SelectData):
-    """Debug handler to confirm tab selection is being registered."""
-    if not evt: # Should not happen in practice but good for safety
-        return 0, tb_update_messages()
+def tb_update_active_tab_index(evt: gr.SelectData):
+    if not evt:
+        return 0  # Default to the first tab (Single Video) if event data is missing
+    return evt.index
         
     index = evt.index
     tab_name = "Single Video" if index == 0 else "Batch Video"
@@ -994,13 +974,14 @@ def tb_handle_manually_save_video(temp_video_path_from_component):
 
 def tb_handle_clear_temp_files():
     tb_message_mgr.clear()
-    success = tb_processor.tb_clear_temporary_files()
+    
+    # The processor function now returns a complete summary string.
+    cleanup_summary = tb_processor.tb_clear_temporary_files()
+    
+    # Add the summary to the message manager to be displayed in the console.
+    tb_message_mgr.add_message(cleanup_summary)
 
-    if success:
-        tb_message_mgr.add_success("Temporary files cleared.")
-    else:
-        tb_message_mgr.add_warning("Issue during temporary file cleanup. Check messages.")
-
+    # Return None to clear the video player and the updated messages.
     return None, tb_update_messages()
 
 def tb_handle_use_processed_as_input(processed_video_path):
@@ -1590,9 +1571,9 @@ def tb_create_video_toolbox_ui():
         )
         # Listen for tab changes and update the state component
         tb_input_tabs.select(
-            fn=tb_handle_tab_change_debug,
-            inputs=None, # evt is passed implicitly
-            outputs=[tb_active_tab_index_storage, tb_message_output]
+            fn=tb_update_active_tab_index,
+            inputs=None,  # evt is passed implicitly
+            outputs=[tb_active_tab_index_storage]  # Only update the state, not the message box
         )
 
         # --- SINGLE VIDEO HANDLERS ---
