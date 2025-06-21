@@ -389,14 +389,14 @@ def create_interface(
                         with gr.Accordion("Original Presets", open=False, visible=True) as preset_accordion:
                             with gr.Row():
                                 preset_dropdown = gr.Dropdown(label="Select Preset", choices=load_presets("Original"), interactive=True, scale=2)
-                                delete_preset_button = gr.Button("Delete", variant="stop", scale=1)
+                                delete_preset_button = gr.Button("🗑️ Delete", variant="stop", scale=1)
                             with gr.Row():
                                 preset_name_textbox = gr.Textbox(label="Preset Name", placeholder="Enter a name for your preset", scale=2)
-                                save_preset_button = gr.Button("Save", variant="primary", scale=1)
+                                save_preset_button = gr.Button("💾 Save", variant="primary", scale=1)
                             with gr.Row(visible=False) as confirm_delete_row:
                                 gr.Markdown("### Are you sure you want to delete this preset?")
-                                confirm_delete_yes_btn = gr.Button("Yes, Delete", variant="stop")
-                                confirm_delete_no_btn = gr.Button("No, Go Back")
+                                confirm_delete_yes_btn = gr.Button("🗑️ Yes, Delete", variant="stop")
+                                confirm_delete_no_btn = gr.Button("↩️ No, Go Back")
                         with gr.Accordion("Basic Parameters", open=True, visible=True) as basic_parameters_accordion:
                             with gr.Group():
                                 total_second_length = gr.Slider(label="Video Length (Seconds)", minimum=1, maximum=120, value=6, step=0.1)
@@ -566,12 +566,12 @@ def create_interface(
                         progress_bar = gr.HTML('', elem_classes='no-generating-animation')
                         with gr.Row():
                             current_job_id = gr.Textbox(label="Current Job ID", value="", visible=True, interactive=True)
-                            start_button = gr.Button(value="Add to Queue", variant="primary", elem_id="toolbar-add-to-queue-btn")
-                            xy_plot_process_btn = gr.Button("Submit", visible=False)
+                            start_button = gr.Button(value="🚀 Add to Queue", variant="primary", elem_id="toolbar-add-to-queue-btn")
+                            xy_plot_process_btn = gr.Button("🚀 Submit XY Plot", visible=False)
                             video_input_required_message = gr.Markdown(
                                 "<p style='color: red; text-align: center;'>Input video required</p>", visible=False
                             )
-                            end_button = gr.Button(value="Cancel Current Job", interactive=True, visible=False)
+                            end_button = gr.Button(value="❌ Cancel Current Job", interactive=True, visible=False)
 
            
 
@@ -579,11 +579,11 @@ def create_interface(
                 with gr.Row():
                     with gr.Column():
                         with gr.Row() as queue_controls_row:
-                            refresh_button = gr.Button("Refresh Queue")
-                            load_queue_button = gr.Button("Resume Queue")
-                            queue_export_button = gr.Button("Export Queue")
-                            clear_complete_button = gr.Button("Clear Completed Jobs", variant="secondary")
-                            clear_queue_button = gr.Button("Cancel Queued Jobs", variant="stop")
+                            refresh_button = gr.Button("🔄 Refresh Queue")
+                            load_queue_button = gr.Button("▶️ Resume Queue")
+                            queue_export_button = gr.Button("📦 Export Queue")
+                            clear_complete_button = gr.Button("🧹 Clear Completed Jobs", variant="secondary")
+                            clear_queue_button = gr.Button("❌ Cancel Queued Jobs", variant="stop")
                         with gr.Row():
                             import_queue_file = gr.File(
                                 label="Import Queue",
@@ -595,8 +595,8 @@ def create_interface(
                         
                         with gr.Row(visible=False) as confirm_cancel_row:
                             gr.Markdown("### Are you sure you want to cancel all pending jobs?")
-                            confirm_cancel_yes_btn = gr.Button("Yes, Cancel All", variant="stop")
-                            confirm_cancel_no_btn = gr.Button("No, Go Back")
+                            confirm_cancel_yes_btn = gr.Button("❌ Yes, Cancel All", variant="stop")
+                            confirm_cancel_no_btn = gr.Button("↩️ No, Go Back")
 
                         with gr.Row():
                             queue_status = gr.DataFrame(
@@ -775,7 +775,7 @@ def create_interface(
                             object_fit="cover",
                             height="auto"
                         )
-                        refresh_button = gr.Button("Update")
+                        refresh_button = gr.Button("🔄 Update Gallery")
                     with gr.Column(scale=5):
                         video_out = gr.Video(sources=[], autoplay=True, loop=True, visible=False)
                     with gr.Column(scale=1):
@@ -888,7 +888,7 @@ def create_interface(
                                     scale=1 # Give checkbox some scale
                                 )
                                 reset_system_prompt_btn = gr.Button(
-                                    "Reset",
+                                    "🔄 Reset",
                                     scale=0
                                 )
                             system_prompt_template = gr.Textbox(
@@ -929,8 +929,8 @@ def create_interface(
                             value=settings.get("gradio_theme", "default"),
                             info="Select the Gradio UI theme. Requires restart."
                         )
-                        save_btn = gr.Button("Save Settings")
-                        cleanup_btn = gr.Button("Clean Up Temporary Files")
+                        save_btn = gr.Button("💾 Save Settings")
+                        cleanup_btn = gr.Button("🗑️ Clean Up Temporary Files")
                         status = gr.HTML("")
                         cleanup_output = gr.Textbox(label="Cleanup Status", interactive=False)
 
@@ -1188,7 +1188,7 @@ def create_interface(
 
             # Create the button update for start_button WITHOUT interactive=True.
             # The interactivity will be set by update_start_button_state later in the chain.
-            start_button_update_after_add = gr.update(value="Add to Queue")
+            start_button_update_after_add = gr.update(value="🚀 Add to Queue")
             
             # If a job ID was created, automatically start monitoring it and update queue
             if result and result[1]:  # Check if job_id exists in results
@@ -1304,22 +1304,22 @@ def create_interface(
                 # This might happen if the event is triggered in an unexpected way
                 print(f"Warning: update_start_button_state received {len(args)} args, expected at least 2.")
                 # Default to a safe state (button disabled)
-                return gr.Button(value="Error", interactive=False), gr.update(visible=True)
+                return gr.Button(value="❌ Error", interactive=False), gr.update(visible=True)
 
             video_provided = input_video_value is not None
             
             if is_video_model(selected_model) and not video_provided:
                 # Video model selected, but no video provided
-                return gr.Button(value="Missing Video", interactive=False), gr.update(visible=True)
+                return gr.Button(value="❌ Missing Video", interactive=False), gr.update(visible=True)
             else:
                 # Either not a video model, or video model selected and video provided
-                return gr.update(value="Add to Queue", interactive=True), gr.update(visible=False)
+                return gr.update(value="🚀 Add to Queue", interactive=True), gr.update(visible=False)
         # Function to update button state before processing
         def update_button_before_processing(selected_model, *args):
             # First update the button to show "Adding..." and disable it
             # Also return current stats so they don't get blanked out during the "Adding..." phase
             qs_data, qs_text = update_stats()
-            return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(value="Adding...", interactive=False), gr.update(), qs_data, qs_text, gr.update(), gr.update() # Added update for video_input_required_message
+            return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(value="⏳ Adding...", interactive=False), gr.update(), qs_data, qs_text, gr.update(), gr.update() # Added update for video_input_required_message
         
         # Connect the start button to first update its state
         start_button.click(
