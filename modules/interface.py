@@ -490,6 +490,21 @@ def create_interface(
                                     minimum=0, maximum=10, value=4, step=1,
                                     label="Number of sections to blend between prompts"
                                 )
+                            with gr.Accordion("Batch Input", open=False):
+                                batch_input_images = gr.File(
+                                    label="Batch Images (Upload one or more)",
+                                    file_count="multiple",
+                                    file_types=["image"],
+                                    type="filepath"
+                                )
+                                batch_input_gallery = gr.Gallery(
+                                    label="Selected Batch Images",
+                                    visible=False,
+                                    columns=5,
+                                    object_fit="contain",
+                                    height="auto"
+                                )
+                                add_batch_to_queue_btn = gr.Button("🚀 Add Batch to Queue", variant="primary")    
                             with gr.Accordion("Generation Parameters", open=True):
                                 with gr.Row():
                                     steps = gr.Slider(label="Steps", minimum=1, maximum=100, value=25, step=1)
@@ -1287,6 +1302,50 @@ def create_interface(
         def handle_start_button(selected_model, *args):
             # For other model types, use the regular process function
             return process_with_queue_update(selected_model, *args)
+        
+        def handle_batch_add_to_queue(*args):
+            # The last argument will be the list of files from batch_input_images
+            batch_files = args[-1]
+            if not batch_files or not isinstance(batch_files, list):
+                print("No batch images provided.")
+                return
+
+            print(f"Starting batch processing for {len(batch_files)} images.")
+            
+            # Reconstruct the arguments for the single process function, excluding the batch files list
+            single_job_args = list(args[:-1])
+            
+            # The first argument to process_with_queue_update is model_type
+            model_type_arg = single_job_args.pop(0)
+            
+            # Keep track of the seed
+            current_seed = single_job_args[6] # seed is the 7th element in the ips list
+            randomize_seed_arg = single_job_args[7] # randomize_seed is the 8th
+
+            for image_path in batch_files:
+                # --- FIX IS HERE ---
+                # Load the image from the path into a NumPy array
+                try:
+                    pil_image = Image.open(image_path).convert("RGB")
+                    numpy_image = np.array(pil_image)
+                except Exception as e:
+                    print(f"Error loading batch image {image_path}: {e}. Skipping.")
+                    continue
+                # --- END OF FIX ---
+
+                # Replace the single input_image argument with the loaded NumPy image
+                current_job_args = single_job_args[:]
+                current_job_args[0] = numpy_image # Use the loaded numpy_image
+                current_job_args[6] = current_seed # Set the seed for the current job
+
+                # Call the original processing function with the modified arguments
+                process_with_queue_update(model_type_arg, *current_job_args)
+
+                # If randomize seed is checked, generate a new one for the next image
+                if randomize_seed_arg:
+                    current_seed = random.randint(0, 21474)
+            
+            print("Batch processing complete. All jobs added to the queue.")
                 
         # Validation ensures the start button is only enabled when appropriate
         def update_start_button_state(*args):
@@ -1335,6 +1394,33 @@ def create_interface(
             fn=update_start_button_state,
             inputs=[model_type, input_video], # Current values of model_type and input_video
             outputs=[start_button, video_input_required_message]
+        )
+
+        def show_batch_gallery(files):
+            return gr.update(value=files, visible=True) if files else gr.update(visible=False)
+
+        batch_input_images.change(
+            fn=show_batch_gallery,
+            inputs=[batch_input_images],
+            outputs=[batch_input_gallery]
+        )
+
+        # We need to gather all the same inputs as the single 'Add to Queue' button, plus the new file input
+        batch_ips = [model_type] + ips + [batch_input_images]
+
+        add_batch_to_queue_btn.click(
+            fn=handle_batch_add_to_queue,
+            inputs=batch_ips,
+            outputs=None # No direct output updates from this button
+        ).then(
+            fn=update_stats, # Refresh the queue stats in the UI
+            inputs=None,
+            outputs=[queue_status, queue_stats_display]
+        ).then(
+            # This new block checks for a running job and updates the monitor UI
+            fn=check_for_current_job,
+            inputs=None,
+            outputs=[current_job_id, result_video, preview_image, progress_desc, progress_bar]
         )
 
         # --- START OF REFACTORED XY PLOT EVENT WIRING ---
