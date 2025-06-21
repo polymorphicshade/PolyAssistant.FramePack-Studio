@@ -843,12 +843,6 @@ def create_interface(
                             value=settings.get("clean_up_videos", True),
                             info="If checked, only the final video will be kept after generation."
                         )
-                        cleanup_temp_folder = gr.Checkbox(
-                            label="Clean up temp folder after generation",
-                            visible=False,
-                            value=settings.get("cleanup_temp_folder", True),
-                            info="If checked, temporary files will be cleaned up after each generation."
-                        )
                         auto_cleanup_on_startup = gr.Checkbox(
                             label="Automatically clean up temp folders on startup",
                             value=settings.get("auto_cleanup_on_startup", False),
@@ -940,7 +934,7 @@ def create_interface(
                         status = gr.HTML("")
                         cleanup_output = gr.Textbox(label="Cleanup Status", interactive=False)
 
-                        def save_settings(save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, cleanup_temp_folder, auto_cleanup_on_startup_val, override_system_prompt_value, system_prompt_template_value, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, selected_theme, startup_model_type_val, startup_preset_name_val):
+                        def save_settings(save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, auto_cleanup_on_startup_val, override_system_prompt_value, system_prompt_template_value, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, selected_theme, startup_model_type_val, startup_preset_name_val):
                             """Handles the manual 'Save Settings' button click."""
                             # This function is for the manual save button.
                             # It collects all current UI values and saves them.
@@ -958,7 +952,6 @@ def create_interface(
                                     gpu_memory_preservation=gpu_memory_preservation,
                                     mp4_crf=mp4_crf,
                                     clean_up_videos=clean_up_videos,
-                                    cleanup_temp_folder=cleanup_temp_folder,
                                     auto_cleanup_on_startup=auto_cleanup_on_startup_val, # ADDED
                                     override_system_prompt=override_system_prompt_value,
                                     system_prompt_template=processed_template,
@@ -1003,9 +996,10 @@ def create_interface(
                                 else:
                                     return f"<p style='color:gray;'>'{setting_name_for_ui}' setting changed (auto-save is off, click 'Save Settings').</p>"
 
+                        # REMOVE `cleanup_temp_folder` from the `inputs` list
                         save_btn.click(
                             fn=save_settings,
-                            inputs=[save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, cleanup_temp_folder, auto_cleanup_on_startup, override_system_prompt, system_prompt_template, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, theme_dropdown, startup_model_type_dropdown, startup_preset_name_dropdown],
+                            inputs=[save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, auto_cleanup_on_startup, override_system_prompt, system_prompt_template, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, theme_dropdown, startup_model_type_dropdown, startup_preset_name_dropdown],
                             outputs=[status]
                         )
 
@@ -1037,9 +1031,6 @@ def create_interface(
                         mp4_crf.change(lambda v: handle_individual_setting_change("mp4_crf", v, "MP4 Compression"), inputs=[mp4_crf], outputs=[status])
                         clean_up_videos.change(lambda v: handle_individual_setting_change("clean_up_videos", v, "Clean Up Videos"), inputs=[clean_up_videos], outputs=[status])
 
-                        # This setting is not visible in the UI, but still handle it in case it's re-added to the UI
-                        cleanup_temp_folder.change(lambda v: handle_individual_setting_change("cleanup_temp_folder", v, "Cleanup Temp Folder"), inputs=[cleanup_temp_folder], outputs=[status])
-                        
                         # NEW: auto-cleanup temp files on startup checkbox
                         auto_cleanup_on_startup.change(lambda v: handle_individual_setting_change("auto_cleanup_on_startup", v, "Auto Cleanup on Startup"), inputs=[auto_cleanup_on_startup], outputs=[status])
 
