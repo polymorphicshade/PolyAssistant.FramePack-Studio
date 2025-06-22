@@ -30,6 +30,7 @@ from diffusers_helper.bucket_tools import find_nearest_bucket
 from modules.pipelines.metadata_utils import create_metadata
 from modules import DUMMY_LORA_NAME # Import the constant
 
+from modules.toolbox_app import tb_processor
 from modules.toolbox_app import tb_create_video_toolbox_ui, tb_get_formatted_toolbar_stats
 from modules.xy_plot_ui import create_xy_plot_ui, xy_plot_process
 
@@ -290,18 +291,28 @@ def create_interface(
         }
     }
     
-    /* control sizing for tb_input_video_component */    
+    /* hide the gr.Video source selection bar for tb_input_video_component */
+    #toolbox-video-player .source-selection {
+        display: none !important;
+    }
+    /* control sizing for gr.Video components */    
     .video-size video {
         max-height: 60vh;
         min-height: 300px !important;
         object-fit: contain;
     }
-
-    /* hide the gr.Video source selection bar for tb_input_video_component */
-    #toolbox-video-player .source-selection {
-        display: none !important;
+    /* NEW: Closes the gap between input tabs and the pipeline accordion below them */
+    #pipeline-controls-wrapper {
+        margin-top: -15px !important; /* Adjust this value to get the perfect "snug" fit */
     }
-
+    /* --- NEW CSS RULE FOR GALLERY SCROLLING --- */
+    #gallery-scroll-wrapper {
+        max-height: 600px; /* Set your desired fixed height */
+        overflow-y: auto;   /* Add a scrollbar only when needed */
+    }
+    #toolbox-start-pipeline-btn {
+        margin-top: -14px !important; /* Adjust this value to get the perfect alignment */
+    }
     """
 
     # Get the theme from settings
@@ -378,14 +389,14 @@ def create_interface(
                         with gr.Accordion("Original Presets", open=False, visible=True) as preset_accordion:
                             with gr.Row():
                                 preset_dropdown = gr.Dropdown(label="Select Preset", choices=load_presets("Original"), interactive=True, scale=2)
-                                delete_preset_button = gr.Button("Delete", variant="stop", scale=1)
+                                delete_preset_button = gr.Button("🗑️ Delete", variant="stop", scale=1)
                             with gr.Row():
                                 preset_name_textbox = gr.Textbox(label="Preset Name", placeholder="Enter a name for your preset", scale=2)
-                                save_preset_button = gr.Button("Save", variant="primary", scale=1)
+                                save_preset_button = gr.Button("💾 Save", variant="primary", scale=1)
                             with gr.Row(visible=False) as confirm_delete_row:
                                 gr.Markdown("### Are you sure you want to delete this preset?")
-                                confirm_delete_yes_btn = gr.Button("Yes, Delete", variant="stop")
-                                confirm_delete_no_btn = gr.Button("No, Go Back")
+                                confirm_delete_yes_btn = gr.Button("🗑️ Yes, Delete", variant="stop")
+                                confirm_delete_no_btn = gr.Button("↩️ No, Go Back")
                         with gr.Accordion("Basic Parameters", open=True, visible=True) as basic_parameters_accordion:
                             with gr.Group():
                                 total_second_length = gr.Slider(label="Video Length (Seconds)", minimum=1, maximum=120, value=6, step=0.1)
@@ -479,6 +490,21 @@ def create_interface(
                                     minimum=0, maximum=10, value=4, step=1,
                                     label="Number of sections to blend between prompts"
                                 )
+                            with gr.Accordion("Batch Input", open=False):
+                                batch_input_images = gr.File(
+                                    label="Batch Images (Upload one or more)",
+                                    file_count="multiple",
+                                    file_types=["image"],
+                                    type="filepath"
+                                )
+                                batch_input_gallery = gr.Gallery(
+                                    label="Selected Batch Images",
+                                    visible=False,
+                                    columns=5,
+                                    object_fit="contain",
+                                    height="auto"
+                                )
+                                add_batch_to_queue_btn = gr.Button("🚀 Add Batch to Queue", variant="primary")    
                             with gr.Accordion("Generation Parameters", open=True):
                                 with gr.Row():
                                     steps = gr.Slider(label="Steps", minimum=1, maximum=100, value=25, step=1)
@@ -555,12 +581,12 @@ def create_interface(
                         progress_bar = gr.HTML('', elem_classes='no-generating-animation')
                         with gr.Row():
                             current_job_id = gr.Textbox(label="Current Job ID", value="", visible=True, interactive=True)
-                            start_button = gr.Button(value="Add to Queue", variant="primary", elem_id="toolbar-add-to-queue-btn")
-                            xy_plot_process_btn = gr.Button("Submit", visible=False)
+                            start_button = gr.Button(value="🚀 Add to Queue", variant="primary", elem_id="toolbar-add-to-queue-btn")
+                            xy_plot_process_btn = gr.Button("🚀 Submit XY Plot", visible=False)
                             video_input_required_message = gr.Markdown(
                                 "<p style='color: red; text-align: center;'>Input video required</p>", visible=False
                             )
-                            end_button = gr.Button(value="Cancel Current Job", interactive=True, visible=False)
+                            end_button = gr.Button(value="❌ Cancel Current Job", interactive=True, visible=False)
 
            
 
@@ -568,11 +594,11 @@ def create_interface(
                 with gr.Row():
                     with gr.Column():
                         with gr.Row() as queue_controls_row:
-                            refresh_button = gr.Button("Refresh Queue")
-                            load_queue_button = gr.Button("Resume Queue")
-                            queue_export_button = gr.Button("Export Queue")
-                            clear_complete_button = gr.Button("Clear Completed Jobs", variant="secondary")
-                            clear_queue_button = gr.Button("Cancel Queued Jobs", variant="stop")
+                            refresh_button = gr.Button("🔄 Refresh Queue")
+                            load_queue_button = gr.Button("▶️ Resume Queue")
+                            queue_export_button = gr.Button("📦 Export Queue")
+                            clear_complete_button = gr.Button("🧹 Clear Completed Jobs", variant="secondary")
+                            clear_queue_button = gr.Button("❌ Cancel Queued Jobs", variant="stop")
                         with gr.Row():
                             import_queue_file = gr.File(
                                 label="Import Queue",
@@ -584,8 +610,8 @@ def create_interface(
                         
                         with gr.Row(visible=False) as confirm_cancel_row:
                             gr.Markdown("### Are you sure you want to cancel all pending jobs?")
-                            confirm_cancel_yes_btn = gr.Button("Yes, Cancel All", variant="stop")
-                            confirm_cancel_no_btn = gr.Button("No, Go Back")
+                            confirm_cancel_yes_btn = gr.Button("❌ Yes, Cancel All", variant="stop")
+                            confirm_cancel_no_btn = gr.Button("↩️ No, Go Back")
 
                         with gr.Row():
                             queue_status = gr.DataFrame(
@@ -764,7 +790,7 @@ def create_interface(
                             object_fit="cover",
                             height="auto"
                         )
-                        refresh_button = gr.Button("Update")
+                        refresh_button = gr.Button("🔄 Update Gallery")
                     with gr.Column(scale=5):
                         video_out = gr.Video(sources=[], autoplay=True, loop=True, visible=False)
                     with gr.Column(scale=1):
@@ -832,11 +858,10 @@ def create_interface(
                             value=settings.get("clean_up_videos", True),
                             info="If checked, only the final video will be kept after generation."
                         )
-                        cleanup_temp_folder = gr.Checkbox(
-                            label="Clean up temp folder after generation",
-                            visible=False,
-                            value=settings.get("cleanup_temp_folder", True),
-                            info="If checked, temporary files will be cleaned up after each generation."
+                        auto_cleanup_on_startup = gr.Checkbox(
+                            label="Automatically clean up temp folders on startup",
+                            value=settings.get("auto_cleanup_on_startup", False),
+                            info="If checked, temporary files (inc. post-processing) will be cleaned up when the application starts."
                         )
                         
                         # gr.Markdown("---")
@@ -878,7 +903,7 @@ def create_interface(
                                     scale=1 # Give checkbox some scale
                                 )
                                 reset_system_prompt_btn = gr.Button(
-                                    "Reset",
+                                    "🔄 Reset",
                                     scale=0
                                 )
                             system_prompt_template = gr.Textbox(
@@ -919,12 +944,12 @@ def create_interface(
                             value=settings.get("gradio_theme", "default"),
                             info="Select the Gradio UI theme. Requires restart."
                         )
-                        save_btn = gr.Button("Save Settings")
-                        cleanup_btn = gr.Button("Clean Up Temporary Files")
+                        save_btn = gr.Button("💾 Save Settings")
+                        cleanup_btn = gr.Button("🗑️ Clean Up Temporary Files")
                         status = gr.HTML("")
                         cleanup_output = gr.Textbox(label="Cleanup Status", interactive=False)
 
-                        def save_settings(save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, cleanup_temp_folder, override_system_prompt_value, system_prompt_template_value, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, selected_theme, startup_model_type_val, startup_preset_name_val):
+                        def save_settings(save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, auto_cleanup_on_startup_val, override_system_prompt_value, system_prompt_template_value, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, selected_theme, startup_model_type_val, startup_preset_name_val):
                             """Handles the manual 'Save Settings' button click."""
                             # This function is for the manual save button.
                             # It collects all current UI values and saves them.
@@ -942,7 +967,7 @@ def create_interface(
                                     gpu_memory_preservation=gpu_memory_preservation,
                                     mp4_crf=mp4_crf,
                                     clean_up_videos=clean_up_videos,
-                                    cleanup_temp_folder=cleanup_temp_folder,
+                                    auto_cleanup_on_startup=auto_cleanup_on_startup_val, # ADDED
                                     override_system_prompt=override_system_prompt_value,
                                     system_prompt_template=processed_template,
                                     output_dir=output_dir,
@@ -986,9 +1011,10 @@ def create_interface(
                                 else:
                                     return f"<p style='color:gray;'>'{setting_name_for_ui}' setting changed (auto-save is off, click 'Save Settings').</p>"
 
+                        # REMOVE `cleanup_temp_folder` from the `inputs` list
                         save_btn.click(
                             fn=save_settings,
-                            inputs=[save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, cleanup_temp_folder, override_system_prompt, system_prompt_template, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, theme_dropdown, startup_model_type_dropdown, startup_preset_name_dropdown],
+                            inputs=[save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, auto_cleanup_on_startup, override_system_prompt, system_prompt_template, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, theme_dropdown, startup_model_type_dropdown, startup_preset_name_dropdown],
                             outputs=[status]
                         )
 
@@ -1002,34 +1028,17 @@ def create_interface(
                             lambda val_template, val_override: handle_individual_setting_change("system_prompt_template", val_template, "System Prompt Template") or handle_individual_setting_change("override_system_prompt", val_override, "Override System Prompt"),
                             inputs=[system_prompt_template, override_system_prompt], outputs=[status])
 
-                        def cleanup_temp_files():
-                            """Clean up temporary files and folders in the Gradio temp directory"""
-                            temp_dir = settings.get("gradio_temp_dir")
-                            if not temp_dir or not os.path.exists(temp_dir):
-                                return "No temporary directory found or directory does not exist."
-                            
-                            try:
-                                # Get all items in the temp directory
-                                items = os.listdir(temp_dir)
-                                removed_count = 0
-                                print(f"Finding items in {temp_dir}")
-                                for item in items:
-                                    item_path = os.path.join(temp_dir, item)
-                                    try:
-                                        if os.path.isfile(item_path) or os.path.islink(item_path):
-                                            print(f"Removing {item_path}")
-                                            os.remove(item_path)
-                                            removed_count += 1
-                                        elif os.path.isdir(item_path):
-                                            print(f"Removing directory {item_path}")
-                                            shutil.rmtree(item_path)
-                                            removed_count += 1
-                                    except Exception as e:
-                                        print(f"Error removing {item_path}: {e}")
-                                
-                                return f"Cleaned up {removed_count} temporary files/folders."
-                            except Exception as e:
-                                return f"Error cleaning up temporary files: {str(e)}"
+                        def manual_cleanup_handler():
+                            """UI handler for the manual cleanup button."""
+                            # This directly calls the toolbox_processor's cleanup method and returns the summary string.
+                            summary = tb_processor.tb_clear_temporary_files()
+                            return summary
+
+                        cleanup_btn.click(
+                            fn=manual_cleanup_handler,
+                            inputs=None,
+                            outputs=[cleanup_output]
+                        )
 
                         # Add .change handlers for auto-saving individual settings
                         save_metadata.change(lambda v: handle_individual_setting_change("save_metadata", v, "Save Metadata"), inputs=[save_metadata], outputs=[status])
@@ -1037,8 +1046,8 @@ def create_interface(
                         mp4_crf.change(lambda v: handle_individual_setting_change("mp4_crf", v, "MP4 Compression"), inputs=[mp4_crf], outputs=[status])
                         clean_up_videos.change(lambda v: handle_individual_setting_change("clean_up_videos", v, "Clean Up Videos"), inputs=[clean_up_videos], outputs=[status])
 
-                        # This setting is not visible in the UI, but still handle it in case it's re-added to the UI
-                        cleanup_temp_folder.change(lambda v: handle_individual_setting_change("cleanup_temp_folder", v, "Cleanup Temp Folder"), inputs=[cleanup_temp_folder], outputs=[status])
+                        # NEW: auto-cleanup temp files on startup checkbox
+                        auto_cleanup_on_startup.change(lambda v: handle_individual_setting_change("auto_cleanup_on_startup", v, "Auto Cleanup on Startup"), inputs=[auto_cleanup_on_startup], outputs=[status])
 
                         override_system_prompt.change(lambda v: handle_individual_setting_change("override_system_prompt", v, "Override System Prompt"), inputs=[override_system_prompt], outputs=[status])
                         # Using .blur for text changes so they are processed after the user finishes, not on every keystroke
@@ -1194,7 +1203,7 @@ def create_interface(
 
             # Create the button update for start_button WITHOUT interactive=True.
             # The interactivity will be set by update_start_button_state later in the chain.
-            start_button_update_after_add = gr.update(value="Add to Queue")
+            start_button_update_after_add = gr.update(value="🚀 Add to Queue")
             
             # If a job ID was created, automatically start monitoring it and update queue
             if result and result[1]:  # Check if job_id exists in results
@@ -1293,6 +1302,50 @@ def create_interface(
         def handle_start_button(selected_model, *args):
             # For other model types, use the regular process function
             return process_with_queue_update(selected_model, *args)
+        
+        def handle_batch_add_to_queue(*args):
+            # The last argument will be the list of files from batch_input_images
+            batch_files = args[-1]
+            if not batch_files or not isinstance(batch_files, list):
+                print("No batch images provided.")
+                return
+
+            print(f"Starting batch processing for {len(batch_files)} images.")
+            
+            # Reconstruct the arguments for the single process function, excluding the batch files list
+            single_job_args = list(args[:-1])
+            
+            # The first argument to process_with_queue_update is model_type
+            model_type_arg = single_job_args.pop(0)
+            
+            # Keep track of the seed
+            current_seed = single_job_args[6] # seed is the 7th element in the ips list
+            randomize_seed_arg = single_job_args[7] # randomize_seed is the 8th
+
+            for image_path in batch_files:
+                # --- FIX IS HERE ---
+                # Load the image from the path into a NumPy array
+                try:
+                    pil_image = Image.open(image_path).convert("RGB")
+                    numpy_image = np.array(pil_image)
+                except Exception as e:
+                    print(f"Error loading batch image {image_path}: {e}. Skipping.")
+                    continue
+                # --- END OF FIX ---
+
+                # Replace the single input_image argument with the loaded NumPy image
+                current_job_args = single_job_args[:]
+                current_job_args[0] = numpy_image # Use the loaded numpy_image
+                current_job_args[6] = current_seed # Set the seed for the current job
+
+                # Call the original processing function with the modified arguments
+                process_with_queue_update(model_type_arg, *current_job_args)
+
+                # If randomize seed is checked, generate a new one for the next image
+                if randomize_seed_arg:
+                    current_seed = random.randint(0, 21474)
+            
+            print("Batch processing complete. All jobs added to the queue.")
                 
         # Validation ensures the start button is only enabled when appropriate
         def update_start_button_state(*args):
@@ -1310,22 +1363,22 @@ def create_interface(
                 # This might happen if the event is triggered in an unexpected way
                 print(f"Warning: update_start_button_state received {len(args)} args, expected at least 2.")
                 # Default to a safe state (button disabled)
-                return gr.Button(value="Error", interactive=False), gr.update(visible=True)
+                return gr.Button(value="❌ Error", interactive=False), gr.update(visible=True)
 
             video_provided = input_video_value is not None
             
             if is_video_model(selected_model) and not video_provided:
                 # Video model selected, but no video provided
-                return gr.Button(value="Missing Video", interactive=False), gr.update(visible=True)
+                return gr.Button(value="❌ Missing Video", interactive=False), gr.update(visible=True)
             else:
                 # Either not a video model, or video model selected and video provided
-                return gr.update(value="Add to Queue", interactive=True), gr.update(visible=False)
+                return gr.update(value="🚀 Add to Queue", interactive=True), gr.update(visible=False)
         # Function to update button state before processing
         def update_button_before_processing(selected_model, *args):
             # First update the button to show "Adding..." and disable it
             # Also return current stats so they don't get blanked out during the "Adding..." phase
             qs_data, qs_text = update_stats()
-            return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(value="Adding...", interactive=False), gr.update(), qs_data, qs_text, gr.update(), gr.update() # Added update for video_input_required_message
+            return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(value="⏳ Adding...", interactive=False), gr.update(), qs_data, qs_text, gr.update(), gr.update() # Added update for video_input_required_message
         
         # Connect the start button to first update its state
         start_button.click(
@@ -1341,6 +1394,33 @@ def create_interface(
             fn=update_start_button_state,
             inputs=[model_type, input_video], # Current values of model_type and input_video
             outputs=[start_button, video_input_required_message]
+        )
+
+        def show_batch_gallery(files):
+            return gr.update(value=files, visible=True) if files else gr.update(visible=False)
+
+        batch_input_images.change(
+            fn=show_batch_gallery,
+            inputs=[batch_input_images],
+            outputs=[batch_input_gallery]
+        )
+
+        # We need to gather all the same inputs as the single 'Add to Queue' button, plus the new file input
+        batch_ips = [model_type] + ips + [batch_input_images]
+
+        add_batch_to_queue_btn.click(
+            fn=handle_batch_add_to_queue,
+            inputs=batch_ips,
+            outputs=None # No direct output updates from this button
+        ).then(
+            fn=update_stats, # Refresh the queue stats in the UI
+            inputs=None,
+            outputs=[queue_status, queue_stats_display]
+        ).then(
+            # This new block checks for a running job and updates the monitor UI
+            fn=check_for_current_job,
+            inputs=None,
+            outputs=[current_job_id, result_video, preview_image, progress_desc, progress_bar]
         )
 
         # --- START OF REFACTORED XY PLOT EVENT WIRING ---
@@ -1452,11 +1532,6 @@ def create_interface(
             fn=update_start_button_state,
             inputs=[model_type, input_video],
             outputs=[start_button, video_input_required_message]
-        )
-
-        cleanup_btn.click(
-            fn=cleanup_temp_files,
-            outputs=[cleanup_output]
         )
         
         # The "end_button" (Cancel Job) is the trigger for the next job's monitor.
@@ -1630,11 +1705,35 @@ def create_interface(
             return gr.update()
 
         ui_components = {
-            "steps": steps, "total_second_length": total_second_length, "resolutionW": resolutionW,
-            "resolutionH": resolutionH, "seed": seed, "randomize_seed": randomize_seed,
-            "use_teacache": use_teacache, "teacache_num_steps": teacache_num_steps,
-            "teacache_rel_l1_thresh": teacache_rel_l1_thresh, "latent_window_size": latent_window_size,
-            "gs": gs, "combine_with_source": combine_with_source, "lora_selector": lora_selector, **lora_sliders
+            # Prompts
+            "prompt": prompt,
+            "n_prompt": n_prompt,
+            "blend_sections": blend_sections,
+            # Basic Params
+            "steps": steps,
+            "total_second_length": total_second_length,
+            "resolutionW": resolutionW,
+            "resolutionH": resolutionH,
+            "seed": seed,
+            "randomize_seed": randomize_seed,
+            # Advanced Params
+            "gs": gs,
+            "cfg": cfg,
+            "rs": rs,
+            "latent_window_size": latent_window_size,
+            # TeaCache
+            "use_teacache": use_teacache,
+            "teacache_num_steps": teacache_num_steps,
+            "teacache_rel_l1_thresh": teacache_rel_l1_thresh,
+            # Input Options
+            "latent_type": latent_type,
+            "end_frame_strength_original": end_frame_strength_original,
+            # Video Specific
+            "combine_with_source": combine_with_source,
+            "num_cleaned_frames": num_cleaned_frames,
+            # LoRAs
+            "lora_selector": lora_selector,
+            **lora_sliders
         }
         
         model_type.change(

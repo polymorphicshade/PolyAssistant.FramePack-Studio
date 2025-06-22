@@ -176,7 +176,6 @@ def worker(
             "gpu_memory_preservation": settings.get("gpu_memory_preservation", 6),
             "mp4_crf": settings.get("mp4_crf", 16),
             "clean_up_videos": settings.get("clean_up_videos", True),
-            "cleanup_temp_folder": settings.get("cleanup_temp_folder", True),
             "gradio_temp_dir": settings.get("gradio_temp_dir", "./gradio_temp"),
             "high_vram": high_vram
         }
@@ -907,30 +906,6 @@ def worker(
                             print(f"Failed to delete {full_path}: {e}")
             except Exception as e:
                 print(f"Error during video cleanup: {e}")
-        
-        # Clean up temp folder if enabled
-        if settings.get("cleanup_temp_folder"):
-            try:
-                temp_dir = settings.get("gradio_temp_dir")
-                if temp_dir and os.path.exists(temp_dir): # Check if temp_dir is not None before os.path.exists
-                    print(f"Cleaning up temp folder: {temp_dir}")
-                    items = os.listdir(temp_dir)
-                    removed_count = 0
-                    for item in items:
-                        item_path = os.path.join(temp_dir, item)
-                        try:
-                            if os.path.isfile(item_path) or os.path.islink(item_path):
-                                os.remove(item_path)
-                                removed_count += 1
-                            elif os.path.isdir(item_path):
-                                import shutil # Import shutil here as it's only used in this block
-                                shutil.rmtree(item_path)
-                                removed_count += 1
-                        except Exception as e:
-                            print(f"Error removing {item_path}: {e}")
-                    print(f"Cleaned up {removed_count} temporary files/folders.")
-            except Exception as e:
-                print(f"Error during temp folder cleanup: {e}")
 
         # Check if the user wants to combine the source video with the generated video
         # This is done after the video cleanup routine to ensure the combined video is not deleted
