@@ -150,9 +150,9 @@ def tb_handle_analyze_video(video_path):
     # Return a third value to control the accordion's 'open' state
     return tb_update_messages(), analysis, gr.update(open=True)
 
-def tb_handle_process_frames(video_path, fps_mode, speed_factor, progress=gr.Progress()):
+def tb_handle_process_frames(video_path, fps_mode, speed_factor, use_streaming, progress=gr.Progress()):
     tb_message_mgr.clear()
-    output_video = tb_processor.tb_process_frames(video_path, fps_mode, speed_factor, progress)
+    output_video = tb_processor.tb_process_frames(video_path, fps_mode, speed_factor, use_streaming, progress)
     return output_video, tb_update_messages()
 
 def tb_handle_create_loop(video_path, loop_type, num_loops, progress=gr.Progress()):
@@ -633,9 +633,9 @@ def tb_handle_start_pipeline(
     # Inputs
     single_video_path, batch_video_paths,
     # Upscale
-    model_key, output_scale_factor, tile_size, enhance_face, denoise_strength,
+    model_key, output_scale_factor, tile_size, enhance_face, denoise_strength, upscale_use_streaming,
     # Frame Adjust
-    fps_mode, speed_factor,
+    fps_mode, speed_factor, frames_use_streaming,
     # Loop
     loop_type, num_loops,
     # Filters
@@ -695,13 +695,18 @@ def tb_handle_start_pipeline(
                         "output_scale_factor_ui": float(output_scale_factor),
                         "tile_size": int(tile_size),
                         "enhance_face": enhance_face,
-                        "denoise_strength_ui": denoise_strength
+                        "denoise_strength_ui": denoise_strength,
+                        "use_streaming": upscale_use_streaming
                     }
                 })
             elif op_key == "frame_adjust":
                 pipeline_config["operations"].append({
                     "name": "frame_adjust",
-                    "params": { "target_fps_mode": fps_mode, "speed_factor": speed_factor }
+                    "params": { 
+                        "target_fps_mode": fps_mode, 
+                        "speed_factor": speed_factor,
+                        "use_streaming": frames_use_streaming
+                    }
                 })
             elif op_key == "loop":
                 pipeline_config["operations"].append({
@@ -745,7 +750,7 @@ def tb_update_active_tab_index(evt: gr.SelectData):
     # Return the new index for the state and the updated messages
     return index, tb_update_messages()
     
-def tb_handle_upscale_video(video_path, model_key_selected, output_scale_factor_from_slider, tile_size, enhance_face_ui, denoise_strength_from_slider, progress=gr.Progress()):
+def tb_handle_upscale_video(video_path, model_key_selected, output_scale_factor_from_slider, tile_size, enhance_face_ui, denoise_strength_from_slider, use_streaming, progress=gr.Progress()):
     tb_message_mgr.clear()
     if video_path is None:
         tb_message_mgr.add_warning("No input video selected for upscaling.")
@@ -772,10 +777,11 @@ def tb_handle_upscale_video(video_path, model_key_selected, output_scale_factor_
     output_video = tb_processor.tb_upscale_video(
         video_path,
         model_key_selected,
-        output_scale_factor_float,
-        tile_size_int,
+        float(output_scale_factor_from_slider),
+        int(tile_size),
         enhance_face_ui,
         denoise_strength_from_slider,
+        use_streaming,
         progress=progress
     )
     return output_video, tb_update_messages()
@@ -1215,6 +1221,11 @@ def tb_create_video_toolbox_ui():
                                 info="Uses GFPGAN to restore (human-like) faces. Increases processing time."
                             )
                         with gr.Row():
+                            tb_upscale_use_streaming_checkbox = gr.Checkbox(
+                                label="Use Streaming (Low Memory Mode)", value=False,
+                                info="Enable for stable, low-memory processing of long or high-res videos. This avoids loading the entire clip into RAM, making it ideal for 4K footage or very large files."
+                            )                            
+                        with gr.Row():
                             tb_denoise_strength_slider = gr.Slider(
                                 label="Denoise Strength (for RealESR-general-x4v3)",
                                 minimum=0.0, maximum=1.0, step=0.01,
@@ -1229,14 +1240,21 @@ def tb_create_video_toolbox_ui():
             with gr.TabItem("🎞️ Frame Adjust (Speed & Interpolation)"):
                 with gr.Row():
                     gr.Markdown("Adjust video speed and interpolate frames using RIFE AI.")
-                tb_process_fps_mode = gr.Radio(
-                    choices=["No Interpolation", "2x Frames", "4x Frames"], value="No Interpolation", label="RIFE Frame Interpolation",
-                    info="Select '2x' or '4x' RIFE Interpolation to double or quadruple the frame rate, creating smoother motion. 4x is more intensive and runs the 2x process twice."
-                )
-                tb_process_speed_factor = gr.Slider(
-                    minimum=0.25, maximum=4.0, step=0.05, value=1.0, label="Adjust Video Speed Factor",
-                    info="Values < 1.0 slow down the video, values > 1.0 speed it up. Affects video and audio."
-                )
+                with gr.Row():
+                    tb_process_fps_mode = gr.Radio(
+                        choices=["No Interpolation", "2x Frames", "4x Frames"], value="No Interpolation", label="RIFE Frame Interpolation",
+                        info="Select '2x' or '4x' RIFE Interpolation to double or quadruple the frame rate, creating smoother motion. 4x is more intensive and runs the 2x process twice."
+                    )
+                    tb_frames_use_streaming_checkbox = gr.Checkbox(
+                        label="Use Streaming (Low Memory Mode)", value=False,
+                        info="Enable for stable, low-memory RIFE on long videos. This avoids loading all frames into RAM. Note: 'Adjust Video Speed' is ignored in this mode."              
+                    )
+                with gr.Row():
+                    tb_process_speed_factor = gr.Slider(
+                        minimum=0.25, maximum=4.0, step=0.05, value=1.0, label="Adjust Video Speed Factor",
+                        info="Values < 1.0 slow down the video, values > 1.0 speed it up. Affects video and audio."
+                    )
+
                 tb_process_frames_btn = gr.Button("🚀 Process Frames", variant="primary")
 
             with gr.TabItem("🎨 Video Filters (FFmpeg)"):
@@ -1487,6 +1505,27 @@ def tb_create_video_toolbox_ui():
                 ### Memory Management
                 *   The **'📤 Unload Studio Model'** button can free up VRAM by removing the main video generation model from memory.
                 *   This is useful before running a heavy task here, like a 4K video upscale. The main app will reload the model automatically when you need it again.
+              
+                ### Streaming Mode for Upscale & RIFE
+                *   On the **'Upscale'** and **'Frame Adjust'** tabs, you'll find a checkbox: **"Use Streaming (Low Memory Mode)"**.
+
+                **What It Does for You:**                
+                Normally, your entire video is loaded into RAM to process it as fast as possible. For very long or high-resolution videos (like 4K), this can potentially cause it to exceed your RAM and spill over to disk (pagefile) or possibly even cause a system crash!                        
+                Streaming Mode processes your video one frame at a time to keep memory usage low and stable.
+                * **Check this box if you are working with a large video file.** 
+                
+                **How it Works:**
+                *   **Default Mode:** Loads the entire video into RAM. It's the fastest option but uses the most memory.
+                *   **Streaming Mode (Upscaling & 2x RIFE):** A "true" stream that reads and writes one frame at a time. Memory usage is very low and constant.
+                *   **Streaming Mode (4x RIFE):** A "hybrid" mode. **Be aware: the first 2x pass will still use a large amount of RAM to build the intermediate video (similar to the Default Mode).** However, its key benefit is that the second 2x pass becomes completely stable, preventing the final, largest memory spike that often causes crashes in the default mode.
+                *   **Note:** The **Adjust Video Speed Factor** is ignored when Streaming mode is activated. In Low Memory Mode, this must be done as a separate operation.
+                
+                **⭐ Tip for Maximum Memory Savings on 4x RIFE:**                
+                For the absolute lowest memory usage on a 4x interpolation, you can run the **2x Streaming** operation twice back-to-back.
+                1. Run a **2x RIFE** with **Streaming Mode enabled**.
+                2. Click **"Use as Input"** to move the result back to the input player.
+                3. Run a **2x RIFE** on that new video, again with **Streaming Mode enabled**.
+                This manual two-pass method ensures memory usage never exceeds the "true" streaming level, at the cost of being slower due to writing an intermediate file to disk.                
 
                 ### 👇 Check Console Messages!
                 *   The text box at the very bottom of the page shows important status updates, warnings, and error messages. If something isn't working, the answer is probably there!
@@ -1511,8 +1550,10 @@ def tb_create_video_toolbox_ui():
             # Upscale
             tb_upscale_model_select, tb_upscale_factor_slider, tb_upscale_tile_size_radio,
             tb_upscale_enhance_face_checkbox, tb_denoise_strength_slider,
+            tb_upscale_use_streaming_checkbox, # <-- ADDED UPSCALE STREAMING CHECKBOX
             # Frame Adjust
             tb_process_fps_mode, tb_process_speed_factor,
+            tb_frames_use_streaming_checkbox, # <-- ADDED FRAME ADJUST STREAMING CHECKBOX
             # Loop
             tb_loop_type_select, tb_num_loops_slider,
             # Filters
@@ -1585,7 +1626,12 @@ def tb_create_video_toolbox_ui():
             inputs=[tb_input_video_component],
             outputs=[tb_message_output, tb_video_analysis_output, tb_analysis_accordion]
         )
-        tb_process_frames_btn.click(fn=tb_handle_process_frames, inputs=[tb_input_video_component, tb_process_fps_mode, tb_process_speed_factor], outputs=[tb_processed_video_output, tb_message_output])
+        tb_process_frames_btn.click(
+            fn=tb_handle_process_frames, 
+            inputs=[tb_input_video_component, tb_process_fps_mode, tb_process_speed_factor, tb_frames_use_streaming_checkbox], # <-- ADDED HERE
+            outputs=[tb_processed_video_output, tb_message_output]
+        )
+        
         tb_create_loop_btn.click(fn=tb_handle_create_loop, inputs=[tb_input_video_component, tb_loop_type_select, tb_num_loops_slider], outputs=[tb_processed_video_output, tb_message_output])
 
         tb_filter_preset_select.change(
@@ -1605,7 +1651,7 @@ def tb_create_video_toolbox_ui():
 
         tb_upscale_video_btn.click(
             fn=tb_handle_upscale_video,
-            inputs=[tb_input_video_component, tb_upscale_model_select, tb_upscale_factor_slider, tb_upscale_tile_size_radio, tb_upscale_enhance_face_checkbox, tb_denoise_strength_slider],
+            inputs=[tb_input_video_component, tb_upscale_model_select, tb_upscale_factor_slider, tb_upscale_tile_size_radio, tb_upscale_enhance_face_checkbox, tb_denoise_strength_slider, tb_upscale_use_streaming_checkbox],
             outputs=[tb_processed_video_output, tb_message_output]
         )
         tb_upscale_model_select.change(

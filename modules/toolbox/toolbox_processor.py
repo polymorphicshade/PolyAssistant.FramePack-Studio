@@ -382,8 +382,13 @@ class VideoProcessor:
         # --- Tier 1: Fast metadata read using JSON output ---
         try:
             ffprobe_cmd_fast = [
-                self.ffprobe_exe, "-v", "error", "-select_streams", "v:0",
-                "-show_entries", "stream=nb_frames", "-of", "json", video_path
+                self.ffprobe_exe,
+                "-v", "error",
+                "-probesize", "5M", # Input option
+                "-i", video_path,   # The input file
+                "-select_streams", "v:0",
+                "-show_entries", "stream=nb_frames",
+                "-of", "json"
             ]
             result = subprocess.run(ffprobe_cmd_fast, capture_output=True, text=True, check=True, errors='ignore')
             data = json.loads(result.stdout)
@@ -401,9 +406,14 @@ class VideoProcessor:
         try:
             self.message_manager.add_message("Performing full, accurate frame count with ffprobe (this may take a moment)...", "INFO")
             ffprobe_cmd_accurate = [
-                self.ffprobe_exe, "-v", "error", "-count_frames",
-                "-select_streams", "v:0", "-show_entries", "stream=nb_read_frames",
-                "-of", "json", video_path
+                self.ffprobe_exe,
+                "-v", "error",
+                "-probesize", "5M", # Input option
+                "-i", video_path,   # The input file
+                "-count_frames",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=nb_read_frames",
+                "-of", "json"
             ]
             result = subprocess.run(ffprobe_cmd_accurate, capture_output=True, text=True, check=True, errors='ignore')
             data = json.loads(result.stdout)
@@ -1099,102 +1109,176 @@ class VideoProcessor:
             self.message_manager.add_warning(f"Error checking for audio stream in {os.path.basename(video_path_to_check)}: {e}. Assuming no audio.")
             return False
             
-    def tb_process_frames(self, video_path, target_fps_mode, speed_factor, progress=gr.Progress()):
+    def tb_process_frames(self, video_path, target_fps_mode, speed_factor, use_streaming: bool, progress=gr.Progress()):
         if video_path is None: self.message_manager.add_warning("No input video for frame processing."); return None
         
-        # Core video processing relies on imageio for reading/writing frames, RIFE for interpolation.
-        # FFmpeg is primarily for audio handling here.
+        final_output_path = None
+        reader = None
+        writer = None
+        video_stream_output_path = None
         
-        final_output_path = None 
         try:
             interpolation_factor = 1
             if "2x" in target_fps_mode: interpolation_factor = 2
             elif "4x" in target_fps_mode: interpolation_factor = 4
             should_interpolate = interpolation_factor > 1
 
-            self.message_manager.add_message(
-                f"Starting frame processing for {os.path.basename(video_path)}: "
-                f"FPS Mode: {target_fps_mode}, Speed: {speed_factor}x"
-            )
+            self.message_manager.add_message(f"Starting frame processing: FPS Mode: {target_fps_mode}, Speed: {speed_factor}x")
             progress(0, desc="Initializing...")
+            
             resolved_video_path = str(Path(video_path).resolve())
-
-            self.message_manager.add_message("Reading video frames...")
-            progress(0.05, desc="Reading video...")
             reader = imageio.get_reader(resolved_video_path)
-            original_fps = reader.get_meta_data().get('fps', 30.0) # Default if not found
-            video_frames = [frame for frame in reader]
-            reader.close()
-            self.message_manager.add_message(f"Read {len(video_frames)} frames at {original_fps} FPS.")
+            meta_data = reader.get_meta_data()
+            original_fps = meta_data.get('fps', 30.0)
+            output_fps = original_fps * interpolation_factor
 
-            processed_frames = video_frames
-            current_fps = original_fps # This will be the FPS for the *output video stream*
-
-            if speed_factor != 1.0:
-                self.message_manager.add_message(f"Adjusting speed by {speed_factor}x (frame sampling/duplication)...")
-                progress(0.2, desc="Adjusting speed...")
-                if speed_factor > 1.0: 
-                    indices = np.arange(0, len(video_frames), speed_factor).astype(int)
-                    processed_frames = [video_frames[i] for i in indices if i < len(video_frames)]
-                else: 
-                    new_len = int(len(video_frames) / speed_factor)
-                    indices = np.linspace(0, len(video_frames) - 1, new_len).astype(int)
-                    processed_frames = [video_frames[i] for i in indices]
-                self.message_manager.add_message(f"Speed adjustment (sampling) resulted in {len(processed_frames)} frames.")
-            
-            if should_interpolate and len(processed_frames) > 1:
-                self.message_manager.add_message(f"Attempting to load RIFE model for {interpolation_factor}x interpolation...")
-                if not self.rife_handler._ensure_model_downloaded_and_loaded():
-                    self.message_manager.add_error("RIFE model could not be loaded. Skipping interpolation.")
-                else:
-                    self.message_manager.add_message(f"RIFE model loaded. Starting RIFE {interpolation_factor}x interpolation...")
-                    
-                    # Loop for multiple passes of 2x interpolation (1 pass for 2x, 2 passes for 4x)
-                    num_passes = int(math.log2(interpolation_factor))
-                    for p in range(num_passes):
-                        self.message_manager.add_message(f"RIFE Pass {p+1}/{num_passes}: Interpolating frames...")
-                        interpolated_this_pass = []
-                        num_pairs = len(processed_frames) - 1
-                    
-                        # Use tqdm for the innermost loop of each pass
-                        for i in progress.tqdm(range(num_pairs), desc=f"RIFE Pass {p+1}/{num_passes} ({interpolation_factor}x)"):
-                            frame1_np, frame2_np = processed_frames[i], processed_frames[i+1]
-                            interpolated_this_pass.append(frame1_np) 
-                            middle_frame_np = self.rife_handler.interpolate_between_frames(frame1_np, frame2_np)
-                            if middle_frame_np is not None: interpolated_this_pass.append(middle_frame_np)
-                            else: interpolated_this_pass.append(frame1_np) # Duplicate on failure
-                        
-                        interpolated_this_pass.append(processed_frames[-1])
-                        processed_frames = interpolated_this_pass # Update for the next pass or for final output
-                    # The video stream FPS itself doesn't change due to RIFE; it just has more frames.
-                    # If RIFE is used, the perceived playback smoothness increases as if FPS doubled.
-                    # The container FPS (current_fps) should reflect the intended playback rate of these frames.
-                    # If original FPS was 30, and we RIFE, we now have 2x frames intended to still play over
-                    # the same original duration segment, effectively meaning playback at 2*original_fps.
-                    current_fps = original_fps * interpolation_factor 
-                    self.message_manager.add_message(f"RIFE {interpolation_factor}x interpolation resulted in {len(processed_frames)} frames. Effective FPS: {current_fps:.2f}")
-            
-            elif should_interpolate and len(processed_frames) <= 1:
-                self.message_manager.add_warning("Not enough frames for RIFE interpolation. Skipping.")
+            self.message_manager.add_message(
+                f"User selected {'Streaming (low memory)' if use_streaming else 'In-Memory (fast)'} mode for frame processing."
+            )
+            if use_streaming and speed_factor != 1.0:
+                self.message_manager.add_warning("Speed factor is not applied in Streaming Interpolation mode. Processing at 1.0x speed.")
+                speed_factor = 1.0
 
             op_suffix_parts = []
             if speed_factor != 1.0: op_suffix_parts.append(f"speed{speed_factor:.2f}x".replace('.',',')) 
-            if should_interpolate and self.rife_handler.rife_model is not None: 
-                op_suffix_parts.append(f"RIFE{interpolation_factor}x")
-
-            op_suffix = "_".join(op_suffix_parts)
-
+            if should_interpolate: op_suffix_parts.append(f"RIFE{interpolation_factor}x")
+            op_suffix = "_".join(op_suffix_parts) if op_suffix_parts else "processed"
             temp_video_suffix = f"{op_suffix}_temp_video"
-            video_stream_output_path = self._tb_generate_output_path(
-                resolved_video_path, suffix=temp_video_suffix, target_dir=self.toolbox_video_output_dir
-            )
+            video_stream_output_path = self._tb_generate_output_path(resolved_video_path, suffix=temp_video_suffix, target_dir=self.toolbox_video_output_dir)
             final_muxed_output_path = video_stream_output_path.replace("_temp_video", "")
 
-            self.message_manager.add_message(f"Saving video stream to {video_stream_output_path} at {current_fps:.2f} FPS...")
-            progress(0.85, desc="Saving video stream...")
-            imageio.mimwrite(video_stream_output_path, processed_frames, fps=current_fps, quality=VIDEO_QUALITY, macro_block_size=None)
+            # --- PROCESSING BLOCK ---
+            if use_streaming:
+                # --- STREAMING (LOW MEMORY) PATH - WITH FULL 4X LOGIC ---
+                if not should_interpolate:
+                    self.message_manager.add_warning("Streaming mode selected but no interpolation chosen. Writing video without changes.")
+                    writer = imageio.get_writer(video_stream_output_path, fps=original_fps, quality=VIDEO_QUALITY, macro_block_size=None)
+                    for frame in reader:
+                        writer.append_data(frame)
+                else:
+                    writer = imageio.get_writer(video_stream_output_path, fps=output_fps, quality=VIDEO_QUALITY, macro_block_size=None)
+                    self.message_manager.add_message(f"Attempting to load RIFE model for {interpolation_factor}x interpolation...")
+                    if not self.rife_handler._ensure_model_downloaded_and_loaded():
+                        self.message_manager.add_error("RIFE model could not be loaded. Aborting."); return None
+                    
+                    n_frames = self._tb_get_video_frame_count(resolved_video_path)
+                    if n_frames is None:
+                        self.message_manager.add_error("Cannot determine video length for streaming progress. Aborting.")
+                        return None
 
-            final_output_path = final_muxed_output_path 
+                    num_passes = int(math.log2(interpolation_factor))
+                    desc = f"RIFE Pass 1/{num_passes} (Streaming)"
+                    self.message_manager.add_message(desc)
+                    
+                    try:
+                        frame1_np = next(iter(reader))
+                    except StopIteration:
+                        self.message_manager.add_warning("Video has no frames."); return None
+                    
+                    # This list will only be used if we are doing a 4x (2-pass) interpolation
+                    intermediate_frames_for_pass2 = [frame1_np] if num_passes > 1 else None
+
+                    # Loop for the first pass (2x)
+                    for i, frame2_np in enumerate(reader, 1):
+                        progress(i / (n_frames - 1), desc=desc)
+
+                        # For 2x mode (num_passes == 1), we write directly to the file.
+                        if num_passes == 1:
+                            writer.append_data(frame1_np)
+                        
+                        middle_frame_np = self.rife_handler.interpolate_between_frames(frame1_np, frame2_np)
+                        
+                        if middle_frame_np is not None:
+                            if num_passes == 1:
+                                writer.append_data(middle_frame_np)
+                            # For 4x mode, we collect the 2x results in a list.
+                            if intermediate_frames_for_pass2 is not None:
+                                intermediate_frames_for_pass2.append(middle_frame_np)
+                        else: # On failure, duplicate previous frame
+                            if num_passes == 1:
+                                writer.append_data(frame1_np)
+                            if intermediate_frames_for_pass2 is not None:
+                                intermediate_frames_for_pass2.append(frame1_np)
+
+                        # Add the "end" frame of the pair to our intermediate list for the next pass
+                        if intermediate_frames_for_pass2 is not None:
+                            intermediate_frames_for_pass2.append(frame2_np)
+
+                        frame1_np = frame2_np
+
+                    if num_passes == 1:
+                        writer.append_data(frame1_np)
+
+                    if num_passes > 1 and intermediate_frames_for_pass2:
+                        self.message_manager.add_message(f"RIFE Pass 2/{num_passes}: Interpolating 2x frames (in-memory)...")
+                        
+                        pass2_iterator = progress.tqdm(
+                            range(len(intermediate_frames_for_pass2) - 1), 
+                            desc=f"RIFE Pass 2/{num_passes}"
+                        )
+                        
+                        # Loop through the 2x frames to create 4x frames, mirroring the IN-MEMORY logic.
+                        for i in pass2_iterator:
+                            p2_frame1 = intermediate_frames_for_pass2[i]
+                            p2_frame2 = intermediate_frames_for_pass2[i+1]
+                            
+                            # Write the "start" frame of the pair
+                            writer.append_data(p2_frame1)
+                            
+                            # Interpolate and write the middle frame
+                            p2_middle = self.rife_handler.interpolate_between_frames(p2_frame1, p2_frame2)
+                            
+                            if p2_middle is not None:
+                                writer.append_data(p2_middle)
+                            else: # On failure, duplicate
+                                writer.append_data(p2_frame1)
+                        
+                        # After the loop, write the very last frame of the entire list
+                        writer.append_data(intermediate_frames_for_pass2[-1])
+            else:
+                # --- IN-MEMORY (FAST) PATH ---
+                self.message_manager.add_message("Reading all video frames into memory...")
+                video_frames = [frame for frame in reader]
+                
+                processed_frames = video_frames
+                if speed_factor != 1.0:
+                    self.message_manager.add_message(f"Adjusting speed by {speed_factor}x (in-memory)...")
+                    if speed_factor > 1.0: 
+                        indices = np.arange(0, len(video_frames), speed_factor).astype(int)
+                        processed_frames = [video_frames[i] for i in indices if i < len(video_frames)]
+                    else: 
+                        new_len = int(len(video_frames) / speed_factor)
+                        indices = np.linspace(0, len(video_frames) - 1, new_len).astype(int)
+                        processed_frames = [video_frames[i] for i in indices]
+                
+                if should_interpolate and len(processed_frames) > 1:
+                    self.message_manager.add_message(f"Loading RIFE for {interpolation_factor}x interpolation (in-memory)...")
+                    if not self.rife_handler._ensure_model_downloaded_and_loaded():
+                        self.message_manager.add_error("RIFE model could not be loaded."); return None
+                    
+                    num_passes = int(math.log2(interpolation_factor))
+                    for p in range(num_passes):
+                        self.message_manager.add_message(f"RIFE Pass {p+1}/{num_passes} (in-memory)...")
+                        interpolated_this_pass = []
+                        frame_iterator = progress.tqdm(range(len(processed_frames) - 1), desc=f"RIFE Pass {p+1}/{num_passes}")
+                        for i in frame_iterator:
+                            interpolated_this_pass.append(processed_frames[i])
+                            middle_frame = self.rife_handler.interpolate_between_frames(processed_frames[i], processed_frames[i+1])
+                            interpolated_this_pass.append(middle_frame if middle_frame is not None else processed_frames[i])
+                        interpolated_this_pass.append(processed_frames[-1])
+                        processed_frames = interpolated_this_pass
+                
+                self.message_manager.add_message(f"Writing {len(processed_frames)} frames to file...")
+                writer = imageio.get_writer(video_stream_output_path, fps=output_fps, quality=VIDEO_QUALITY, macro_block_size=None)
+                for frame in progress.tqdm(processed_frames, desc="Writing frames"):
+                    writer.append_data(frame)
+
+            # --- Universal Teardown & Muxing ---
+            if writer: writer.close()
+            if reader: reader.close()
+            writer, reader = None, None
+
+            final_output_path = final_muxed_output_path
             can_process_audio = self.has_ffmpeg
             original_video_has_audio = self._tb_has_audio_stream(resolved_video_path) if can_process_audio else False
 
@@ -1202,11 +1286,8 @@ class VideoProcessor:
                 self.message_manager.add_message("Original video has audio. Processing audio with FFmpeg...")
                 progress(0.9, desc="Processing audio...")
                 ffmpeg_mux_cmd = [self.ffmpeg_exe, "-y", "-loglevel", "error", "-i", video_stream_output_path]
-                
                 audio_filters = []
-                if speed_factor != 1.0: # Only apply atempo if speed actually changed
-                    # Complex atempo for large speed changes (FFmpeg's atempo is 0.5-100.0)
-                    # This simplified version handles common cases. For extreme speed_factor, might need more atempo stages.
+                if speed_factor != 1.0:
                     if 0.5 <= speed_factor <= 100.0:
                         audio_filters.append(f"atempo={speed_factor:.4f}")
                     elif speed_factor < 0.5: # Needs multiple 0.5 steps
@@ -1227,13 +1308,12 @@ class VideoProcessor:
 
                 ffmpeg_mux_cmd.extend(["-i", resolved_video_path]) # Input for audio
                 ffmpeg_mux_cmd.extend(["-c:v", "copy"]) 
-                
+
                 if audio_filters:
                     ffmpeg_mux_cmd.extend(["-filter:a", ",".join(audio_filters)])
                 # Always re-encode audio to AAC for MP4 compatibility, even if no speed change,
                 # as original audio might not be AAC.
-                ffmpeg_mux_cmd.extend(["-c:a", "aac", "-b:a", "192k"]) 
-
+                ffmpeg_mux_cmd.extend(["-c:a", "aac", "-b:a", "192k"])
                 ffmpeg_mux_cmd.extend(["-map", "0:v:0", "-map", "1:a:0?", "-shortest", final_muxed_output_path])
                 
                 try:
@@ -1241,23 +1321,14 @@ class VideoProcessor:
                     self.message_manager.add_success(f"Video saved with processed audio: {final_muxed_output_path}")
                 except subprocess.CalledProcessError as e_mux:
                     self._tb_log_ffmpeg_error(e_mux, "audio processing/muxing")
-                    self.message_manager.add_message("Saving video without audio as fallback.")
-                    if os.path.exists(final_muxed_output_path): os.remove(final_muxed_output_path) 
-                    os.rename(video_stream_output_path, final_muxed_output_path) 
-                except FileNotFoundError: # Should not happen if self.has_ffmpeg is true
-                    self.message_manager.add_error(f"FFmpeg not found during muxing. This is unexpected if has_ffmpeg was True.")
                     if os.path.exists(final_muxed_output_path): os.remove(final_muxed_output_path)
                     os.rename(video_stream_output_path, final_muxed_output_path)
-            else: 
+            else:
                 if original_video_has_audio and not can_process_audio:
-                     self.message_manager.add_warning("Original video has audio, but FFmpeg is not available to process it. Output will be silent. Install FFmpeg for audio support.")
-                elif not original_video_has_audio:
-                     self.message_manager.add_message("No audio in original or audio processing skipped (e.g. FFprobe missing for detection). Saving video-only.")
-                
-                if os.path.exists(final_muxed_output_path) and final_muxed_output_path != video_stream_output_path : 
-                    os.remove(final_muxed_output_path) 
+                     self.message_manager.add_warning("Original video has audio, but FFmpeg is not available to process it. Output will be silent.")
+                if os.path.exists(final_muxed_output_path) and final_muxed_output_path != video_stream_output_path:
+                    os.remove(final_muxed_output_path)
                 os.rename(video_stream_output_path, final_muxed_output_path)
-
 
             if os.path.exists(video_stream_output_path) and video_stream_output_path != final_muxed_output_path:
                 try: os.remove(video_stream_output_path)
@@ -1271,8 +1342,10 @@ class VideoProcessor:
             self.message_manager.add_error(f"Error during frame processing: {e}")
             import traceback; self.message_manager.add_error(traceback.format_exc())
             progress(1.0, desc="Error.")
-            return None 
+            return None
         finally:
+            if reader and not reader.closed: reader.close()
+            if writer and not writer.closed: writer.close()
             if self.rife_handler: self.rife_handler.unload_model()
             devicetorch.empty_cache(torch); gc.collect()
 
@@ -1523,32 +1596,34 @@ class VideoProcessor:
 
     def tb_upscale_video(self, video_path, model_key: str, output_scale_factor_ui: float, 
                          tile_size: int, enhance_face: bool, 
-                         denoise_strength_ui: float | None, # New parameter
+                         denoise_strength_ui: float | None,
+                         use_streaming: bool, # New parameter from UI
                          progress=gr.Progress()):
         if video_path is None: self.message_manager.add_warning("No input video for upscaling."); return None
         
-        final_output_path = None; reader = None
+        reader = None
+        writer = None
+        final_output_path = None
+        video_stream_output_path = None
+
         try:
+            # --- Model Loading and Setup ---
             if model_key not in self.esrgan_upscaler.supported_models:
-                self.message_manager.add_error(f"Upscale model key '{model_key}' not found in supported models.")
-                return None
+                self.message_manager.add_error(f"Upscale model key '{model_key}' not found in supported models."); return None
             
             model_native_scale = self.esrgan_upscaler.supported_models[model_key].get('scale', 0)
-
             tile_size_str_for_log = str(tile_size) if tile_size > 0 else "Auto"
             face_enhance_str_for_log = "+FaceEnhance" if enhance_face else ""
             denoise_str_for_log = ""
             if model_key == "RealESR-general-x4v3" and denoise_strength_ui is not None:
                 denoise_str_for_log = f", DNI: {denoise_strength_ui:.2f}"
 
-
             self.message_manager.add_message(
                 f"Preparing to load ESRGAN model '{model_key}' for {output_scale_factor_ui:.2f}x target upscale "
                 f"(Native: {model_native_scale}x, Tile: {tile_size_str_for_log}{face_enhance_str_for_log}{denoise_str_for_log})."
             )
-            progress(0.05, desc=f"Loading ESRGAN model '{model_key}' (Tile: {tile_size_str_for_log}{denoise_str_for_log})...")
+            progress(0.05, desc=f"Loading ESRGAN model '{model_key}'...")
             
-            # Pass denoise_strength_ui to load_model
             upsampler_instance = self.esrgan_upscaler.load_model(
                 model_key=model_key, 
                 tile_size=tile_size,
@@ -1557,80 +1632,84 @@ class VideoProcessor:
             if not upsampler_instance:
                 self.message_manager.add_error(f"Could not load ESRGAN model '{model_key}'. Aborting."); return None 
 
-            if enhance_face: # Face enhancer loading logic
+            if enhance_face:
                 if not self.esrgan_upscaler._load_face_enhancer(bg_upsampler=upsampler_instance):
-                    self.message_manager.add_warning("Failed to load GFPGAN for face enhancement. Proceeding without it.")
-                    enhance_face = False 
-                    face_enhance_str_for_log = "" # Update log string if face enhance fails
-
-            self.message_manager.add_message(
-                f"ESRGAN model '{model_key}' (Native: {model_native_scale}x, Tile: {tile_size_str_for_log}{denoise_str_for_log}) "
-                f"{'and GFPGAN ' if enhance_face else ''}loaded for target {output_scale_factor_ui:.2f}x output."
-            )
-            progress(0.1, desc=f"Initializing {output_scale_factor_ui:.2f}x upscaling{face_enhance_str_for_log}{denoise_str_for_log} process...")
+                    self.message_manager.add_warning("GFPGAN load failed. Proceeding without face enhancement.")
+                    enhance_face = False
+            
+            self.message_manager.add_message(f"ESRGAN model '{model_key}' loaded. Initializing process...")
             
             resolved_video_path = str(Path(video_path).resolve())
-            upscaled_frames = []
-            
-            progress(0.12, desc="Reading video info...")
             reader = imageio.get_reader(resolved_video_path)
-            meta_data = reader.get_meta_data(); original_fps = meta_data.get('fps', 30.0)
+            meta_data = reader.get_meta_data()
+            original_fps = meta_data.get('fps', 30.0)
             
-            n_frames = meta_data.get('nframes')
-            if n_frames is None or n_frames == float('inf'):
-                try: n_frames = reader.count_frames()
-                except: n_frames = None 
-            if n_frames == float('inf'): n_frames = None
-
-            n_frames_display = str(int(n_frames)) if n_frames is not None else "Unknown"
-            self.message_manager.add_message(f"Original FPS: {original_fps:.2f}. Total frames: {n_frames_display}.")
-
-            progress_desc = (
-                f"Upscaling Frames to {output_scale_factor_ui:.2f}x (Model: {model_key}{face_enhance_str_for_log}{denoise_str_for_log}, "
-                f"Native: {model_native_scale}x, Tile: {tile_size_str_for_log})"
-            )
-            frame_iterator = enumerate(reader)
-            if n_frames is not None: frame_iterator = progress.tqdm(enumerate(reader), total=int(n_frames), desc=progress_desc)
-            else: self.message_manager.add_message(f"Total frames unknown, progress per batch ({progress_desc}).")
-
-            for i, frame_np in frame_iterator:
-                if n_frames is None and i % 10 == 0: 
-                    current_progress_val = 0.15 + ( (i/(i+500.0)) * 0.65 )
-                    progress(current_progress_val , desc=f"Upscaling frame {i+1} to {output_scale_factor_ui:.2f}x (Tile: {tile_size_str_for_log})...")
-                
-                upscaled_frame_np = self.esrgan_upscaler.upscale_frame( # DNI is handled by loaded model
-                    frame_np_array=frame_np, 
-                    model_key=model_key,
-                    target_outscale_factor=float(output_scale_factor_ui), 
-                    enhance_face=enhance_face
-                )
-                if upscaled_frame_np is not None: upscaled_frames.append(upscaled_frame_np)
-                else: # Error handling for frame upscale
-                    self.message_manager.add_error(f"Failed to upscale frame {i+1}. Skipping.")
-                    if "out of memory" in self.message_manager.get_recent_errors_as_str(count=1).lower():
-                        self.message_manager.add_error("CUDA OOM likely. Aborting video upscale."); return None 
-                if (i+1) % 20 == 0: devicetorch.empty_cache(torch); gc.collect()
-            
-            if reader: reader.close(); reader = None 
-            if not upscaled_frames: self.message_manager.add_error("No frames upscaled."); return None 
-            
-            self.message_manager.add_message(f"Successfully upscaled {len(upscaled_frames)} frames to {output_scale_factor_ui:.2f}x.")
-            progress(0.80, desc="Saving upscaled video stream...")
-
-            temp_video_suffix_base = (
-                f"upscaled_{model_key}"
-                f"{face_enhance_str_for_log.replace('+','_')}"
-            )
+            # --- Define output paths ---
+            temp_video_suffix_base = f"upscaled_{model_key}{'_FaceEnhance' if enhance_face else ''}"
             if model_key == "RealESR-general-x4v3" and denoise_strength_ui is not None:
                  temp_video_suffix_base += f"_dni{denoise_strength_ui:.2f}"
             temp_video_suffix = temp_video_suffix_base.replace(".","p") + "_temp_video"
-            
             video_stream_output_path = self._tb_generate_output_path(resolved_video_path, temp_video_suffix, self.toolbox_video_output_dir)
             final_muxed_output_path = video_stream_output_path.replace("_temp_video", "")
 
-            imageio.mimwrite(video_stream_output_path, upscaled_frames, fps=original_fps, quality=VIDEO_QUALITY, macro_block_size=None)
-            del upscaled_frames; devicetorch.empty_cache(torch); gc.collect()
+            self.message_manager.add_message(
+                f"User selected {'Streaming (low memory)' if use_streaming else 'In-Memory (fast)'} mode."
+            )
 
+            # --- PROCESSING BLOCK ---
+            if use_streaming:
+                # --- STREAMING (LOW MEMORY) PATH ---
+                self.message_manager.add_message("Processing frame-by-frame...")
+                n_frames = self._tb_get_video_frame_count(resolved_video_path)
+
+                if n_frames is None:
+                    self.message_manager.add_error("Cannot use streaming mode because the total number of frames could not be determined. Aborting.")
+                    return None
+
+                writer = imageio.get_writer(video_stream_output_path, fps=original_fps, quality=VIDEO_QUALITY, macro_block_size=None)
+                
+                # Use a range-based loop and get_data() instead of iterating the reader directly
+                for i in progress.tqdm(range(n_frames), desc="Upscaling Frames (Streaming)"):
+                    frame_np = reader.get_data(i) # Explicitly get frame i
+                    
+                    upscaled_frame_np = self.esrgan_upscaler.upscale_frame(frame_np, model_key, float(output_scale_factor_ui), enhance_face)
+                    if upscaled_frame_np is not None:
+                        writer.append_data(upscaled_frame_np)
+                    else:
+                        self.message_manager.add_error(f"Failed to upscale frame {i}. Skipping.")
+                        if "out of memory" in self.message_manager.get_recent_errors_as_str(count=1).lower():
+                            self.message_manager.add_error("CUDA OOM. Aborting video upscale."); return None
+                    
+                    # We can be more aggressive with GC in streaming mode
+                    if (i + 1) % 10 == 0: 
+                        gc.collect()
+                
+                writer.close()
+                writer = None
+            else:
+                # --- IN-MEMORY (FAST) PATH ---
+                self.message_manager.add_message("Processing all frames in memory...")
+                all_frames = [frame for frame in progress.tqdm(reader, desc="Reading all frames")]
+                upscaled_frames = []
+                frame_iterator = progress.tqdm(all_frames, desc="Upscaling Frames (In-Memory)")
+                
+                for frame_np in frame_iterator:
+                    upscaled_frame_np = self.esrgan_upscaler.upscale_frame(frame_np, model_key, float(output_scale_factor_ui), enhance_face)
+                    if upscaled_frame_np is not None:
+                        upscaled_frames.append(upscaled_frame_np)
+                    else:
+                        if "out of memory" in self.message_manager.get_recent_errors_as_str(count=1).lower():
+                            self.message_manager.add_error("CUDA OOM. Aborting video upscale."); return None
+                
+                self.message_manager.add_message("Writing upscaled video file...")
+                imageio.mimwrite(video_stream_output_path, upscaled_frames, fps=original_fps, quality=VIDEO_QUALITY, macro_block_size=None)
+
+            # --- Teardown and Audio Muxing ---
+            reader.close()
+            reader = None
+            self.message_manager.add_message(f"Upscaled video stream saved to: {video_stream_output_path}")
+            progress(0.85, desc="Upscaled video stream saved.")
+            
             final_output_path = final_muxed_output_path
             can_process_audio = self.has_ffmpeg
             original_video_has_audio = self._tb_has_audio_stream(resolved_video_path) if can_process_audio else False
@@ -1651,40 +1730,32 @@ class VideoProcessor:
                     self._tb_log_ffmpeg_error(e_mux, "audio muxing for upscaled video")
                     if os.path.exists(final_muxed_output_path): os.remove(final_muxed_output_path)
                     os.rename(video_stream_output_path, final_muxed_output_path)
-                except FileNotFoundError: 
-                    self.message_manager.add_error(f"FFmpeg not found during muxing. Unexpected.")
-                    if os.path.exists(final_muxed_output_path): os.remove(final_muxed_output_path)
-                    os.rename(video_stream_output_path, final_muxed_output_path)
             else:
                 if original_video_has_audio and not can_process_audio:
                      self.message_manager.add_warning("Original video has audio, but FFmpeg is not available to process it. Upscaled output will be silent.")
-                elif not original_video_has_audio :
-                     self.message_manager.add_message("No audio in original or detection issue. Saving upscaled video-only.")
                 if os.path.exists(final_muxed_output_path) and final_muxed_output_path != video_stream_output_path:
                     os.remove(final_muxed_output_path)
                 os.rename(video_stream_output_path, final_muxed_output_path)
 
-            if os.path.exists(video_stream_output_path) and video_stream_output_path != final_muxed_output_path:
-                try: os.remove(video_stream_output_path)
-                except Exception as e_clean: self.message_manager.add_warning(f"Could not remove temp upscaled video: {e_clean}")
-            
             progress(1.0, desc="Upscaling complete.")
-            self.message_manager.add_success(f"Video upscaling to {output_scale_factor_ui:.2f}x complete: {final_output_path}")
+            self.message_manager.add_success(f"Video upscaling complete: {final_output_path}")
             return final_output_path
 
         except Exception as e:
             self.message_manager.add_error(f"Error during video upscaling: {e}")
             import traceback; self.message_manager.add_error(traceback.format_exc())
-            progress(1.0, desc="Error during upscaling."); return None 
+            progress(1.0, desc="Error during upscaling."); return None
         finally:
-            if reader: 
-                try: 
-                    if hasattr(reader, 'closed') and not reader.closed: reader.close()
-                except: pass
-            if model_key and self.esrgan_upscaler: # Ensure model is unloaded
-                 self.esrgan_upscaler.unload_model(model_key) 
-            if enhance_face and self.esrgan_upscaler and self.esrgan_upscaler.face_enhancer:
-                self.esrgan_upscaler._unload_face_enhancer()
+            if reader and not reader.closed: reader.close()
+            if writer and not writer.closed: writer.close()
+            if video_stream_output_path and os.path.exists(video_stream_output_path) and final_output_path and video_stream_output_path != final_output_path:
+                try: os.remove(video_stream_output_path)
+                except Exception as e_clean: self.message_manager.add_warning(f"Could not remove temp upscaled video: {e_clean}")
+            
+            if self.esrgan_upscaler:
+                self.esrgan_upscaler.unload_model(model_key)
+                if enhance_face:
+                    self.esrgan_upscaler._unload_face_enhancer()
             devicetorch.empty_cache(torch); gc.collect()
 
     def tb_open_output_folder(self):
