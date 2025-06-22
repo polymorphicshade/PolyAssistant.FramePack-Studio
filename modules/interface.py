@@ -25,6 +25,7 @@ from diffusers_helper.utils import generate_timestamp
 
 from modules.video_queue import JobStatus, Job, JobType
 from modules.prompt_handler import get_section_boundaries, get_quick_prompts, parse_timestamped_prompt
+from modules.llm_enhancer import enhance_prompt
 from diffusers_helper.gradio.progress_bar import make_progress_bar_css, make_progress_bar_html
 from diffusers_helper.bucket_tools import find_nearest_bucket
 from modules.pipelines.metadata_utils import create_metadata
@@ -481,7 +482,9 @@ def create_interface(
 
                             
 
-                            prompt = gr.Textbox(label="Prompt", value=default_prompt)
+                            with gr.Row():
+                                prompt = gr.Textbox(label="Prompt", value=default_prompt, scale=10)
+                                enhance_prompt_btn = gr.Button("✨ Enhance", scale=1, elem_classes="narrow-button")
 
                             with gr.Accordion("Prompt Parameters", open=False):
                                 n_prompt = gr.Textbox(label="Negative Prompt", value="", visible=True)  # Make visible for both models
@@ -2152,6 +2155,22 @@ def create_interface(
             fn=update_start_button_state, # Ensure button state is correct after startup settings
             inputs=[model_type, input_video], 
             outputs=[start_button, video_input_required_message]
+        )
+        
+        # --- LLM Prompt Enhancer Connection ---
+        def handle_enhance_prompt(current_prompt_text):
+            """Calls the LLM enhancer and returns the updated text."""
+            if not current_prompt_text:
+                return ""
+            print("UI: Enhance button clicked. Sending prompt to enhancer.")
+            enhanced_text = enhance_prompt(current_prompt_text)
+            print(f"UI: Received enhanced prompt: {enhanced_text}")
+            return gr.update(value=enhanced_text)
+
+        enhance_prompt_btn.click(
+            fn=handle_enhance_prompt,
+            inputs=[prompt],
+            outputs=[prompt]
         )
         
         return block
