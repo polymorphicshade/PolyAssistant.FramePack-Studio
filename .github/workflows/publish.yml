@@ -30,7 +30,7 @@ jobs:
           commit_sha: ${{ github.sha }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-          image_name: fp-studio
+          image_name: ${{ github.repository_owner }}/fp-studio
           cuda_version: ${{ matrix.cuda-version }}
   cleanup:
     runs-on: ubuntu-latest
