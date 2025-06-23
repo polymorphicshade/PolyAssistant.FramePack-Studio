@@ -43,6 +43,6 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           user: ${{ github.repository_owner }}
-          container: ${{ github.repository }}
+          container: fp-studio
           dry-run: false
           prune-untagged: true
