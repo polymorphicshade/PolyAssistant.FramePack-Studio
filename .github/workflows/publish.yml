@@ -1,4 +1,4 @@
-name: Publish snapshots to GHCR
+name: Publish images to GHCR
 on:
   push:
     branches:
