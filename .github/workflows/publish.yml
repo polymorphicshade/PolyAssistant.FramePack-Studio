@@ -17,7 +17,13 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - uses: ./.github/actions/docker-publish-action
+      - name: Clean up unneeded tooling
+        run: |
+          rm -rf /usr/share/dotnet
+          rm -rf /opt/ghc
+          rm -rf "/usr/local/share/boost"
+      - name: Publish image
+        uses: ./.github/actions/docker-publish-action
         with:
           branch: ${{ github.ref_name }}
           commit_sha: ${{ github.sha }}
