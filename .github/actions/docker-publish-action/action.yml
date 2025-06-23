@@ -8,10 +8,6 @@ inputs:
   branch:
     description: "Repository branch this image is built from"
     required: true
-  tag_latest:
-    description: "Should this image be tagged as 'latest'"
-    required: false
-    default: "false"
   username:
     description: "Docker registry account username"
     required: true
