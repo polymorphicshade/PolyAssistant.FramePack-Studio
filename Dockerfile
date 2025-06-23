@@ -1,4 +1,6 @@
-FROM nvidia/cuda:12.9.0-runtime-ubuntu22.04
+ARG CUDA_VERSION=12.9
+
+FROM nvidia/cuda:${CUDA_VERSION}.0-runtime-ubuntu22.04
 
 RUN apt-get update && apt-get install -y \
     python3 python3-pip git ffmpeg wget curl \
