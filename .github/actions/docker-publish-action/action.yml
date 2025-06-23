@@ -5,9 +5,6 @@ inputs:
     description: "Docker registry hostname"
     required: false
     default: "ghcr.io"
-  branch:
-    description: "Repository branch this image is built from"
-    required: true
   username:
     description: "Docker registry account username"
     required: true
@@ -17,8 +14,14 @@ inputs:
   image_name:
     description: "Docker image name"
     required: true
+  branch:
+    description: "Repository branch this image is built from"
+    required: true
   commit_sha:
     description: "SHA hash of the commit that triggered this publish"
+    required: true
+  cuda_version:
+    description: "CUDA version number to build for"
     required: true
 runs:
   using: "composite"
