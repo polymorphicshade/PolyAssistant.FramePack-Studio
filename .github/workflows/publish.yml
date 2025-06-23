@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - "develop"
+      - "main"
   workflow_dispatch:
 jobs:
   publish:
@@ -18,7 +19,7 @@ jobs:
         uses: actions/checkout@v4
       - uses: ./.github/actions/docker-publish-action
         with:
-          branch: develop
+          branch: ${{ github.ref_name }}
           commit_sha: ${{ github.sha }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
