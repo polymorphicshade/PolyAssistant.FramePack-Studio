@@ -9,3 +9,10 @@ services:
       - "./input:/workspace/input"
       - "./output:/workspace/output"
       - "$HOME/.cache/huggingface:/app/hf_download"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
