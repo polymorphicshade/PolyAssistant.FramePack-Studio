@@ -40,17 +40,35 @@ Install via the Pinokio community script "FP-Studio" or:
    cd FramePack-Studio
    ```
 
-2. Install PyTorch:
+2. Create a Python virtual environment (venv):
 
-   Go to the [PyTorch Getting Started](https://pytorch.org/get-started/locally/) page and install PyTorch according to your system setup.
-   For example, if using CUDA 12.6 on Windows:
+   For Linux:
+
    ```bash
-   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+   python -m venv venv/
+   source venv/bin/activate
+   ```
+
+   For Windows:
+
+   ```
+   python -m venv venv/
+   ./venv/Scripts/activate.bat
    ```
 
 3. Install additional dependencies:
+
    ```bash
    pip install -r requirements.txt
+   ```
+
+4. Install PyTorch:
+
+   Go to the [PyTorch Getting Started](https://pytorch.org/get-started/locally/) page and install PyTorch according to your system setup.
+   For example, if using CUDA 12.6 on Windows:
+
+   ```bash
+   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
    ```
 
 ## Usage
