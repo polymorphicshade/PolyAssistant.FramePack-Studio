@@ -6,7 +6,7 @@
 
 If you are not familiar with Python, the most straightforward way to run FP-Studio is to use Docker.
 
-Windows users should install [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/), Linux users should install [Docker Engine](https://docs.docker.com/engine/install/) for their distro.
+Windows users should install [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/), Linux users should install [Docker Engine](https://docs.docker.com/engine/install/) for their distro. Unfortunately, due to GitHub Actions limitations we cannot provide builds compatible with Apple Silicon.
 
 Once you have Docker installed and running, you can use the `docker` command from any command prompt to interact with it.
 
