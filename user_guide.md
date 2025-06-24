@@ -18,7 +18,7 @@ cd FramePack-Studio
 docker compose up -d
 ```
 
-Now you can navigate to `http://localhost:7860` to access FP-Studio.
+Now you can navigate to `http://localhost:7860` to access FP-Studio. Use `docker compose ps` to see the status of your FP-Studio container. Refer to [Docker documentation](https://docs.docker.com/compose/intro/compose-application-model/#cli) on Compose for more information on how to work with it.
 
 ## Generate Tab
 
