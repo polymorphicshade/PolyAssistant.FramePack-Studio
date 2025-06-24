@@ -36,7 +36,7 @@ Where X.Y is your desired CUDA version.
 
 If you are familiar with Python or cannot use Docker for some reason, then you can install FP-Studio manually.
 
-Run the following commands in a Bash shell (install Git for Windows to get Bash on Windows):
+Run the following commands in a Bash shell (install [Git for Windows](https://gitforwindows.org/) to get Bash on Windows):
 
 ```sh
 git clone https://github.com/colinurbs/FramePack-Studio.git
