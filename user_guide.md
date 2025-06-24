@@ -32,6 +32,24 @@ TO
 
 Where X.Y is your desired CUDA version.
 
+### Manual
+
+If you are familiar with Python or cannot use Docker for some reason, then you can install FP-Studio manually.
+
+Run the following commands in a Bash shell (install Git for Windows to get Bash on Windows):
+
+```sh
+git clone https://github.com/colinurbs/FramePack-Studio.git
+cd FramePack-Studio
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+python app.py
+```
+
+The app will now start up and begin downloading models. Once it is done, you should be able to access it at `http://localhost:7860`.
+
 ## Generate Tab
 
 ### Generation Types
