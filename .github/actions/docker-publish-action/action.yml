@@ -33,15 +33,15 @@ runs:
       id: meta
       uses: docker/metadata-action@v5
       with:
-        images: ${{ inputs.registry }}/${{ inputs.image_name }}
+        images: ${{ inputs.image_name }}
     - name: Build and push
       uses: docker/build-push-action@v5
       with:
         push: true
         file: Dockerfile
         tags: |
-          ${{ inputs.registry }}/${{ inputs.image_name }}:cuda${{ inputs.cuda_version }}-latest-${{ inputs.branch }}
-          ${{ inputs.registry }}/${{ inputs.image_name }}:cuda${{ inputs.cuda_version }}-${{ inputs.commit_sha }}
+          ${{ inputs.image_name }}:cuda${{ inputs.cuda_version }}-latest-${{ inputs.branch }}
+          ${{ inputs.image_name }}:cuda${{ inputs.cuda_version }}-${{ inputs.commit_sha }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
           CUDA_VERSION=${{ inputs.cuda_version }}
