@@ -1,7 +1,7 @@
 echo Starting FramePack-Studio...
 
 if [ -z "$(command -v python)" ]; then
-  echo "Did not find a python binary. Exiting."
+  echo "Did not find a Python binary. Exiting."
   exit 1
 fi
 
