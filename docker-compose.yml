@@ -2,8 +2,10 @@ services:
   studio:
     build:
       context: .
+      # modify this if you are building the image locally and need a different CUDA version
       args:
         - CUDA_VERSION=12.4.1
+    # modify the tag here if you need a different CUDA version or branch
     image: colinurbs/fp-studio:cuda12.4.1-latest-develop
     restart: unless-stopped
     ports:
