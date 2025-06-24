@@ -1,7 +1,6 @@
 services:
   studio:
     build:
-      context: .
       # modify this if you are building the image locally and need a different CUDA version
       args:
         - CUDA_VERSION=12.4.1
