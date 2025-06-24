@@ -1,0 +1,11 @@
+services:
+  studio:
+    build: .
+    image: ghcr.io/ColinUrbs/fp-studio:cuda12.4-latest-develop
+    restart: unless-stopped
+    ports:
+      - "7860:7860"
+    volumes:
+      - "./input:/workspace/input"
+      - "./output:/workspace/output"
+      - "$HOME/.cache/huggingface:/app/hf_download"
