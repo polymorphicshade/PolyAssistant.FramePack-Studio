@@ -1,6 +1,6 @@
 ARG CUDA_VERSION=12.4.1
 
-FROM nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu24.04
+FROM nvidia/cuda:${CUDA_VERSION}-runtime-ubuntu22.04
 
 ARG CUDA_VERSION
 
