@@ -23,11 +23,11 @@ Now you can navigate to `http://localhost:7860` to access FP-Studio. Use `docker
 By default, the `docker-compose.yml` targets CUDA 12.4. In order to specify a different CUDA version, open the file and change the following line:
 
 ```
-    image: colinurbs439/fp-studio:cuda12.4-latest-develop
+    image: colinurbs/fp-studio:cuda12.4-latest-develop
 
 TO
 
-    image: colinurbs439/fp-studio:cudaX.Y-latest-develop
+    image: colinurbs/fp-studio:cudaX.Y-latest-develop
 ```
 
 Where X.Y is your desired CUDA version.
