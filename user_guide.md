@@ -1,5 +1,25 @@
 # FP Studio User Guide
 
+## Installation
+
+### Docker
+
+If you are not familiar with Python, the most straightforward way to run FP-Studio is to use Docker.
+
+Windows users should install [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/), Linux users should install [Docker Engine](https://docs.docker.com/engine/install/) for their distro.
+
+Once you have Docker installed and running, you can use the `docker` command from any command prompt to interact with it.
+
+Run the following commands to set up, install, and start a new FP-Studio instance on your host:
+
+```sh
+git clone https://github.com/colinurbs/FramePack-Studio.git
+cd FramePack-Studio
+docker compose up -d
+```
+
+Now you can navigate to `http://localhost:7860` to access FP-Studio.
+
 ## Generate Tab
 
 ### Generation Types
