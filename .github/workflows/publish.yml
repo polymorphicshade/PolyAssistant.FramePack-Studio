@@ -13,7 +13,7 @@ jobs:
       packages: write
     strategy:
       matrix:
-        cuda-version: ["12.9", "12.8", "12.4"]
+        cuda-version: ["12.4.1", "12.6.3", "12.8.1"]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -30,5 +30,5 @@ jobs:
           commit_sha: ${{ github.sha }}
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_PASSWORD }}
-          image_name: colinurbs439/fp-studio
+          image_name: colinurbs/fp-studio
           cuda_version: ${{ matrix.cuda-version }}
