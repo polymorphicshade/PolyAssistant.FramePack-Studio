@@ -6,8 +6,7 @@ services:
     ports:
       - "7860:7860"
     volumes:
-      - "./input:/workspace/input"
-      - "./output:/workspace/output"
+      - "./outputs:/app/outputs"
       - "$HOME/.cache/huggingface:/app/hf_download"
     deploy:
       resources:
