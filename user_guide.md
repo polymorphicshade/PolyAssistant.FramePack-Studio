@@ -20,6 +20,18 @@ docker compose up -d
 
 Now you can navigate to `http://localhost:7860` to access FP-Studio. Use `docker compose ps` to see the status of your FP-Studio container. Refer to [Docker documentation](https://docs.docker.com/compose/intro/compose-application-model/#cli) on Compose for more information on how to work with it.
 
+By default, the `docker-compose.yml` targets CUDA 12.4. In order to specify a different CUDA version, open the file and change the following line:
+
+```
+    image: colinurbs439/fp-studio:cuda12.4-latest-develop
+
+TO
+
+    image: colinurbs439/fp-studio:cudaX.Y-latest-develop
+```
+
+Where X.Y is your desired CUDA version.
+
 ## Generate Tab
 
 ### Generation Types
