@@ -1,0 +1,17 @@
+services:
+  studio:
+    build: .
+    image: colinurbs/fp-studio:cuda12.9-latest-develop
+    restart: unless-stopped
+    ports:
+      - "7860:7860"
+    volumes:
+      - "./outputs:/app/outputs"
+      - "$HOME/.cache/huggingface:/app/hf_download"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

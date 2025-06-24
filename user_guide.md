@@ -1,5 +1,55 @@
 # FP Studio User Guide
 
+## Installation
+
+### Docker
+
+If you are not familiar with Python, the most straightforward way to run FP-Studio is to use Docker.
+
+Windows users should install [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/), Linux users should install [Docker Engine](https://docs.docker.com/engine/install/) for their distro. Unfortunately, due to GitHub Actions limitations we cannot provide builds compatible with Apple Silicon.
+
+Once you have Docker installed and running, you can use the `docker` command from any command prompt to interact with it.
+
+Run the following commands to set up, install, and start a new FP-Studio instance on your host:
+
+```sh
+git clone https://github.com/colinurbs/FramePack-Studio.git
+cd FramePack-Studio
+docker compose up -d
+```
+
+The first start will take some time, as roughly 35GB of models must be downloaded. Now you can navigate to `http://localhost:7860` to access FP-Studio. Use `docker compose ps` to see the status of your FP-Studio container. Refer to [Docker documentation](https://docs.docker.com/compose/intro/compose-application-model/#cli) on Compose for more information on how to work with it.
+
+By default, the `docker-compose.yml` targets CUDA 12.9. In order to specify a different CUDA version, open the file and change the following line:
+
+```
+    image: colinurbs/fp-studio:cuda12.9-latest-develop
+
+TO
+
+    image: colinurbs/fp-studio:cudaX.Y-latest-develop
+```
+
+Where X.Y is your desired CUDA version.
+
+### Manual
+
+If you are familiar with Python or cannot use Docker for some reason, then you can install FP-Studio manually.
+
+Run the following commands in a Bash shell (install [Git for Windows](https://gitforwindows.org/) to get Bash on Windows):
+
+```sh
+git clone https://github.com/colinurbs/FramePack-Studio.git
+cd FramePack-Studio
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+python app.py
+```
+
+The app will now start up and begin downloading models. Once it is done, you should be able to access it at `http://localhost:7860`.
+
 ## Generate Tab
 
 ### Generation Types

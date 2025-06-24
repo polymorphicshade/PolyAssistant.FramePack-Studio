@@ -1,15 +1,26 @@
-ARG CUDA_VERSION=12.9
+ARG CUDA_VERSION=12.4
 
 FROM nvidia/cuda:${CUDA_VERSION}.0-runtime-ubuntu22.04
 
+ARG CUDA_VERSION
+
 RUN apt-get update && apt-get install -y \
-    python3 python3-pip git ffmpeg wget curl \
- && pip3 install --upgrade pip
+    python3 python3-pip git ffmpeg wget curl && \
+    pip3 install --upgrade pip
 
-RUN git clone https://github.com/colinurbs/FramePack-Studio.git /app
 WORKDIR /app
+
+# This allows caching pip install if only code has changed
+COPY requirements.txt .
+
+# Install dependencies
 RUN pip install -r requirements.txt
+RUN export CUDA_SHORT_VERSION=$(echo "${CUDA_VERSION}" | sed 's/\.//g') && \
+    pip install torch torchvision torchaudio --index-url "https://download.pytorch.org/whl/cu${CUDA_SHORT_VERSION}"
 
-RUN mkdir -p /workspace/input /workspace/output
+# Copy the source code to /app
+COPY . .
 
-CMD ["python3", "app.py", "--input", "/workspace/input", "--output", "/workspace/output"]
+EXPOSE 7860
+
+CMD ["python3", "studio.py"]
