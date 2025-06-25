@@ -52,7 +52,7 @@ runs:
         push: true
         file: Dockerfile
         tags: |
-          ${{ inputs.image_name }}:cuda${{ steps.trimCudaVersion.outputs.string }}-latest${{ inputs.branch == 'main' && '' || join(['-', inputs.branch], '') }}
+          ${{ inputs.image_name }}:cuda${{ steps.trimCudaVersion.outputs.string }}-latest${{ inputs.branch == 'main' && '' || format('-{0}', inputs.branch) }}
           ${{ inputs.image_name }}:cuda${{ steps.trimCudaVersion.outputs.string }}-${{ steps.trimCommitSha.outputs.string }}
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
