@@ -47,7 +47,7 @@ runs:
         stringToTruncate: "${{ inputs.cuda_version }}"
         maxLength: 4
     - name: Build and push
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v6
       with:
         push: true
         file: Dockerfile
@@ -57,3 +57,5 @@ runs:
         labels: ${{ steps.meta.outputs.labels }}
         build-args: |
           CUDA_VERSION=${{ inputs.cuda_version }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
