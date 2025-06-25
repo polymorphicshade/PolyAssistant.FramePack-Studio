@@ -15,8 +15,8 @@ COPY requirements.txt .
 
 # Install dependencies
 RUN pip install -r requirements.txt
-RUN export CUDA_SHORT_VERSION=$(echo "${CUDA_VERSION}" | sed 's/\.//g') && \
-    pip install torch torchvision torchaudio --index-url "https://download.pytorch.org/whl/cu${CUDA_SHORT_VERSION:0:3}"
+RUN export CUDA_SHORT_VERSION=$(echo "${CUDA_VERSION}" | sed 's/\.//g' | cut -c 1-3) && \
+    pip install torch torchvision torchaudio --index-url "https://download.pytorch.org/whl/cu${CUDA_SHORT_VERSION}"
 
 # Copy the source code to /app
 COPY . .
