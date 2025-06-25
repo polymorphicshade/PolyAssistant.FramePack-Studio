@@ -90,7 +90,7 @@ Additional command line options:
 
 Add LoRAs to the /loras/ folder at the root of the installation. Select the LoRAs you wish to load and set the weights for each generation. Most Hunyuan LoRAs were originally trained for T2V, it's often helpful to run a T2V generation to ensure they're working before useing input impages.
 
-NOTE: slow lora loading is a known issue
+NOTE: Slow lora loading is a known issue
 
 ## Working with Timestamped Prompts
 
