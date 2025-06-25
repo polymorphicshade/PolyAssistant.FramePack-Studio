@@ -17,11 +17,11 @@ jobs:
     steps:
       - name: Clean up unneeded tooling
         run: |
-          rm -rf /usr/share/dotnet
-          rm -rf /usr/local/lib/android
-          rm -rf /opt/ghc
-          rm -rf /usr/local/share/boost
-          rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
       - name: Maximize build space
         uses: easimon/maximize-build-space@v10
         with:
