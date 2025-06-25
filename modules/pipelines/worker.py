@@ -8,6 +8,7 @@ import torch
 import datetime
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
+from diffusers_helper.models.mag_cache import MagCache
 from diffusers_helper.utils import save_bcthw_as_mp4, generate_timestamp, resize_and_center_crop
 from diffusers_helper.memory import cpu, gpu, move_model_to_device_with_memory_preservation, offload_model_from_device_for_memory_preservation, fake_diffusers_current_device, unload_complete_models, load_model_as_complete
 from diffusers_helper.thread_utils import AsyncStream
@@ -770,10 +771,35 @@ def worker(
                 if selected_loras:
                     studio_module.current_generator.move_lora_adapters_to_device(gpu)
 
-            if use_teacache:
+            # RT_BORG: HACK to test magcache without UI
+            # if settings.get("calibrate_magcache", True):
+            #     # studio_module.current_generator.transformer.initialize_teacache(enable_teacache=False)
+            #     studio_module.current_generator.transformer.initialize_magcache(enable_magcache=False, num_steps=steps)
+            #     studio_module.current_generator.transformer.calibrate_magcache = True
+
+            magcache = None
+            if settings.get("force_magcache") or settings.get("calibrate_magcache"):
+                print("Setting Up MagCache")
+                magcache_thresh=0.1
+                magcache_max_consectutive_skips=3
+                magcache_retention_ratio=0.20
+                is_calibrating = settings.get("calibrate_magcache")
+                # RT_BORG: I cringe at this, but refactoring to introduce an actual model class will fix it.
+                model_family = "F1" if "F1" in model_type else "Original"
+                # initialize_magcache defaults differ from UI defaults in demo?
+                # enable_magcache=True, num_steps=25, magcache_thresh=0.1, K=2, retention_ratio=0.2
+                studio_module.current_generator.transformer.initialize_teacache(enable_teacache=False)
+                # studio_module.current_generator.transformer.initialize_magcache(enable_magcache=True, num_steps=steps, magcache_thresh=magcache_thresh, K=magcache_max_consectutive_skips, retention_ratio=magcache_retention_ratio)
+                magcache = MagCache(model_family=model_family, height=height, width=width, num_steps=steps, is_calibrating=is_calibrating, threshold=magcache_thresh, max_consectutive_skips=magcache_max_consectutive_skips, retention_ratio=magcache_retention_ratio)
+                studio_module.current_generator.transformer.install_magcache(magcache)
+                
+            elif use_teacache:
+                # studio_module.current_generator.transformer.initialize_magcache(enable_magcache=False)
                 studio_module.current_generator.transformer.initialize_teacache(enable_teacache=True, num_steps=teacache_num_steps, rel_l1_thresh=teacache_rel_l1_thresh)
+                studio_module.current_generator.transformer.uninstall_magcache()
             else:
                 studio_module.current_generator.transformer.initialize_teacache(enable_teacache=False)
+                studio_module.current_generator.transformer.uninstall_magcache()
 
             from diffusers_helper.pipelines.k_diffusion_hunyuan import sample_hunyuan
             generated_latents = sample_hunyuan(
@@ -804,6 +830,11 @@ def worker(
                 clean_latent_4x_indices=clean_latent_4x_indices,
                 callback=callback,
             )
+
+            # RT_BORG: Observe the MagCache skip patterns during dev. Likely remove this before release.
+            # RT_BORG: We need to use a real logger soon!
+            if magcache is not None and magcache.is_enabled:
+                print(f"MagCache skipped: {len(magcache.steps_skipped_list)} of {steps} steps: {magcache.steps_skipped_list}")
 
             total_generated_latent_frames += int(generated_latents.shape[2])
             # Update history latents using the generator
@@ -847,6 +878,18 @@ def worker(
 
             # We'll handle combining the videos after the entire generation is complete
             # This section intentionally left empty to remove the in-process combination
+            # --- END Main generation loop ---
+
+        magcache = studio_module.current_generator.transformer.magcache
+        if magcache is not None:
+            if magcache.is_calibrating:
+                output_file = os.path.join(settings.get("output_dir"), "magcache_configuration.txt")
+                print(f"MagCache calibration job complete. Appending stats to configuration file: {output_file}")
+                magcache.append_calibration_to_file(output_file)
+            elif magcache.is_enabled:
+                print(f"MagCache ({100.0 * magcache.total_cache_hits / magcache.total_cache_requests:.2f}%) skipped {magcache.total_cache_hits} of {magcache.total_cache_requests} steps.")
+            studio_module.current_generator.transformer.uninstall_magcache()
+            magcache = None
 
         # Handle the results
         result = pipeline.handle_results(job_params, output_filename)
