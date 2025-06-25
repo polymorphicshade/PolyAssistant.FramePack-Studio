@@ -48,6 +48,8 @@ pip install torch torchvision torchaudio --index-url https://download.pytorch.or
 python app.py
 ```
 
+**Note** the "cu128" at the end of the URL in the torch install command. This means "CUDA 12.8" - if you need CUDA 12.4 or 12.6, you should use `cu124` or `cu126` instead.
+
 The app will now start up and begin downloading models. Once it is done, you should be able to access it at `http://localhost:7860`.
 
 ## Generate Tab
