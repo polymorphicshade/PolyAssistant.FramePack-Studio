@@ -1495,8 +1495,8 @@ def create_interface(
             c["blend_sections"], c["steps"], c["total_second_length"], 
             resolutionW, resolutionH, # The components from the main UI
             c["seed"], c["randomize_seed"],
-            c["teacache_num_steps"], c["teacache_rel_l1_thresh"], 
-            c["magcache_threshold"], c["magcache_max_consecutive_skips"], c["magcache_retention_ratio"],
+            c["use_teacache"], c["teacache_num_steps"], c["teacache_rel_l1_thresh"],
+            c["use_magcache"], c["magcache_threshold"], c["magcache_max_consecutive_skips"], c["magcache_retention_ratio"],
             c["latent_window_size"], c["cfg"], c["gs"], c["rs"],
             c["gpu_memory_preservation"], c["mp4_crf"],
             c["axis_x_switch"], c["axis_x_value_text"], c["axis_x_value_dropdown"], 
