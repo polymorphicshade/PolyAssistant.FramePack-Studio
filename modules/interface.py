@@ -26,6 +26,7 @@ from diffusers_helper.utils import generate_timestamp
 from modules.video_queue import JobStatus, Job, JobType
 from modules.prompt_handler import get_section_boundaries, get_quick_prompts, parse_timestamped_prompt
 from modules.llm_enhancer import enhance_prompt
+from modules.llm_captioner import caption_image
 from diffusers_helper.gradio.progress_bar import make_progress_bar_css, make_progress_bar_html
 from diffusers_helper.bucket_tools import find_nearest_bucket
 from modules.pipelines.metadata_utils import create_metadata
@@ -484,7 +485,8 @@ def create_interface(
 
                             with gr.Row():
                                 prompt = gr.Textbox(label="Prompt", value=default_prompt, scale=10)
-                                enhance_prompt_btn = gr.Button("✨ Enhance", scale=1, elem_classes="narrow-button")
+                                enhance_prompt_btn = gr.Button("✨ Enhance", scale=1)
+                                caption_btn = gr.Button("✨ Caption", scale=1)
 
                             with gr.Accordion("Prompt Parameters", open=False):
                                 n_prompt = gr.Textbox(label="Negative Prompt", value="", visible=True)  # Make visible for both models
@@ -2157,7 +2159,7 @@ def create_interface(
             outputs=[start_button, video_input_required_message]
         )
         
-        # --- LLM Prompt Enhancer Connection ---
+        # --- Prompt Enhancer Connection ---
         def handle_enhance_prompt(current_prompt_text):
             """Calls the LLM enhancer and returns the updated text."""
             if not current_prompt_text:
@@ -2170,6 +2172,20 @@ def create_interface(
         enhance_prompt_btn.click(
             fn=handle_enhance_prompt,
             inputs=[prompt],
+            outputs=[prompt]
+        )
+
+         # --- Captioner Connection ---
+        def handle_caption(input_image):
+            """Calls the LLM enhancer and returns the updated text."""
+          
+            caption_text = caption_image(input_image)
+            print(f"UI: Received caption: {caption_text}")
+            return gr.update(value=caption_text)
+
+        caption_btn.click(
+            fn=handle_caption,
+            inputs=[input_image],
             outputs=[prompt]
         )
         

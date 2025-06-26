@@ -50,8 +50,13 @@ def _run_inference(text_to_enhance: str) -> str:
 
     generated_ids = model.generate(
         model_inputs.input_ids,
-        max_new_tokens=100 # Limit output length
+        max_new_tokens=24,
+        do_sample=True,
+        temperature=0.5,
+        top_p=0.95,
+        top_k=30
     )
+
     generated_ids = [
         output_ids[len(input_ids):] for input_ids, output_ids in zip(model_inputs.input_ids, generated_ids)
     ]
