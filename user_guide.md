@@ -34,6 +34,12 @@ Where X.Y is your desired CUDA version.
 
 To update, simply run `docker compose up -d` again - if there is a new version it will be fetched from the Docker servers and deployed over your previous copy automatically.
 
+### Automated (Windows only)
+
+If you are on Windows, you can get up and running quickly by using the `install.bat` file in the FP-Studio directory. Running that will open an interactive prompt that will ask you a couple of questions and then set up all the dependencies for you.
+
+If you used `install.bat` to set up your install, you should run `update.bat` after any FP-Studio version change.
+
 ### Manual
 
 If you are familiar with Python or cannot use Docker for some reason, then you can install FP-Studio manually.
