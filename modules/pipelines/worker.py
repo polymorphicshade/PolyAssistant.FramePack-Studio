@@ -69,6 +69,10 @@ def worker(
     use_teacache, 
     teacache_num_steps, 
     teacache_rel_l1_thresh,
+    use_magcache,
+    magcache_threshold,
+    magcache_max_consecutive_skips,
+    magcache_retention_ratio,
     blend_sections, 
     latent_type,
     selected_loras,
@@ -204,6 +208,10 @@ def worker(
             'use_teacache': use_teacache,
             'teacache_num_steps': teacache_num_steps,
             'teacache_rel_l1_thresh': teacache_rel_l1_thresh,
+            'use_magcache': use_magcache,
+            'magcache_threshold': magcache_threshold,
+            'magcache_max_consecutive_skips': magcache_max_consecutive_skips,
+            'magcache_retention_ratio': magcache_retention_ratio,
             'selected_loras': selected_loras,
             'has_input_image': has_input_image,
             'lora_values': lora_values,
@@ -627,6 +635,31 @@ def worker(
                 main_stream.output_queue.push(('job_id', job_id))
                 main_stream.output_queue.push(('monitor_job', job_id))
 
+        # MagCache / TeaCache Initialization Logic
+        magcache = None
+        # RT_BORG: I cringe at this, but refactoring to introduce an actual model class will fix it.
+        model_family = "F1" if "F1" in model_type else "Original"
+
+        if settings.get("calibrate_magcache"): # Calibration mode (forces MagCache on)
+            print("Setting Up MagCache for Calibration")
+            is_calibrating = settings.get("calibrate_magcache")
+            studio_module.current_generator.transformer.initialize_teacache(enable_teacache=False) # Ensure TeaCache is off
+            magcache = MagCache(model_family=model_family, height=height, width=width, num_steps=steps, is_calibrating=is_calibrating, threshold=magcache_threshold, max_consectutive_skips=magcache_max_consecutive_skips, retention_ratio=magcache_retention_ratio)
+            studio_module.current_generator.transformer.install_magcache(magcache)
+        elif use_magcache: # User selected MagCache
+            print("Setting Up MagCache")
+            magcache = MagCache(model_family=model_family, height=height, width=width, num_steps=steps, is_calibrating=False, threshold=magcache_threshold, max_consectutive_skips=magcache_max_consecutive_skips, retention_ratio=magcache_retention_ratio)
+            studio_module.current_generator.transformer.initialize_teacache(enable_teacache=False) # Ensure TeaCache is off
+            studio_module.current_generator.transformer.install_magcache(magcache)
+        elif use_teacache:
+            print("Setting Up TeaCache")
+            studio_module.current_generator.transformer.initialize_teacache(enable_teacache=True, num_steps=teacache_num_steps, rel_l1_thresh=teacache_rel_l1_thresh)
+            studio_module.current_generator.transformer.uninstall_magcache()
+        else:
+            print("No Transformer Cache in use")
+            studio_module.current_generator.transformer.initialize_teacache(enable_teacache=False)
+            studio_module.current_generator.transformer.uninstall_magcache()
+
         # --- Main generation loop ---
         # `i_section_loop` will be our loop counter for applying end_frame_latent
         for i_section_loop, latent_padding in enumerate(latent_paddings): # Existing loop structure
@@ -771,35 +804,6 @@ def worker(
                 if selected_loras:
                     studio_module.current_generator.move_lora_adapters_to_device(gpu)
 
-            # RT_BORG: HACK to test magcache without UI
-            # if settings.get("calibrate_magcache", True):
-            #     # studio_module.current_generator.transformer.initialize_teacache(enable_teacache=False)
-            #     studio_module.current_generator.transformer.initialize_magcache(enable_magcache=False, num_steps=steps)
-            #     studio_module.current_generator.transformer.calibrate_magcache = True
-
-            magcache = None
-            if settings.get("force_magcache") or settings.get("calibrate_magcache"):
-                print("Setting Up MagCache")
-                magcache_thresh=0.1
-                magcache_max_consectutive_skips=3
-                magcache_retention_ratio=0.20
-                is_calibrating = settings.get("calibrate_magcache")
-                # RT_BORG: I cringe at this, but refactoring to introduce an actual model class will fix it.
-                model_family = "F1" if "F1" in model_type else "Original"
-                # initialize_magcache defaults differ from UI defaults in demo?
-                # enable_magcache=True, num_steps=25, magcache_thresh=0.1, K=2, retention_ratio=0.2
-                studio_module.current_generator.transformer.initialize_teacache(enable_teacache=False)
-                # studio_module.current_generator.transformer.initialize_magcache(enable_magcache=True, num_steps=steps, magcache_thresh=magcache_thresh, K=magcache_max_consectutive_skips, retention_ratio=magcache_retention_ratio)
-                magcache = MagCache(model_family=model_family, height=height, width=width, num_steps=steps, is_calibrating=is_calibrating, threshold=magcache_thresh, max_consectutive_skips=magcache_max_consectutive_skips, retention_ratio=magcache_retention_ratio)
-                studio_module.current_generator.transformer.install_magcache(magcache)
-                
-            elif use_teacache:
-                # studio_module.current_generator.transformer.initialize_magcache(enable_magcache=False)
-                studio_module.current_generator.transformer.initialize_teacache(enable_teacache=True, num_steps=teacache_num_steps, rel_l1_thresh=teacache_rel_l1_thresh)
-                studio_module.current_generator.transformer.uninstall_magcache()
-            else:
-                studio_module.current_generator.transformer.initialize_teacache(enable_teacache=False)
-                studio_module.current_generator.transformer.uninstall_magcache()
 
             from diffusers_helper.pipelines.k_diffusion_hunyuan import sample_hunyuan
             generated_latents = sample_hunyuan(

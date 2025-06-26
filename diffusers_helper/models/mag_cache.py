@@ -12,9 +12,11 @@ class MagCache:
     Zehong Ma, Longhui Wei, Feng Wang, Shiliang Zhang, Qi Tian
     https://arxiv.org/abs/2506.09045
     https://github.com/Zehong-Ma/MagCache
+    PR Demo defaults were threshold=0.1, max_consectutive_skips=3, retention_ratio=0.2
+    Changing defauults to threshold=0.1, max_consectutive_skips=2, retention_ratio=0.25 for quality vs speed tradeoff.
     """
 
-    def __init__(self, model_family, height, width, num_steps, is_enabled=True, is_calibrating = False, threshold=0.1, max_consectutive_skips=2, retention_ratio=0.2):
+    def __init__(self, model_family, height, width, num_steps, is_enabled=True, is_calibrating = False, threshold=0.1, max_consectutive_skips=2, retention_ratio=0.25):
         self.model_family = model_family
         self.height = height
         self.width = width
