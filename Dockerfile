@@ -21,6 +21,8 @@ RUN export CUDA_SHORT_VERSION=$(echo "${CUDA_VERSION}" | sed 's/\.//g' | cut -c 
 # Copy the source code to /app
 COPY . .
 
+VOLUME [ "/app/.framepack", "/app/outputs", "/app/loras", "/app/hf_download", "/app/modules/toolbox/model_esrgan", "/app/modules/toolbox/model_rife" ]
+
 EXPOSE 7860
 
 CMD ["python3", "studio.py"]
