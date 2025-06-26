@@ -15,14 +15,20 @@ jobs:
       matrix:
         cuda-version: ["12.4.1", "12.6.3", "12.8.1"]
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
       - name: Clean up unneeded tooling
         run: |
-          rm -rf /usr/share/dotnet
-          rm -rf /opt/ghc
-          rm -rf /usr/local/share/boost
-          rm -rf "$AGENT_TOOLSDIRECTORY"
+          sudo rm -rf /usr/share/dotnet
+          sudo rm -rf /usr/local/lib/android
+          sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf "$AGENT_TOOLSDIRECTORY"
+      - name: Maximize build space
+        uses: easimon/maximize-build-space@v10
+        with:
+          swap-size-mb: 1024
+          overprovision-lvm: "true"
+      - name: Checkout repository
+        uses: actions/checkout@v4
       - name: Publish image
         uses: ./.github/actions/docker-publish-action
         with:
