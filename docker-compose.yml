@@ -10,7 +10,11 @@ services:
     ports:
       - "7860:7860"
     volumes:
+      - "./loras:/app/loras"
       - "./outputs:/app/outputs"
+      - "./.framepack:/app/.framepack"
+      - "./modules/toolbox/model_esrgan:/app/modules/toolbox/model_esrgan"
+      - "./modules/toolbox/model_rife:/app/modules/toolbox/model_rife"
       - "$HOME/.cache/huggingface:/app/hf_download"
     deploy:
       resources:
