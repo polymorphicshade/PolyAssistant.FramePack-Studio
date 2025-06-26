@@ -32,6 +32,8 @@ TO
 
 Where X.Y is your desired CUDA version.
 
+To update, simply run `docker compose up -d` again - if there is a new version it will be fetched from the Docker servers and deployed over your previous copy automatically.
+
 ### Manual
 
 If you are familiar with Python or cannot use Docker for some reason, then you can install FP-Studio manually.
