@@ -7,7 +7,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 # This can be moved to a settings file later.
 MODEL_NAME = "Qwen/Qwen2-1.5B-Instruct"
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-PROMPT_TEMPLATE = """You are a creative assistant for a text-to-video generator. Your task is to take a user's prompt and make it more descriptive, vivid, and detailed. Focus on visual elements. Do not change the core action, but embellish it.
+PROMPT_TEMPLATE = """You are a creative assistant for a text-to-video generator. Your task is to take a user's prompt and make it more descriptive, and detailed but still concise. Focus on visual elements. Do not change the core action.
 
 User prompt: "{text_to_enhance}"
 
@@ -50,7 +50,7 @@ def _run_inference(text_to_enhance: str) -> str:
 
     generated_ids = model.generate(
         model_inputs.input_ids,
-        max_new_tokens=24,
+        max_new_tokens=256,
         do_sample=True,
         temperature=0.5,
         top_p=0.95,

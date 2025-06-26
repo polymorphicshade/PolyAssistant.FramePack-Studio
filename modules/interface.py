@@ -485,6 +485,7 @@ def create_interface(
 
                             with gr.Row():
                                 prompt = gr.Textbox(label="Prompt", value=default_prompt, scale=10)
+                            with gr.Row():
                                 enhance_prompt_btn = gr.Button("✨ Enhance", scale=1)
                                 caption_btn = gr.Button("✨ Caption", scale=1)
 
