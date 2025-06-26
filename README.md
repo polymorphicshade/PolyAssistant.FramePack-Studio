@@ -23,52 +23,13 @@ FramePack Studio is an AI video generation application based on FramePack that s
 
 ### Prerequisites
 
-- Python 3.10+
 - CUDA-compatible GPU with at least 8GB VRAM (16GB+ recommended)
 - 16GB System Memory (32GB+ strongly recommended)
 - 80GB+ of storage (for models)
 
 ### Setup
 
-Install via the Pinokio community script "FP-Studio" or:
-
-1. Clone the repository:
-
-   ```bash
-   git clone https://github.com/colinurbs/FramePack-Studio.git
-   cd FramePack-Studio
-   ```
-
-2. Create a Python virtual environment (venv):
-
-   For Linux:
-
-   ```bash
-   python -m venv venv/
-   source venv/bin/activate
-   ```
-
-   For Windows:
-
-   ```
-   python -m venv venv/
-   ./venv/Scripts/activate.bat
-   ```
-
-3. Install additional dependencies:
-
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. Install PyTorch:
-
-   Go to the [PyTorch Getting Started](https://pytorch.org/get-started/locally/) page and install PyTorch according to your system setup.
-   For example, if using CUDA 12.6 on Windows:
-
-   ```bash
-   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
-   ```
+Install via the [Pinokio community script](https://pinokio.co/item.html?uri=https%3A%2F%2Fgithub.com%2Fcolinurbs%2FFP-Studio) "FP-Studio" or read the Installation section in the [User Guide](./user_guide.md) for more local install methods.
 
 ## Usage
 

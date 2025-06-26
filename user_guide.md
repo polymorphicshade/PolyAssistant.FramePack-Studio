@@ -42,7 +42,7 @@ If you used `install.bat` to set up your install, you should run `update.bat` af
 
 ### Manual
 
-If you are familiar with Python or cannot use Docker for some reason, then you can install FP-Studio manually.
+If you are familiar with Python or cannot use Docker for some reason, then you can install FP-Studio manually. We support Python 3.10, 3.11, and 3.12.
 
 Run the following commands in a Bash shell (install [Git for Windows](https://gitforwindows.org/) to get Bash on Windows):
 
