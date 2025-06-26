@@ -18,7 +18,7 @@ cd FramePack-Studio
 docker compose up -d
 ```
 
-The first start will take some time, as roughly 35GB of models must be downloaded. Now you can navigate to `http://localhost:7860` to access FP-Studio. Use `docker compose ps` to see the status of your FP-Studio container. Refer to [Docker documentation](https://docs.docker.com/compose/intro/compose-application-model/#cli) on Compose for more information on how to work with it.
+The first start can take **quite some time**, as roughly 30GB of models must be downloaded. You can check the progress of startup by running `docker compose logs`. Once you see "Loading checkpoint shards" the application should be starting. Now you can navigate to `http://localhost:7860` to access FP-Studio. Use `docker compose ps` to see the status of your FP-Studio container. Refer to [Docker documentation](https://docs.docker.com/compose/intro/compose-application-model/#cli) on Compose for more information on how to work with it.
 
 By default, the `docker-compose.yml` targets CUDA 12.4. In order to specify a different CUDA version, open the file and change the following line:
 
