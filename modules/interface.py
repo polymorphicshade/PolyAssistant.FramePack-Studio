@@ -563,62 +563,51 @@ def create_interface(
                                 gr.Markdown("#### Cache Options")
                                 gr.Markdown("Using a cache will speed up generation. May affect quality, fine or even coarse details, and may change or inhibit motion. You can choose at most one.")
 
-                                with gr.Row(visible=True) as magcache_row:  # MagCache now first
-                                    use_magcache = gr.Checkbox(label='Use MagCache', value=True, info='The new cache system, often better results for similar speed')
+                                with gr.Row():
+                                    cache_type = gr.Radio(["MagCache", "TeaCache", "None"], value='MagCache', label="Caching strategy", info="Which cache implementation to use, if any")
+
+                                with gr.Row():  # MagCache now first
                                     magcache_threshold = gr.Slider(label="MagCache Threshold", minimum=0.01, maximum=1.0, step=0.01, value=0.1, visible=True, info='[⬇️ **Faster**] Error tolerance. Lower = more estimated steps')
                                     magcache_max_consecutive_skips = gr.Slider(label="MagCache Max Consecutive Skips", minimum=1, maximum=5, step=1, value=2, visible=True, info='[⬆️ **Faster**] Allow multiple estimated steps in a row')
                                     magcache_retention_ratio = gr.Slider(label="MagCache Retention Ratio", minimum=0.0, maximum=1.0, step=0.01, value=0.25, visible=True, info='[⬇️ **Faster**] Disallow estimation in critical early steps')
 
-                                with gr.Row("TeaCache"):
-                                    use_teacache = gr.Checkbox(label='Use TeaCache', value=False, info='The old cache champion')
+                                with gr.Row():
                                     teacache_num_steps = gr.Slider(label="TeaCache steps", minimum=1, maximum=50, step=1, value=25, visible=False, info='How many intermediate sections to keep in the cache')
                                     teacache_rel_l1_thresh = gr.Slider(label="TeaCache rel_l1_thresh", minimum=0.01, maximum=1.0, step=0.01, value=0.15, visible=False, info='[⬇️ **Faster**] Relative L1 Threshold')
 
-                            # Mutual exclusivity logic for TeaCache and MagCache
-                            def toggle_teacache_visibility(is_teacache_enabled):
-                                # TeaCache sliders visibility
-                                teacache_num_steps_update = gr.update(visible=is_teacache_enabled)
-                                teacache_rel_l1_thresh_update = gr.update(visible=is_teacache_enabled)
-                                
-                                # MagCache checkbox state and interactivity
-                                use_magcache_update = gr.update(value=False, interactive=not is_teacache_enabled)
-                                # MagCache sliders visibility (always hidden if TeaCache is enabled)
-                                magcache_threshold_update = gr.update(visible=False)
-                                magcache_max_consecutive_skips_update = gr.update(visible=False)
-                                magcache_retention_ratio_update = gr.update(visible=False)
-                                
-                                return (teacache_num_steps_update, teacache_rel_l1_thresh_update,
-                                        use_magcache_update,
-                                        magcache_threshold_update, magcache_max_consecutive_skips_update, magcache_retention_ratio_update)
+                            def update_cache_type(cache_type: str):
+                                enable_magcache = False
+                                enable_teacache = False
 
-                            def toggle_magcache_visibility(is_magcache_enabled):
-                                # MagCache sliders visibility
-                                magcache_threshold_update = gr.update(visible=is_magcache_enabled)
-                                magcache_max_consecutive_skips_update = gr.update(visible=is_magcache_enabled)
-                                magcache_retention_ratio_update = gr.update(visible=is_magcache_enabled)
-                                
-                                # TeaCache checkbox state and interactivity
-                                use_teacache_update = gr.update(value=False, interactive=not is_magcache_enabled)
-                                # TeaCache sliders visibility (always hidden if MagCache is enabled)
-                                teacache_num_steps_update = gr.update(visible=False)
-                                teacache_rel_l1_thresh_update = gr.update(visible=False)
-                                
-                                return (magcache_threshold_update, magcache_max_consecutive_skips_update, magcache_retention_ratio_update,
-                                        use_teacache_update,
-                                        teacache_num_steps_update, teacache_rel_l1_thresh_update)
+                                if cache_type == 'MagCache':
+                                    enable_magcache = True
+                                elif cache_type == 'TeaCache':
+                                    enable_teacache = True
 
-                            use_teacache.change(
-                                fn=toggle_teacache_visibility,
-                                inputs=use_teacache,
-                                outputs=[teacache_num_steps, teacache_rel_l1_thresh,
-                                         use_magcache, magcache_threshold, magcache_max_consecutive_skips, magcache_retention_ratio]
-                            )
-                            use_magcache.change(
-                                fn=toggle_magcache_visibility,
-                                inputs=use_magcache,
-                                outputs=[magcache_threshold, magcache_max_consecutive_skips, magcache_retention_ratio,
-                                         use_teacache, teacache_num_steps, teacache_rel_l1_thresh]
-                            )
+                                magcache_threshold_update = gr.update(visible=enable_magcache)
+                                magcache_max_consecutive_skips_update = gr.update(visible=enable_magcache)
+                                magcache_retention_ratio_update = gr.update(visible=enable_magcache)
+
+                                teacache_num_steps_update = gr.update(visible=enable_teacache)
+                                teacache_rel_l1_thresh_update = gr.update(visible=enable_teacache)
+
+                                return [
+                                    magcache_threshold_update,
+                                    magcache_max_consecutive_skips_update,
+                                    magcache_retention_ratio_update,
+                                    teacache_num_steps_update,
+                                    teacache_rel_l1_thresh_update
+                                ]
+                                
+
+                            cache_type.change(fn=update_cache_type, inputs=cache_type, outputs=[
+                                magcache_threshold,
+                                magcache_max_consecutive_skips,
+                                magcache_retention_ratio,
+                                teacache_num_steps,
+                                teacache_rel_l1_thresh
+                            ])
+
                             with gr.Row("Metadata"):
                                 json_upload = gr.File(
                                     label="Upload Metadata JSON (optional)",
@@ -1203,10 +1192,9 @@ def create_interface(
              cfg_arg, 
              gs_arg,
              rs_arg,
-             use_teacache_arg,
+             cache_type_arg,
              teacache_num_steps_arg,
              teacache_rel_l1_thresh_arg,
-             use_magcache_arg,
              magcache_threshold_arg,
              magcache_max_consecutive_skips_arg,
              magcache_retention_ratio_arg,
@@ -1251,8 +1239,8 @@ def create_interface(
             result = process_fn(backend_model_type, input_data, actual_end_frame_image_for_backend, actual_end_frame_strength_for_backend,
                                 prompt_text_arg, n_prompt_arg, seed_arg, total_second_length_arg,
                                 latent_window_size_arg, steps_arg, cfg_arg, gs_arg, rs_arg,
-                                use_teacache_arg, teacache_num_steps_arg, teacache_rel_l1_thresh_arg,
-                                use_magcache_arg, magcache_threshold_arg, magcache_max_consecutive_skips_arg, magcache_retention_ratio_arg,
+                                cache_type_arg == 'TeaCache', teacache_num_steps_arg, teacache_rel_l1_thresh_arg,
+                                cache_type_arg == 'MagCache', magcache_threshold_arg, magcache_max_consecutive_skips_arg, magcache_retention_ratio_arg,
                                 blend_sections_arg, latent_type_arg, clean_up_videos_arg, # clean_up_videos_arg is from UI
                                 selected_loras_arg, resolutionW_arg, resolutionH_arg, 
                                 input_image_path, 
@@ -1347,10 +1335,9 @@ def create_interface(
             cfg,                        # Corresponds to cfg_arg
             gs,                         # Corresponds to gs_arg
             rs,                         # Corresponds to rs_arg
-            use_teacache,               # Corresponds to use_teacache_arg
+            cache_type,                 # Corresponds to cache_type_arg
             teacache_num_steps,         # Corresponds to teacache_num_steps_arg
             teacache_rel_l1_thresh,     # Corresponds to teacache_rel_l1_thresh_arg
-            use_magcache,               # Corresponds to use_magcache_arg
             magcache_threshold,         # Corresponds to magcache_threshold_arg
             magcache_max_consecutive_skips, # Corresponds to magcache_max_consecutive_skips_arg
             magcache_retention_ratio,   # Corresponds to magcache_retention_ratio_arg
@@ -1507,12 +1494,11 @@ def create_interface(
             c["end_frame_strength_original"], c["latent_type"], c["prompt"], 
             c["blend_sections"], c["steps"], c["total_second_length"], 
             resolutionW, resolutionH, # The components from the main UI
-            c["seed"], c["randomize_seed"], c["use_teacache"], 
+            c["seed"], c["randomize_seed"],
             c["teacache_num_steps"], c["teacache_rel_l1_thresh"], 
-            c["use_magcache"], c["magcache_threshold"],
-            c["magcache_max_consecutive_skips"], c["magcache_retention_ratio"],
-            c["latent_window_size"], c["cfg"], c["gs"], c["rs"], 
-            c["gpu_memory_preservation"], c["mp4_crf"], 
+            c["magcache_threshold"], c["magcache_max_consecutive_skips"], c["magcache_retention_ratio"],
+            c["latent_window_size"], c["cfg"], c["gs"], c["rs"],
+            c["gpu_memory_preservation"], c["mp4_crf"],
             c["axis_x_switch"], c["axis_x_value_text"], c["axis_x_value_dropdown"], 
             c["axis_y_switch"], c["axis_y_value_text"], c["axis_y_value_dropdown"], 
             c["axis_z_switch"], c["axis_z_value_text"], c["axis_z_value_dropdown"],
@@ -1793,12 +1779,12 @@ def create_interface(
             "cfg": cfg,
             "rs": rs,
             "latent_window_size": latent_window_size,
+            # Cache type (Mag/Tea/None)
+            "cache_type": cache_type,
             # TeaCache
-            "use_teacache": use_teacache,
             "teacache_num_steps": teacache_num_steps,
             "teacache_rel_l1_thresh": teacache_rel_l1_thresh,
             # MagCache
-            "use_magcache": use_magcache,
             "magcache_threshold": magcache_threshold,
             "magcache_max_consecutive_skips": magcache_max_consecutive_skips,
             "magcache_retention_ratio": magcache_retention_ratio,
@@ -1935,7 +1921,10 @@ def create_interface(
                 resolutionW_val = metadata.get('resolutionW')
                 resolutionH_val = metadata.get('resolutionH')
                 blend_sections_val = metadata.get('blend_sections')
-                use_teacache_val = metadata.get('use_teacache')
+                cache_type_val = metadata.get('cache_type')
+                magcache_threshold_val = metadata.get('magcache_threshold')
+                magcache_max_consecutive_skips_val = metadata.get('magcache_max_consecutive_skips')
+                magcache_retention_ratio_val = metadata.get('magcache_retention_ratio')
                 teacache_num_steps_val = metadata.get('teacache_num_steps')
                 teacache_rel_l1_thresh_val = metadata.get('teacache_rel_l1_thresh')
                 latent_type_val = metadata.get('latent_type')
@@ -1961,7 +1950,10 @@ def create_interface(
                     gr.update(value=resolutionW_val) if resolutionW_val is not None else gr.update(),
                     gr.update(value=resolutionH_val) if resolutionH_val is not None else gr.update(),
                     gr.update(value=blend_sections_val) if blend_sections_val is not None else gr.update(),
-                    gr.update(value=use_teacache_val) if use_teacache_val is not None else gr.update(),
+                    gr.update(value=cache_type_val),
+                    gr.update(value=magcache_threshold_val),
+                    gr.update(value=magcache_max_consecutive_skips_val),
+                    gr.update(value=magcache_retention_ratio_val),
                     gr.update(value=teacache_num_steps_val) if teacache_num_steps_val is not None else gr.update(),
                     gr.update(value=teacache_rel_l1_thresh_val) if teacache_rel_l1_thresh_val is not None else gr.update(),
                     gr.update(value=latent_type_val) if latent_type_val else gr.update(),
@@ -2003,7 +1995,10 @@ def create_interface(
                 resolutionW,
                 resolutionH,
                 blend_sections,
-                use_teacache,
+                cache_type,
+                magcache_threshold,
+                magcache_max_consecutive_skips,
+                magcache_retention_ratio,
                 teacache_num_steps,
                 teacache_rel_l1_thresh,
                 latent_type,
