@@ -1921,7 +1921,17 @@ def create_interface(
                 resolutionW_val = metadata.get('resolutionW')
                 resolutionH_val = metadata.get('resolutionH')
                 blend_sections_val = metadata.get('blend_sections')
+                # Determine cache_type from metadata, with fallback for older formats
                 cache_type_val = metadata.get('cache_type')
+                if cache_type_val is None:
+                    use_magcache = metadata.get('use_magcache', False)
+                    use_teacache = metadata.get('use_teacache', False)
+                    if use_magcache:
+                        cache_type_val = "MagCache"
+                    elif use_teacache:
+                        cache_type_val = "TeaCache"
+                    else:
+                        cache_type_val = "None"
                 magcache_threshold_val = metadata.get('magcache_threshold')
                 magcache_max_consecutive_skips_val = metadata.get('magcache_max_consecutive_skips')
                 magcache_retention_ratio_val = metadata.get('magcache_retention_ratio')
