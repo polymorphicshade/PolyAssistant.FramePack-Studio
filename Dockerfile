@@ -6,7 +6,7 @@ ARG CUDA_VERSION
 
 RUN apt-get update && apt-get install -y \
     python3 python3-pip git ffmpeg wget curl && \
-    pip3 install --upgrade pip
+    pip install --upgrade pip
 
 WORKDIR /app
 
@@ -14,9 +14,9 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Install dependencies
-RUN pip install -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 RUN export CUDA_SHORT_VERSION=$(echo "${CUDA_VERSION}" | sed 's/\.//g' | cut -c 1-3) && \
-    pip install torch torchvision torchaudio --index-url "https://download.pytorch.org/whl/cu${CUDA_SHORT_VERSION}"
+    pip install --no-cache-dir torch torchvision torchaudio --index-url "https://download.pytorch.org/whl/cu${CUDA_SHORT_VERSION}"
 
 # Copy the source code to /app
 COPY . .
@@ -25,4 +25,4 @@ VOLUME [ "/app/.framepack", "/app/outputs", "/app/loras", "/app/hf_download", "/
 
 EXPOSE 7860
 
-CMD ["python3", "studio.py"]
+CMD ["python", "studio.py"]
