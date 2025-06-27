@@ -15,6 +15,7 @@ from diffusers.models.embeddings import TimestepEmbedding, Timesteps, PixArtAlph
 from diffusers.models.modeling_outputs import Transformer2DModelOutput
 from diffusers.models.modeling_utils import ModelMixin
 from diffusers_helper.dit_common import LayerNorm
+from diffusers_helper.models.mag_cache import MagCache
 from diffusers_helper.utils import zero_module
 
 
@@ -789,6 +790,7 @@ class HunyuanVideoTransformer3DModelPacked(ModelMixin, ConfigMixin, PeftAdapterM
         self.inner_dim = inner_dim
         self.use_gradient_checkpointing = False
         self.enable_teacache = False
+        self.magcache: MagCache = None
 
         if has_image_proj:
             self.install_image_projection(image_proj_dim)
@@ -824,6 +826,12 @@ class HunyuanVideoTransformer3DModelPacked(ModelMixin, ConfigMixin, PeftAdapterM
         self.previous_modulated_input = None
         self.previous_residual = None
         self.teacache_rescale_func = np.poly1d([7.33226126e+02, -4.01131952e+02, 6.75869174e+01, -3.14987800e+00, 9.61237896e-02])
+
+    def install_magcache(self, magcache: MagCache):
+        self.magcache = magcache
+
+    def uninstall_magcache(self):
+        self.magcache = None
 
     def gradient_checkpointing_method(self, block, *args):
         if self.use_gradient_checkpointing:
@@ -969,47 +977,19 @@ class HunyuanVideoTransformer3DModelPacked(ModelMixin, ConfigMixin, PeftAdapterM
             else:
                 ori_hidden_states = hidden_states.clone()
 
-                for block_id, block in enumerate(self.transformer_blocks):
-                    hidden_states, encoder_hidden_states = self.gradient_checkpointing_method(
-                        block,
-                        hidden_states,
-                        encoder_hidden_states,
-                        temb,
-                        attention_mask,
-                        rope_freqs
-                    )
-
-                for block_id, block in enumerate(self.single_transformer_blocks):
-                    hidden_states, encoder_hidden_states = self.gradient_checkpointing_method(
-                        block,
-                        hidden_states,
-                        encoder_hidden_states,
-                        temb,
-                        attention_mask,
-                        rope_freqs
-                    )
+                hidden_states, encoder_hidden_states = self._run_denoising_layers(hidden_states, encoder_hidden_states, temb, attention_mask, rope_freqs)
 
                 self.previous_residual = hidden_states - ori_hidden_states
-        else:
-            for block_id, block in enumerate(self.transformer_blocks):
-                hidden_states, encoder_hidden_states = self.gradient_checkpointing_method(
-                    block,
-                    hidden_states,
-                    encoder_hidden_states,
-                    temb,
-                    attention_mask,
-                    rope_freqs
-                )
 
-            for block_id, block in enumerate(self.single_transformer_blocks):
-                hidden_states, encoder_hidden_states = self.gradient_checkpointing_method(
-                    block,
-                    hidden_states,
-                    encoder_hidden_states,
-                    temb,
-                    attention_mask,
-                    rope_freqs
-                )
+        elif self.magcache and self.magcache.is_enabled:
+            if self.magcache.should_skip(hidden_states):
+                hidden_states = self.magcache.estimate_predicted_hidden_states()
+            else:
+                hidden_states, encoder_hidden_states = self._run_denoising_layers(hidden_states, encoder_hidden_states, temb, attention_mask, rope_freqs)
+                self.magcache.update_hidden_states(model_prediction_hidden_states=hidden_states)
+
+        else:
+            hidden_states, encoder_hidden_states = self._run_denoising_layers(hidden_states, encoder_hidden_states, temb, attention_mask, rope_freqs)
 
         hidden_states = self.gradient_checkpointing_method(self.norm_out, hidden_states, temb)
 
@@ -1030,3 +1010,25 @@ class HunyuanVideoTransformer3DModelPacked(ModelMixin, ConfigMixin, PeftAdapterM
             return Transformer2DModelOutput(sample=hidden_states)
 
         return hidden_states,
+
+    def _run_denoising_layers(
+        self,
+        hidden_states: torch.Tensor,
+        encoder_hidden_states: torch.Tensor,
+        temb: torch.Tensor,
+        attention_mask: Optional[Tuple],
+        rope_freqs: Optional[torch.Tensor]
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Applies the dual-stream and single-stream transformer blocks.
+        """
+        for block_id, block in enumerate(self.transformer_blocks):
+            hidden_states, encoder_hidden_states = self.gradient_checkpointing_method(
+                block, hidden_states, encoder_hidden_states, temb, attention_mask, rope_freqs
+            )
+
+        for block_id, block in enumerate(self.single_transformer_blocks):
+            hidden_states, encoder_hidden_states = self.gradient_checkpointing_method(
+                block, hidden_states, encoder_hidden_states, temb, attention_mask, rope_freqs
+            )
+        return hidden_states, encoder_hidden_states

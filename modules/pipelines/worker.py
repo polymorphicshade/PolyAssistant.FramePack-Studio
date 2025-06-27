@@ -8,6 +8,7 @@ import torch
 import datetime
 from PIL import Image
 from PIL.PngImagePlugin import PngInfo
+from diffusers_helper.models.mag_cache import MagCache
 from diffusers_helper.utils import save_bcthw_as_mp4, generate_timestamp, resize_and_center_crop
 from diffusers_helper.memory import cpu, gpu, move_model_to_device_with_memory_preservation, offload_model_from_device_for_memory_preservation, fake_diffusers_current_device, unload_complete_models, load_model_as_complete
 from diffusers_helper.thread_utils import AsyncStream
@@ -68,6 +69,10 @@ def worker(
     use_teacache, 
     teacache_num_steps, 
     teacache_rel_l1_thresh,
+    use_magcache,
+    magcache_threshold,
+    magcache_max_consecutive_skips,
+    magcache_retention_ratio,
     blend_sections, 
     latent_type,
     selected_loras,
@@ -203,6 +208,10 @@ def worker(
             'use_teacache': use_teacache,
             'teacache_num_steps': teacache_num_steps,
             'teacache_rel_l1_thresh': teacache_rel_l1_thresh,
+            'use_magcache': use_magcache,
+            'magcache_threshold': magcache_threshold,
+            'magcache_max_consecutive_skips': magcache_max_consecutive_skips,
+            'magcache_retention_ratio': magcache_retention_ratio,
             'selected_loras': selected_loras,
             'has_input_image': has_input_image,
             'lora_values': lora_values,
@@ -626,6 +635,31 @@ def worker(
                 main_stream.output_queue.push(('job_id', job_id))
                 main_stream.output_queue.push(('monitor_job', job_id))
 
+        # MagCache / TeaCache Initialization Logic
+        magcache = None
+        # RT_BORG: I cringe at this, but refactoring to introduce an actual model class will fix it.
+        model_family = "F1" if "F1" in model_type else "Original"
+
+        if settings.get("calibrate_magcache"): # Calibration mode (forces MagCache on)
+            print("Setting Up MagCache for Calibration")
+            is_calibrating = settings.get("calibrate_magcache")
+            studio_module.current_generator.transformer.initialize_teacache(enable_teacache=False) # Ensure TeaCache is off
+            magcache = MagCache(model_family=model_family, height=height, width=width, num_steps=steps, is_calibrating=is_calibrating, threshold=magcache_threshold, max_consectutive_skips=magcache_max_consecutive_skips, retention_ratio=magcache_retention_ratio)
+            studio_module.current_generator.transformer.install_magcache(magcache)
+        elif use_magcache: # User selected MagCache
+            print("Setting Up MagCache")
+            magcache = MagCache(model_family=model_family, height=height, width=width, num_steps=steps, is_calibrating=False, threshold=magcache_threshold, max_consectutive_skips=magcache_max_consecutive_skips, retention_ratio=magcache_retention_ratio)
+            studio_module.current_generator.transformer.initialize_teacache(enable_teacache=False) # Ensure TeaCache is off
+            studio_module.current_generator.transformer.install_magcache(magcache)
+        elif use_teacache:
+            print("Setting Up TeaCache")
+            studio_module.current_generator.transformer.initialize_teacache(enable_teacache=True, num_steps=teacache_num_steps, rel_l1_thresh=teacache_rel_l1_thresh)
+            studio_module.current_generator.transformer.uninstall_magcache()
+        else:
+            print("No Transformer Cache in use")
+            studio_module.current_generator.transformer.initialize_teacache(enable_teacache=False)
+            studio_module.current_generator.transformer.uninstall_magcache()
+
         # --- Main generation loop ---
         # `i_section_loop` will be our loop counter for applying end_frame_latent
         for i_section_loop, latent_padding in enumerate(latent_paddings): # Existing loop structure
@@ -770,10 +804,6 @@ def worker(
                 if selected_loras:
                     studio_module.current_generator.move_lora_adapters_to_device(gpu)
 
-            if use_teacache:
-                studio_module.current_generator.transformer.initialize_teacache(enable_teacache=True, num_steps=teacache_num_steps, rel_l1_thresh=teacache_rel_l1_thresh)
-            else:
-                studio_module.current_generator.transformer.initialize_teacache(enable_teacache=False)
 
             from diffusers_helper.pipelines.k_diffusion_hunyuan import sample_hunyuan
             generated_latents = sample_hunyuan(
@@ -804,6 +834,11 @@ def worker(
                 clean_latent_4x_indices=clean_latent_4x_indices,
                 callback=callback,
             )
+
+            # RT_BORG: Observe the MagCache skip patterns during dev. Likely remove this before release.
+            # RT_BORG: We need to use a real logger soon!
+            if magcache is not None and magcache.is_enabled:
+                print(f"MagCache skipped: {len(magcache.steps_skipped_list)} of {steps} steps: {magcache.steps_skipped_list}")
 
             total_generated_latent_frames += int(generated_latents.shape[2])
             # Update history latents using the generator
@@ -847,6 +882,18 @@ def worker(
 
             # We'll handle combining the videos after the entire generation is complete
             # This section intentionally left empty to remove the in-process combination
+            # --- END Main generation loop ---
+
+        magcache = studio_module.current_generator.transformer.magcache
+        if magcache is not None:
+            if magcache.is_calibrating:
+                output_file = os.path.join(settings.get("output_dir"), "magcache_configuration.txt")
+                print(f"MagCache calibration job complete. Appending stats to configuration file: {output_file}")
+                magcache.append_calibration_to_file(output_file)
+            elif magcache.is_enabled:
+                print(f"MagCache ({100.0 * magcache.total_cache_hits / magcache.total_cache_requests:.2f}%) skipped {magcache.total_cache_hits} of {magcache.total_cache_requests} steps.")
+            studio_module.current_generator.transformer.uninstall_magcache()
+            magcache = None
 
         # Handle the results
         result = pipeline.handle_results(job_params, output_filename)
