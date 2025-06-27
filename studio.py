@@ -554,7 +554,7 @@ def monitor_job(job_id=None):
                 waiting_for_transition = False
                 force_update = True
                 # Yield a temporary update to show we're switching jobs
-                yield last_video, gr.update(visible=True), '', 'Switching to current job...', gr.update(interactive=True), gr.update(value="❌ Cancel Current Job", visible=True)
+                yield last_video, gr.update(visible=True), gr.update(visible=True), '', 'Switching to current job...', gr.update(interactive=True), gr.update(value="❌ Cancel Current Job", visible=True)
                 continue
                 
         # Check if we're waiting for a job transition
@@ -571,7 +571,7 @@ def monitor_job(job_id=None):
                         # Switch to whatever job is currently running
                         job_id = current_job.id
                         force_update = True
-                        yield last_video, gr.update(visible=True), '', 'Switching to current job...', gr.update(interactive=True), gr.update(value="❌ Cancel Current Job", visible=True)
+                        yield last_video, gr.update(visible=True), gr.update(visible=True), '', 'Switching to current job...', gr.update(interactive=True), gr.update(value="❌ Cancel Current Job", visible=True)
                         continue
             else:
                 # If still waiting, sleep briefly and continue
@@ -580,21 +580,21 @@ def monitor_job(job_id=None):
 
         job = job_queue.get_job(job_id)
         if not job:
-            # Correctly yield 6 items for the startup/no-job case
+            # Correctly yield 7 items for the startup/no-job case
             # This ensures the status text goes to the right component and the buttons are set correctly.
-            yield None, None, 'No job ID provided', '', gr.update(value="🚀 Add to Queue", interactive=True, visible=True), gr.update(interactive=False, visible=False)
+            yield None, None, None, 'No job ID provided', '', gr.update(value="🚀 Add to Queue", interactive=True, visible=True), gr.update(interactive=False, visible=False)
             return
 
         # If a new video file is available, yield it immediately
         if job.result and job.result != last_video:
             last_video = job.result
             # You can also update preview/progress here if desired
-            yield last_video, gr.update(visible=True), '', '', gr.update(interactive=True), gr.update(interactive=True)
+            yield last_video, gr.update(visible=True), gr.update(visible=True), '', '', gr.update(interactive=True), gr.update(interactive=True)
 
         # Handle job status and progress
         if job.status == JobStatus.PENDING:
             position = job_queue.get_queue_position(job_id)
-            yield last_video, gr.update(visible=True), '', f'Waiting in queue. Position: {position}', gr.update(interactive=True), gr.update(interactive=True)
+            yield last_video, gr.update(visible=True), gr.update(visible=True), '', f'Waiting in queue. Position: {position}', gr.update(interactive=True), gr.update(interactive=True)
 
         elif job.status == JobStatus.RUNNING:
             # Only reset the cancel button when a job transitions from another state to RUNNING
@@ -629,7 +629,7 @@ def monitor_job(job_id=None):
                 if force_update or update_needed:
                     last_progress_update_time = current_time
                     force_update = False
-                    yield job.result, last_preview, current_desc_value, current_html_value, gr.update(interactive=True), button_update
+                    yield job.result, last_preview, last_preview, current_desc_value, current_html_value, gr.update(interactive=True), button_update
             
             # Fallback for periodic update if no new progress data but job is still running
             elif current_time - last_progress_update_time > 0.5: # More frequent fallback update
@@ -637,21 +637,21 @@ def monitor_job(job_id=None):
                 force_update = False # Reset force_update after a yield
                 current_desc_value = job.progress_data.get('desc', 'Processing...') if job.progress_data else 'Processing...'
                 current_html_value = job.progress_data.get('html', make_progress_bar_html(0, 'Processing...')) if job.progress_data else make_progress_bar_html(0, 'Processing...')
-                yield job.result, last_preview, current_desc_value, current_html_value, gr.update(interactive=True), button_update
+                yield job.result, last_preview, last_preview, current_desc_value, current_html_value, gr.update(interactive=True), button_update
 
         elif job.status == JobStatus.COMPLETED:
             # Show the final video and reset the button text
-            yield job.result, last_preview, 'Completed', make_progress_bar_html(100, 'Completed'), gr.update(value="🚀 Add to Queue"), gr.update(interactive=True, value="❌ Cancel Current Job", visible=False)
+            yield job.result, last_preview, last_preview, 'Completed', make_progress_bar_html(100, 'Completed'), gr.update(value="🚀 Add to Queue"), gr.update(interactive=True, value="❌ Cancel Current Job", visible=False)
             break
 
         elif job.status == JobStatus.FAILED:
             # Show error and reset the button text
-            yield job.result, last_preview, f'Error: {job.error}', make_progress_bar_html(0, 'Failed'), gr.update(value="🚀 Add to Queue"), gr.update(interactive=True, value="❌ Cancel Current Job", visible=False)
+            yield job.result, last_preview, last_preview, f'Error: {job.error}', make_progress_bar_html(0, 'Failed'), gr.update(value="🚀 Add to Queue"), gr.update(interactive=True, value="❌ Cancel Current Job", visible=False)
             break
 
         elif job.status == JobStatus.CANCELLED:
             # Show cancelled message and reset the button text
-            yield job.result, last_preview, 'Job cancelled', make_progress_bar_html(0, 'Cancelled'), gr.update(interactive=True), gr.update(interactive=True, value="❌ Cancel Current Job", visible=False)
+            yield job.result, last_preview, last_preview, 'Job cancelled', make_progress_bar_html(0, 'Cancelled'), gr.update(interactive=True), gr.update(interactive=True, value="❌ Cancel Current Job", visible=False)
             break
 
         # Update last_job_status for the next iteration
