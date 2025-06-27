@@ -381,6 +381,18 @@ def create_interface(
         # Essential to capture main_tabs_component for later use by send_to_toolbox_btn
         with gr.Tabs(elem_id="main_tabs") as main_tabs_component:
             with gr.Tab("Generate", id="generate_tab"):
+                # NEW: Top preview area for latents display
+                with gr.Row(visible=settings.get("latents_display_top", False)) as top_preview_row:
+                    top_preview_image = gr.Image(
+                        label="Next Latents (Top Display)", 
+                        height=150, 
+                        visible=True, 
+                        type="numpy", 
+                        interactive=False,
+                        elem_classes="contain-image",
+                        image_mode="RGB"
+                    )
+                
                 with gr.Row():
                     with gr.Column(scale=2):
                         model_type = gr.Radio(
@@ -620,7 +632,7 @@ def create_interface(
                         preview_image = gr.Image(
                             label="Next Latents", 
                             height=150, 
-                            visible=True, 
+                            visible=not settings.get("latents_display_top", False), 
                             type="numpy", 
                             interactive=False,
                             elem_classes="contain-image",
@@ -914,6 +926,12 @@ def create_interface(
                             info="If checked, temporary files (inc. post-processing) will be cleaned up when the application starts."
                         )
                         
+                        latents_display_top = gr.Checkbox(
+                            label="Display Next Latents across top of interface",
+                            value=settings.get("latents_display_top", False),
+                            info="If checked, the Next Latents preview will be displayed across the top of the interface instead of in the right column."
+                        )
+                        
                         # gr.Markdown("---")
                         # gr.Markdown("### Startup Settings")
                         gr.Markdown("") 
@@ -999,7 +1017,7 @@ def create_interface(
                         status = gr.HTML("")
                         cleanup_output = gr.Textbox(label="Cleanup Status", interactive=False)
 
-                        def save_settings(save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, auto_cleanup_on_startup_val, override_system_prompt_value, system_prompt_template_value, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, selected_theme, startup_model_type_val, startup_preset_name_val):
+                        def save_settings(save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, auto_cleanup_on_startup_val, latents_display_top_val, override_system_prompt_value, system_prompt_template_value, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, selected_theme, startup_model_type_val, startup_preset_name_val):
                             """Handles the manual 'Save Settings' button click."""
                             # This function is for the manual save button.
                             # It collects all current UI values and saves them.
@@ -1018,6 +1036,7 @@ def create_interface(
                                     mp4_crf=mp4_crf,
                                     clean_up_videos=clean_up_videos,
                                     auto_cleanup_on_startup=auto_cleanup_on_startup_val, # ADDED
+                                    latents_display_top=latents_display_top_val, # NEW: Added latents display position setting
                                     override_system_prompt=override_system_prompt_value,
                                     system_prompt_template=processed_template,
                                     output_dir=output_dir,
@@ -1064,8 +1083,13 @@ def create_interface(
                         # REMOVE `cleanup_temp_folder` from the `inputs` list
                         save_btn.click(
                             fn=save_settings,
-                            inputs=[save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, auto_cleanup_on_startup, override_system_prompt, system_prompt_template, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, theme_dropdown, startup_model_type_dropdown, startup_preset_name_dropdown],
+                            inputs=[save_metadata, gpu_memory_preservation, mp4_crf, clean_up_videos, auto_cleanup_on_startup, latents_display_top, override_system_prompt, system_prompt_template, output_dir, metadata_dir, lora_dir, gradio_temp_dir, auto_save, theme_dropdown, startup_model_type_dropdown, startup_preset_name_dropdown],
                             outputs=[status]
+                        ).then(
+                            # NEW: Update latents display layout after manual save
+                            fn=lambda: update_latents_display_layout(settings.get("latents_display_top", False)),
+                            inputs=None,
+                            outputs=[top_preview_row, preview_image]
                         )
 
                         def reset_system_prompt_template_value():
@@ -1098,6 +1122,24 @@ def create_interface(
 
                         # NEW: auto-cleanup temp files on startup checkbox
                         auto_cleanup_on_startup.change(lambda v: handle_individual_setting_change("auto_cleanup_on_startup", v, "Auto Cleanup on Startup"), inputs=[auto_cleanup_on_startup], outputs=[status])
+
+                        # NEW: latents display position setting
+                        latents_display_top.change(lambda v: handle_individual_setting_change("latents_display_top", v, "Latents Display Position"), inputs=[latents_display_top], outputs=[status])
+
+                        # NEW: Function to update latents display layout
+                        def update_latents_display_layout(display_top):
+                            """Update the visibility of latents preview components based on setting"""
+                            return (
+                                gr.update(visible=display_top),  # top_preview_row
+                                gr.update(visible=not display_top)  # preview_image (right column)
+                            )
+
+                        # Connect the latents display setting to layout updates
+                        latents_display_top.change(
+                            fn=update_latents_display_layout,
+                            inputs=[latents_display_top],
+                            outputs=[top_preview_row, preview_image]
+                        )
 
                         override_system_prompt.change(lambda v: handle_individual_setting_change("override_system_prompt", v, "Override System Prompt"), inputs=[override_system_prompt], outputs=[status])
                         # Using .blur for text changes so they are processed after the user finishes, not on every keystroke
@@ -1157,18 +1199,18 @@ def create_interface(
                     
                     # Also trigger the monitor_job function to start monitoring this job
                     print(f"Auto-check found current job {job_id}, triggering monitor_job")
-                    return job_id, result, preview, desc, html
-                return None, None, None, '', ''
+                    return job_id, result, preview, preview, desc, html
+                return None, None, None, None, '', ''
                 
         # Auto-check for current job on page load and handle handoff between jobs.
         def check_for_current_job_and_monitor():
             # This function is now the key to the handoff.
             # It finds the current job and returns its ID, which will trigger the monitor.
-            job_id, result, preview, desc, html = check_for_current_job()
+            job_id, result, preview, top_preview, desc, html = check_for_current_job()
             # We also need to get fresh stats at the same time.
             queue_status_data, queue_stats_text = update_stats()
             # Return everything needed to update the UI atomically.
-            return job_id, result, preview, desc, html, queue_status_data, queue_stats_text
+            return job_id, result, preview, top_preview, desc, html, queue_status_data, queue_stats_text
 
         # Connect the main process function (wrapper for adding to queue)
         def process_with_queue_update(model_type_arg, *args):
@@ -1441,7 +1483,7 @@ def create_interface(
         start_button.click(
             fn=update_button_before_processing,
             inputs=[model_type] + ips,
-            outputs=[result_video, current_job_id, preview_image, progress_desc, progress_bar, start_button, end_button, queue_status, queue_stats_display, seed, video_input_required_message]
+            outputs=[result_video, current_job_id, preview_image, top_preview_image, progress_desc, progress_bar, start_button, end_button, queue_status, queue_stats_display, seed, video_input_required_message]
         ).then(
             # Then process the job
             fn=handle_start_button,
@@ -1477,7 +1519,7 @@ def create_interface(
             # This new block checks for a running job and updates the monitor UI
             fn=check_for_current_job,
             inputs=None,
-            outputs=[current_job_id, result_video, preview_image, progress_desc, progress_bar]
+            outputs=[current_job_id, result_video, preview_image, top_preview_image, progress_desc, progress_bar]
         )
 
         # --- START OF REFACTORED XY PLOT EVENT WIRING ---
@@ -1519,7 +1561,7 @@ def create_interface(
         ).then(
             fn=check_for_current_job,
             inputs=None, 
-            outputs=[current_job_id, result_video, preview_image, progress_desc, progress_bar]
+            outputs=[current_job_id, result_video, preview_image, top_preview_image, progress_desc, progress_bar]
         )
         # --- END OF REFACTORED XY PLOT EVENT WIRING ---
 
@@ -1581,7 +1623,7 @@ def create_interface(
         current_job_id.change(
             fn=monitor_fn,
             inputs=[current_job_id],
-            outputs=[result_video, preview_image, progress_desc, progress_bar, start_button, end_button]
+            outputs=[result_video, preview_image, top_preview_image, progress_desc, progress_bar, start_button, end_button]
         ).then(
             fn=update_stats, # When a monitor finishes, always update the stats.
             inputs=None,
@@ -1600,7 +1642,7 @@ def create_interface(
         ).then(
             fn=check_for_current_job_and_monitor,
             inputs=[],
-            outputs=[current_job_id, result_video, preview_image, progress_desc, progress_bar, queue_status, queue_stats_display]
+            outputs=[current_job_id, result_video, preview_image, top_preview_image, progress_desc, progress_bar, queue_status, queue_stats_display]
         )
         
         load_queue_button.click(
@@ -1610,7 +1652,7 @@ def create_interface(
         ).then( # ADD THIS .then() CLAUSE
             fn=check_for_current_job,
             inputs=[],
-            outputs=[current_job_id, result_video, preview_image, progress_desc, progress_bar]
+            outputs=[current_job_id, result_video, preview_image, top_preview_image, progress_desc, progress_bar]
         )
         
         import_queue_file.change(
@@ -1620,7 +1662,7 @@ def create_interface(
         ).then( # ADD THIS .then() CLAUSE
             fn=check_for_current_job,
             inputs=[],
-            outputs=[current_job_id, result_video, preview_image, progress_desc, progress_bar]
+            outputs=[current_job_id, result_video, preview_image, top_preview_image, progress_desc, progress_bar]
         )
 
                         
@@ -1878,7 +1920,10 @@ def create_interface(
                     # apply_preset is now defined
                     ui_components_updates_list = apply_preset(startup_preset_val, startup_model_val) 
             
-            return tuple([model_type_update, preset_dropdown_update, preset_name_textbox_update] + ui_components_updates_list)
+            # NEW: Ensure latents_display_top checkbox reflects the current setting
+            latents_display_top_update = gr.update(value=settings.get("latents_display_top", False))
+            
+            return tuple([model_type_update, preset_dropdown_update, preset_name_textbox_update] + ui_components_updates_list + [latents_display_top_update])
 
 
         # --- Auto-refresh for Toolbar System Stats Monitor (Timer) ---
@@ -2211,19 +2256,30 @@ def create_interface(
             # </script>
         # """)
 
+        # --- Function to update latents display layout on interface load ---
+        def update_latents_layout_on_load():
+            """Update latents display layout based on saved setting when interface loads"""
+            return update_latents_display_layout(settings.get("latents_display_top", False))
+
         # Connect the auto-check function to the interface load event
         block.load(
             fn=check_for_current_job_and_monitor, # Use the new combined function
             inputs=[],
-            outputs=[current_job_id, result_video, preview_image, progress_desc, progress_bar, queue_status, queue_stats_display]
+            outputs=[current_job_id, result_video, preview_image, top_preview_image, progress_desc, progress_bar, queue_status, queue_stats_display]
+
         ).then(
             fn=apply_startup_settings, # apply_startup_settings is now defined
             inputs=None,
-            outputs=[model_type, preset_dropdown, preset_name_textbox] + list(ui_components.values()) # ui_components is now defined
+            outputs=[model_type, preset_dropdown, preset_name_textbox] + list(ui_components.values()) + [latents_display_top] # ui_components is now defined
         ).then(
             fn=update_start_button_state, # Ensure button state is correct after startup settings
             inputs=[model_type, input_video], 
             outputs=[start_button, video_input_required_message]
+        ).then(
+            # NEW: Update latents display layout based on saved setting
+            fn=lambda: update_latents_display_layout(settings.get("latents_display_top", False)),
+            inputs=None,
+            outputs=[top_preview_row, preview_image]
         )
         
         # --- Prompt Enhancer Connection ---
