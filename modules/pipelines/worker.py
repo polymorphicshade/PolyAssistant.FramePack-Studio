@@ -422,7 +422,18 @@ def worker(
                 load_model_as_complete(vae, target_device=gpu)
 
             from diffusers_helper.hunyuan import vae_encode
-            start_latent = vae_encode(input_image_pt, vae)
+            if job_params.get('latent_type') == 'Noise':
+                # Create a Gaussian latent representation directly.
+                print("***********************************************")
+                print("**   Using Gaussian noise for start_latent   **")
+                print("***********************************************")
+                noise_rnd = torch.Generator("cpu").manual_seed(seed)
+                start_latent = torch.randn(
+                    (1, 16, 1, height // 8, width // 8),
+                    generator=noise_rnd, device=noise_rnd.device
+                ).to(device=gpu, dtype=torch.float32)
+            else:
+                start_latent = vae_encode(input_image_pt, vae)
 
             # CLIP Vision
             stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'CLIP Vision encoding ...'))))
