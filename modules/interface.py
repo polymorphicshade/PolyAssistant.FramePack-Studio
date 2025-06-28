@@ -67,6 +67,27 @@ def create_interface(
     def is_video_model(model_type_value):
         return model_type_value in ["Video", "Video with Endframe", "Video F1"]
 
+    # Add near the top of create_interface function, after the initial setup
+    def get_latents_display_top():
+        """Get current latents display preference - centralized access point"""
+        return settings.get("latents_display_top", False)
+
+    def create_latents_layout_update():
+        """Create a standardized layout update based on current setting"""
+        display_top = get_latents_display_top()
+        if display_top:
+            return (
+                gr.update(visible=True),   # top_preview_row
+                gr.update(visible=False, value=None)  # preview_image (right column)
+            )
+        else:
+            return (
+                gr.update(visible=False),  # top_preview_row  
+                gr.update(visible=True)    # preview_image (right column)
+            )
+
+
+
     # Get section boundaries and quick prompts
     section_boundaries = get_section_boundaries()
     quick_prompts = get_quick_prompts()
@@ -382,7 +403,7 @@ def create_interface(
         with gr.Tabs(elem_id="main_tabs") as main_tabs_component:
             with gr.Tab("Generate", id="generate_tab"):
                 # NEW: Top preview area for latents display
-                with gr.Row(visible=settings.get("latents_display_top", False)) as top_preview_row:
+                with gr.Row(visible=get_latents_display_top()) as top_preview_row:
                     top_preview_image = gr.Image(
                         label="Next Latents (Top Display)", 
                         height=150, 
@@ -632,7 +653,7 @@ def create_interface(
                         preview_image = gr.Image(
                             label="Next Latents", 
                             height=150, 
-                            visible=not settings.get("latents_display_top", False), 
+                            visible=not get_latents_display_top(), 
                             type="numpy", 
                             interactive=False,
                             elem_classes="contain-image",
@@ -928,7 +949,7 @@ def create_interface(
                         
                         latents_display_top = gr.Checkbox(
                             label="Display Next Latents across top of interface",
-                            value=settings.get("latents_display_top", False),
+                            value=get_latents_display_top(),
                             info="If checked, the Next Latents preview will be displayed across the top of the interface instead of in the right column."
                         )
                         
@@ -1087,7 +1108,7 @@ def create_interface(
                             outputs=[status]
                         ).then(
                             # NEW: Update latents display layout after manual save
-                            fn=lambda: update_latents_display_layout(settings.get("latents_display_top", False)),
+                            fn=create_latents_layout_update,
                             inputs=None,
                             outputs=[top_preview_row, preview_image]
                         )
@@ -1126,17 +1147,24 @@ def create_interface(
                         # NEW: latents display position setting
                         latents_display_top.change(lambda v: handle_individual_setting_change("latents_display_top", v, "Latents Display Position"), inputs=[latents_display_top], outputs=[status])
 
-                        # NEW: Function to update latents display layout
-                        def update_latents_display_layout(display_top):
-                            """Update the visibility of latents preview components based on setting"""
-                            return (
-                                gr.update(visible=display_top),  # top_preview_row
-                                gr.update(visible=not display_top)  # preview_image (right column)
-                            )
 
-                        # Connect the latents display setting to layout updates
+
+                        # Connect the latents display setting to layout updates  
+                        def update_latents_display_layout_from_checkbox(display_top):
+                            """Update layout when checkbox changes - uses the checkbox value directly"""
+                            if display_top:
+                                return (
+                                    gr.update(visible=True),   # top_preview_row
+                                    gr.update(visible=False, value=None)  # preview_image (right column)
+                                )
+                            else:
+                                return (
+                                    gr.update(visible=False),  # top_preview_row  
+                                    gr.update(visible=True)    # preview_image (right column)
+                                )
+                        
                         latents_display_top.change(
-                            fn=update_latents_display_layout,
+                            fn=update_latents_display_layout_from_checkbox,
                             inputs=[latents_display_top],
                             outputs=[top_preview_row, preview_image]
                         )
@@ -1477,7 +1505,7 @@ def create_interface(
             # First update the button to show "Adding..." and disable it
             # Also return current stats so they don't get blanked out during the "Adding..." phase
             qs_data, qs_text = update_stats()
-            return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(value="⏳ Adding...", interactive=False), gr.update(), qs_data, qs_text, gr.update(), gr.update() # Added update for video_input_required_message
+            return gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(), gr.update(value="⏳ Adding...", interactive=False), gr.update(), qs_data, qs_text, gr.update(), gr.update() # Added update for video_input_required_message
         
         # Connect the start button to first update its state
         start_button.click(
@@ -1520,6 +1548,11 @@ def create_interface(
             fn=check_for_current_job,
             inputs=None,
             outputs=[current_job_id, result_video, preview_image, top_preview_image, progress_desc, progress_bar]
+        ).then(
+            # NEW: Update latents display layout after loading queue to ensure correct visibility
+            fn=create_latents_layout_update,
+            inputs=None,
+            outputs=[top_preview_row, preview_image]
         )
 
         # --- START OF REFACTORED XY PLOT EVENT WIRING ---
@@ -1562,6 +1595,11 @@ def create_interface(
             fn=check_for_current_job,
             inputs=None, 
             outputs=[current_job_id, result_video, preview_image, top_preview_image, progress_desc, progress_bar]
+        ).then(
+            # NEW: Update latents display layout after XY plot to ensure correct visibility
+            fn=create_latents_layout_update,
+            inputs=None,
+            outputs=[top_preview_row, preview_image]
         )
         # --- END OF REFACTORED XY PLOT EVENT WIRING ---
 
@@ -1632,6 +1670,11 @@ def create_interface(
             fn=update_start_button_state,
             inputs=[model_type, input_video],
             outputs=[start_button, video_input_required_message]
+        ).then(
+            # NEW: Update latents display layout after monitoring to ensure correct visibility
+            fn=create_latents_layout_update,
+            inputs=None,
+            outputs=[top_preview_row, preview_image]
         )
         
         # The "end_button" (Cancel Job) is the trigger for the next job's monitor.
@@ -1643,6 +1686,11 @@ def create_interface(
             fn=check_for_current_job_and_monitor,
             inputs=[],
             outputs=[current_job_id, result_video, preview_image, top_preview_image, progress_desc, progress_bar, queue_status, queue_stats_display]
+        ).then(
+            # NEW: Update latents display layout after job handoff to ensure correct visibility
+            fn=create_latents_layout_update,
+            inputs=None,
+            outputs=[top_preview_row, preview_image]
         )
         
         load_queue_button.click(
@@ -1653,6 +1701,11 @@ def create_interface(
             fn=check_for_current_job,
             inputs=[],
             outputs=[current_job_id, result_video, preview_image, top_preview_image, progress_desc, progress_bar]
+        ).then(
+            # NEW: Update latents display layout after loading queue to ensure correct visibility
+            fn=create_latents_layout_update,
+            inputs=None,
+            outputs=[top_preview_row, preview_image]
         )
         
         import_queue_file.change(
@@ -1663,6 +1716,11 @@ def create_interface(
             fn=check_for_current_job,
             inputs=[],
             outputs=[current_job_id, result_video, preview_image, top_preview_image, progress_desc, progress_bar]
+        ).then(
+            # NEW: Update latents display layout after importing queue to ensure correct visibility
+            fn=create_latents_layout_update,
+            inputs=None,
+            outputs=[top_preview_row, preview_image]
         )
 
                         
@@ -1921,7 +1979,7 @@ def create_interface(
                     ui_components_updates_list = apply_preset(startup_preset_val, startup_model_val) 
             
             # NEW: Ensure latents_display_top checkbox reflects the current setting
-            latents_display_top_update = gr.update(value=settings.get("latents_display_top", False))
+            latents_display_top_update = gr.update(value=get_latents_display_top())
             
             return tuple([model_type_update, preset_dropdown_update, preset_name_textbox_update] + ui_components_updates_list + [latents_display_top_update])
 
@@ -2259,7 +2317,7 @@ def create_interface(
         # --- Function to update latents display layout on interface load ---
         def update_latents_layout_on_load():
             """Update latents display layout based on saved setting when interface loads"""
-            return update_latents_display_layout(settings.get("latents_display_top", False))
+            return create_latents_layout_update()
 
         # Connect the auto-check function to the interface load event
         block.load(
@@ -2277,7 +2335,7 @@ def create_interface(
             outputs=[start_button, video_input_required_message]
         ).then(
             # NEW: Update latents display layout based on saved setting
-            fn=lambda: update_latents_display_layout(settings.get("latents_display_top", False)),
+            fn=create_latents_layout_update,
             inputs=None,
             outputs=[top_preview_row, preview_image]
         )
