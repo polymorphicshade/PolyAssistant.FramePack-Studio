@@ -4,11 +4,10 @@
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/colinurbs/FramePack-Studio)
 
-FramePack Studio is an AI video generation application based on FramePack that strives to provide everything you need to create high quality video projects. 
+FramePack Studio is an AI video generation application based on FramePack that strives to provide everything you need to create high quality video projects.
 
 ![screencapture-127-0-0-1-7860-2025-06-12-19_50_37](https://github.com/user-attachments/assets/b86a8422-f4ce-452b-80eb-2ba91945f2ea)
 ![screencapture-127-0-0-1-7860-2025-06-12-19_52_33](https://github.com/user-attachments/assets/ebfb31ca-85b7-4354-87c6-aaab6d1c77b1)
-
 
 ## Current Features
 
@@ -24,38 +23,15 @@ FramePack Studio is an AI video generation application based on FramePack that s
 - **I2V and T2V**: Works with or without an input image to allow for more flexibility when working with standard Hunyuan Video LoRAs
 - **Latent Image Options**: When using T2V you can generate based on a black, white, green screen, or pure noise image
 
-
-## Fresh Installation
-
-### Prerequisites
+## Prerequisites
 
 - CUDA-compatible GPU with at least 8GB VRAM (16GB+ recommended)
 - 16GB System Memory (32GB+ strongly recommended)
 - 80GB+ of storage (including ~25GB for each model family: Original and F1)
 
-### Setup
+## Documentation
 
-Install via the [Pinokio community script](https://pinokio.co/item.html?uri=https%3A%2F%2Fgithub.com%2Fcolinurbs%2FFP-Studio) "FP-Studio" or read the Installation section in the [User Guide](./user_guide.md) for more local install methods.
-
-## Usage
-
-#### Pinokio Users
-Open Pinokio and click the FramePack Studio project on your home page. Then *Start* on the side bar.
-
-#### Manual Users:
-Run the studio interface:
-
-```bash
-python studio.py
-```
-
-Additional command line options:
-
-- `--share`: Create a public Gradio link to share your interface
-- `--server`: Specify the server address (default: 0.0.0.0)
-- `--port`: Specify a custom port
-- `--inbrowser`: Automatically open the interface in your browser
-- `--offline`: Disable HF model checks to allow use without internet
+For information on installation, configuration, and usage, please visit our [documentation site](https://docs.framepackstudio.com/).
 
 ## LoRAs
 
@@ -85,8 +61,6 @@ Thanks to [Zehong Ma](https://github.com/Zehong-Ma) for [MagCache](https://githu
 
 Thanks to everyone who has joined the Discord, reported a bug, sumbitted a PR, or helped with testing!
 
-
-
     @article{zhang2025framepack,
         title={Packing Input Frame Contexts in Next-Frame Prediction Models for Video Generation},
         author={Lvmin Zhang and Maneesh Agrawala},
@@ -95,7 +69,7 @@ Thanks to everyone who has joined the Discord, reported a bug, sumbitted a PR, o
     }
 
     @misc{zhang2025packinginputframecontext,
-        title={Packing Input Frame Context in Next-Frame Prediction Models for Video Generation}, 
+        title={Packing Input Frame Context in Next-Frame Prediction Models for Video Generation},
         author={Lvmin Zhang and Maneesh Agrawala},
         year={2025},
         eprint={2504.12626},
