@@ -33,6 +33,10 @@ FramePack Studio is an AI video generation application based on FramePack that s
 
 For information on installation, configuration, and usage, please visit our [documentation site](https://docs.framepackstudio.com/).
 
+## Installation
+
+Please see [this guide](https://docs.framepackstudio.com/docs/get_started/) on our documentation site to get FP-Studio installed.
+
 ## LoRAs
 
 Add LoRAs to the /loras/ folder at the root of the installation. Select the LoRAs you wish to load and set the weights for each generation. Most Hunyuan LoRAs were originally trained for T2V, it's often helpful to run a T2V generation to ensure they're working before using input images.
