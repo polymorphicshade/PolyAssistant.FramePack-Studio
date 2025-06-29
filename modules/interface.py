@@ -590,7 +590,7 @@ def create_interface(
                                         )
                             with gr.Accordion("Latent Image Options", open=False):
                                 latent_type = gr.Dropdown(
-                                    ["Black", "White", "Noise", "Green Screen"], label="Latent Image", value="Black", info="Used as a starting point if no image is provided"
+                                    ["Noise", "White", "Black", "Green Screen"], label="Latent Image", value="Noise", info="Used as a starting point if no image is provided"
                                 )
                             with gr.Accordion("Advanced Parameters", open=False):
                                 gr.Markdown("#### Motion Model")
