@@ -134,7 +134,6 @@ def create_interface(
     css = make_progress_bar_css()
     css += """
 
-    
     .short-import-box, .short-import-box > div {
         min-height: 40px !important;
         height: 40px !important;
@@ -335,6 +334,12 @@ def create_interface(
     }
     #toolbox-start-pipeline-btn {
         margin-top: -14px !important; /* Adjust this value to get the perfect alignment */
+    }
+
+    .control-group {
+        border-top: 1px solid #ccc;
+        border-bottom: 1px solid #ccc;
+        margin: 12px 0;
     }
     """
 
@@ -588,25 +593,35 @@ def create_interface(
                                     ["Black", "White", "Noise", "Green Screen"], label="Latent Image", value="Black", info="Used as a starting point if no image is provided"
                                 )
                             with gr.Accordion("Advanced Parameters", open=False):
-                                latent_window_size = gr.Slider(label="Latent Window Size", minimum=1, maximum=33, value=9, step=1, visible=True, info='Change at your own risk, very experimental')  # Should not change
-                                cfg = gr.Slider(label="CFG Scale", minimum=1.0, maximum=32.0, value=1.0, step=0.01, visible=False)  # Should not change
-                                gs = gr.Slider(label="Distilled CFG Scale", minimum=1.0, maximum=32.0, value=10.0, step=0.01)
-                                rs = gr.Slider(label="CFG Re-Scale", minimum=0.0, maximum=1.0, value=0.0, step=0.01, visible=False)  # Should not change
-                                
+                                gr.Markdown("#### Motion Model")
+                                gr.Markdown("Settings for precise control of the motion model")
+
+                                with gr.Group(elem_classes="control-group"):
+                                    latent_window_size = gr.Slider(label="Latent Window Size", minimum=1, maximum=33, value=9, step=1, info='Change at your own risk, very experimental')  # Should not change
+                                    gs = gr.Slider(label="Distilled CFG Scale", minimum=1.0, maximum=32.0, value=10.0, step=0.5)
+
+                                gr.Markdown("#### CFG Scale")
+                                gr.Markdown("Modifying these values from their defaults will almost double generation time, but can enhance motion and coherence")
+
+                                with gr.Group(elem_classes="control-group"):
+                                    cfg = gr.Slider(label="CFG Scale", minimum=1.0, maximum=3.0, value=1.0, step=0.1)
+                                    rs = gr.Slider(label="CFG Re-Scale", minimum=0.0, maximum=1.0, value=0.0, step=0.05)
+
                                 gr.Markdown("#### Cache Options")
                                 gr.Markdown("Using a cache will speed up generation. May affect quality, fine or even coarse details, and may change or inhibit motion. You can choose at most one.")
 
-                                with gr.Row():
-                                    cache_type = gr.Radio(["MagCache", "TeaCache", "None"], value='MagCache', label="Caching strategy", info="Which cache implementation to use, if any")
+                                with gr.Group(elem_classes="control-group"):
+                                    with gr.Row():
+                                        cache_type = gr.Radio(["MagCache", "TeaCache", "None"], value='MagCache', label="Caching strategy", info="Which cache implementation to use, if any")
 
-                                with gr.Row():  # MagCache now first
-                                    magcache_threshold = gr.Slider(label="MagCache Threshold", minimum=0.01, maximum=1.0, step=0.01, value=0.1, visible=True, info='[⬇️ **Faster**] Error tolerance. Lower = more estimated steps')
-                                    magcache_max_consecutive_skips = gr.Slider(label="MagCache Max Consecutive Skips", minimum=1, maximum=5, step=1, value=2, visible=True, info='[⬆️ **Faster**] Allow multiple estimated steps in a row')
-                                    magcache_retention_ratio = gr.Slider(label="MagCache Retention Ratio", minimum=0.0, maximum=1.0, step=0.01, value=0.25, visible=True, info='[⬇️ **Faster**] Disallow estimation in critical early steps')
+                                    with gr.Row():  # MagCache now first
+                                        magcache_threshold = gr.Slider(label="MagCache Threshold", minimum=0.01, maximum=1.0, step=0.01, value=0.1, visible=True, info='[⬇️ **Faster**] Error tolerance. Lower = more estimated steps')
+                                        magcache_max_consecutive_skips = gr.Slider(label="MagCache Max Consecutive Skips", minimum=1, maximum=5, step=1, value=2, visible=True, info='[⬆️ **Faster**] Allow multiple estimated steps in a row')
+                                        magcache_retention_ratio = gr.Slider(label="MagCache Retention Ratio", minimum=0.0, maximum=1.0, step=0.01, value=0.25, visible=True, info='[⬇️ **Faster**] Disallow estimation in critical early steps')
 
-                                with gr.Row():
-                                    teacache_num_steps = gr.Slider(label="TeaCache steps", minimum=1, maximum=50, step=1, value=25, visible=False, info='How many intermediate sections to keep in the cache')
-                                    teacache_rel_l1_thresh = gr.Slider(label="TeaCache rel_l1_thresh", minimum=0.01, maximum=1.0, step=0.01, value=0.15, visible=False, info='[⬇️ **Faster**] Relative L1 Threshold')
+                                    with gr.Row():
+                                        teacache_num_steps = gr.Slider(label="TeaCache steps", minimum=1, maximum=50, step=1, value=25, visible=False, info='How many intermediate sections to keep in the cache')
+                                        teacache_rel_l1_thresh = gr.Slider(label="TeaCache rel_l1_thresh", minimum=0.01, maximum=1.0, step=0.01, value=0.15, visible=False, info='[⬇️ **Faster**] Relative L1 Threshold')
 
                             def update_cache_type(cache_type: str):
                                 enable_magcache = False
