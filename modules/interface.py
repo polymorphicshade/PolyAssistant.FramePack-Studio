@@ -601,7 +601,7 @@ def create_interface(
                                     gs = gr.Slider(label="Distilled CFG Scale", minimum=1.0, maximum=32.0, value=10.0, step=0.5)
 
                                 gr.Markdown("#### CFG Scale")
-                                gr.Markdown("Modifying these values from their defaults will almost double generation time, but can enhance motion and coherence")
+                                gr.Markdown("Much better prompt following. Warning: Modifying these values from their defaults will almost double generation time. ⚠️")
 
                                 with gr.Group(elem_classes="control-group"):
                                     cfg = gr.Slider(label="CFG Scale", minimum=1.0, maximum=3.0, value=1.0, step=0.1)
