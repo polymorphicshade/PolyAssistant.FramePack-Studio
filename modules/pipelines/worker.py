@@ -408,31 +408,62 @@ def worker(
             input_video_frame_count = video_latents.shape[2]
         else:
             # Regular image processing
-            input_image_np = job_params['input_image']
             height = job_params['height']
             width = job_params['width']
-            
-            input_image_pt = torch.from_numpy(input_image_np).float() / 127.5 - 1
-            input_image_pt = input_image_pt.permute(2, 0, 1)[None, :, None]
 
-            # VAE encoding
-            stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'VAE encoding ...'))))
+            if job_params.get('latent_type') == 'Noise':
+                print("************************************************")
+                print("** Using 'Noise' latent type for T2V workflow **")
+                print("************************************************")
 
-            if not high_vram:
-                load_model_as_complete(vae, target_device=gpu)
+                # Create a random latent to serve as the initial VAE context anchor.
+                # This provides a random starting point without visual bias.
+                noise_rnd = torch.Generator("cpu").manual_seed(seed)
+                start_latent = torch.randn(
+                    (1, 16, 1, height // 8, width // 8),
+                    generator=noise_rnd, device=noise_rnd.device
+                ).to(device=gpu, dtype=torch.float32)
 
-            from diffusers_helper.hunyuan import vae_encode
-            start_latent = vae_encode(input_image_pt, vae)
+                # Create a neutral black image to generate a valid "null" CLIP Vision embedding.
+                # This provides the model with a valid, in-distribution unconditional image prompt.
+                # RT_BORG: Clip doesn't understand noise at all. I also tried using
+                #   image_encoder_last_hidden_state = torch.zeros((1, 257, 1152), device=gpu, dtype=studio_module.current_generator.transformer.dtype)
+                # to represent a "null" CLIP Vision embedding in the shape for the CLIP encoder,
+                # but the Video model wasn't trained to handle zeros, so using a neutral black image for CLIP.
 
-            # CLIP Vision
-            stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'CLIP Vision encoding ...'))))
+                black_image_np = np.zeros((height, width, 3), dtype=np.uint8)
 
-            if not high_vram:
-                load_model_as_complete(image_encoder, target_device=gpu)
+                if not high_vram:
+                    load_model_as_complete(image_encoder, target_device=gpu)
 
-            from diffusers_helper.clip_vision import hf_clip_vision_encode
-            image_encoder_output = hf_clip_vision_encode(input_image_np, feature_extractor, image_encoder)
-            image_encoder_last_hidden_state = image_encoder_output.last_hidden_state
+                from diffusers_helper.clip_vision import hf_clip_vision_encode
+                image_encoder_output = hf_clip_vision_encode(black_image_np, feature_extractor, image_encoder)
+                image_encoder_last_hidden_state = image_encoder_output.last_hidden_state
+
+            else:
+                input_image_np = job_params['input_image']
+                
+                input_image_pt = torch.from_numpy(input_image_np).float() / 127.5 - 1
+                input_image_pt = input_image_pt.permute(2, 0, 1)[None, :, None]
+
+                # Start image encoding with VAE
+                stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'VAE encoding ...'))))
+
+                if not high_vram:
+                    load_model_as_complete(vae, target_device=gpu)
+
+                from diffusers_helper.hunyuan import vae_encode
+                start_latent = vae_encode(input_image_pt, vae)
+
+                # CLIP Vision
+                stream_to_use.output_queue.push(('progress', (None, '', make_progress_bar_html(0, 'CLIP Vision encoding ...'))))
+
+                if not high_vram:
+                    load_model_as_complete(image_encoder, target_device=gpu)
+
+                from diffusers_helper.clip_vision import hf_clip_vision_encode
+                image_encoder_output = hf_clip_vision_encode(input_image_np, feature_extractor, image_encoder)
+                image_encoder_last_hidden_state = image_encoder_output.last_hidden_state
 
         # VAE encode end_frame_image if provided
         end_frame_latent = None
@@ -514,7 +545,10 @@ def worker(
             
             # For F1 model, initialize with start latent
             if model_type == "F1":
-                history_latents = studio_module.current_generator.initialize_with_start_latent(history_latents, start_latent)
+                # RT_BORG: For the experiment, switch on 'Noise' latent type. Eventually it should probably be something like input_image is None
+                # but the synthetic input_image is used elsewhere for the queue, so I'm using 'Noise' as my switch for now.
+                is_real_image_latent = latent_type != 'Noise'
+                history_latents = studio_module.current_generator.initialize_with_start_latent(history_latents, start_latent, is_real_image_latent)
                 total_generated_latent_frames = 1  # Start with 1 for F1 model since it includes the first frame
             elif model_type == "Original" or model_type == "Original with Endframe":
                 total_generated_latent_frames = 0
