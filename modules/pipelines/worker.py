@@ -411,10 +411,10 @@ def worker(
             height = job_params['height']
             width = job_params['width']
 
-            if job_params.get('latent_type') == 'Noise':
-                print("************************************************")
-                print("** Using 'Noise' latent type for T2V workflow **")
-                print("************************************************")
+            if not has_input_image and job_params.get('latent_type') == 'Noise':
+                # print("************************************************")
+                # print("** Using 'Noise' latent type for T2V workflow **")
+                # print("************************************************")
 
                 # Create a random latent to serve as the initial VAE context anchor.
                 # This provides a random starting point without visual bias.
@@ -545,11 +545,9 @@ def worker(
             
             # For F1 model, initialize with start latent
             if model_type == "F1":
-                # RT_BORG: For the experiment, switch on 'Noise' latent type. Eventually it should probably be something like input_image is None
-                # but the synthetic input_image is used elsewhere for the queue, so I'm using 'Noise' as my switch for now.
-                is_real_image_latent = latent_type != 'Noise'
-                history_latents = studio_module.current_generator.initialize_with_start_latent(history_latents, start_latent, is_real_image_latent)
-                total_generated_latent_frames = 1  # Start with 1 for F1 model since it includes the first frame
+                history_latents = studio_module.current_generator.initialize_with_start_latent(history_latents, start_latent, has_input_image)
+                # If we had a real start image, it was just added to the history_latents
+                total_generated_latent_frames = 1 if has_input_image else 0
             elif model_type == "Original" or model_type == "Original with Endframe":
                 total_generated_latent_frames = 0
 
