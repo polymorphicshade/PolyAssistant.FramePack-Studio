@@ -867,10 +867,10 @@ def worker(
                 callback=callback,
             )
 
-            # RT_BORG: Observe the MagCache skip patterns during dev. Likely remove this before release.
+            # RT_BORG: Observe the MagCache skip patterns during dev.
             # RT_BORG: We need to use a real logger soon!
-            if magcache is not None and magcache.is_enabled:
-                print(f"MagCache skipped: {len(magcache.steps_skipped_list)} of {steps} steps: {magcache.steps_skipped_list}")
+            # if magcache is not None and magcache.is_enabled:
+            #     print(f"MagCache skipped: {len(magcache.steps_skipped_list)} of {steps} steps: {magcache.steps_skipped_list}")
 
             total_generated_latent_frames += int(generated_latents.shape[2])
             # Update history latents using the generator
