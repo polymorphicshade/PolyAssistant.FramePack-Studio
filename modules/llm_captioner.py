@@ -9,7 +9,7 @@ torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32
 model = None
 processor = None
 
-def load_captioning_model():
+def _load_captioning_model():
     """Load the Florence-2"""
     global model, processor
     if model is None or processor is None:
@@ -47,23 +47,20 @@ def caption_image(image: np.array):
         image_np (np.ndarray): The input image as a NumPy array (e.g., HxWx3, RGB).
                                 Gradio passes this when type="numpy" is set.
     """
-    load_captioning_model()
-    try:
-        image_pil = Image.fromarray(image)
 
-        inputs = processor(text=prompt, images=image_pil, return_tensors="pt").to(device, torch_dtype)
+    _load_captioning_model()
 
-        generated_ids = model.generate(
-            input_ids=inputs["input_ids"],
-            pixel_values=inputs["pixel_values"],
-            max_new_tokens=1024,
-            num_beams=3,
-            do_sample=False
-        )
-        generated_text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+    image_pil = Image.fromarray(image)
 
+    inputs = processor(text=prompt, images=image_pil, return_tensors="pt").to(device, torch_dtype)
 
-        return generated_text
-    
-    finally:
-        unload_captioning_model()    
+    generated_ids = model.generate(
+        input_ids=inputs["input_ids"],
+        pixel_values=inputs["pixel_values"],
+        max_new_tokens=1024,
+        num_beams=3,
+        do_sample=False
+    )
+    generated_text = processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+
+    return generated_text

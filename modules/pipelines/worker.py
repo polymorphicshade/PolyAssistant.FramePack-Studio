@@ -19,6 +19,8 @@ from modules.prompt_handler import parse_timestamped_prompt
 from modules.generators import create_model_generator
 from modules.pipelines.video_tools import combine_videos_sequentially_from_tensors
 from modules import DUMMY_LORA_NAME # Import the constant
+from modules.llm_captioner import unload_captioning_model
+from modules.llm_enhancer import unload_enhancing_model
 from . import create_pipeline
 
 import __main__ as studio_module # Get a reference to the __main__ module object
@@ -97,6 +99,9 @@ def worker(
     """
 
     random_generator = torch.Generator("cpu").manual_seed(seed)
+
+    unload_enhancing_model()
+    unload_captioning_model()
 
     # Filter out the dummy LoRA from selected_loras at the very beginning of the worker
     actual_selected_loras_for_worker = []
