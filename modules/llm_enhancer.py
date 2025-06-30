@@ -78,7 +78,7 @@ PROMPT_TEMPLATE = (
 model = None
 tokenizer = None
 
-def _load_model():
+def _load_enhancing_model():
     """Loads the model and tokenizer, caching them globally."""
     global model, tokenizer
     if model is None or tokenizer is None:
@@ -93,7 +93,6 @@ def _load_model():
 
 def _run_inference(text_to_enhance: str) -> str:
     """Runs the LLM inference to enhance a single piece of text."""
-    _load_model() # Ensure model is loaded
 
     formatted_prompt = PROMPT_TEMPLATE.format(text_to_enhance=text_to_enhance)
     
@@ -128,6 +127,16 @@ def _run_inference(text_to_enhance: str) -> str:
     response = response.strip().replace('"', '')
     return response
 
+def unload_enhancing_model():
+    global model, tokenizer
+    if model is not None:
+        del model
+        model = None
+    if tokenizer is not None:
+        del tokenizer
+        tokenizer = None
+    torch.cuda.empty_cache()
+
 
 def enhance_prompt(prompt_text: str) -> str:
     """
@@ -139,6 +148,9 @@ def enhance_prompt(prompt_text: str) -> str:
     Returns:
         The enhanced prompt string.
     """
+
+    _load_enhancing_model();
+
     if not prompt_text:
         return ""
 
@@ -156,14 +168,14 @@ def enhance_prompt(prompt_text: str) -> str:
         print(f"LLM Enhancer: Enhancing {len(matches)} sections in a timestamped prompt.")
         enhanced_parts = []
         last_end = 0
-        
+
         for match in matches:
             # Add the part of the string before the current match (e.g., whitespace)
             enhanced_parts.append(prompt_text[last_end:match.start()])
-            
+
             timestamp_prefix = match.group(1)
             text_to_enhance = match.group(2).strip()
-            
+
             if text_to_enhance:
                 enhanced_text = _run_inference(text_to_enhance)
                 enhanced_parts.append(f"{timestamp_prefix}{enhanced_text}")
