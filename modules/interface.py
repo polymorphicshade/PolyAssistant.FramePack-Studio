@@ -2384,10 +2384,11 @@ def create_interface(
          # --- Captioner Connection ---
         def handle_caption(input_image):
             """Calls the LLM enhancer and returns the updated text."""
-            if input_image is not None:
-                caption_text = caption_image(input_image)
-                print(f"UI: Received caption: {caption_text}")
-                return gr.update(value=caption_text)
+            if not input_image:
+                return ""
+            caption_text = caption_image(input_image)
+            print(f"UI: Received caption: {caption_text}")
+            return gr.update(value=caption_text)
 
         caption_btn.click(
             fn=handle_caption,
