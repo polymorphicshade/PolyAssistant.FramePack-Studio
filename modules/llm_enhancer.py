@@ -167,6 +167,7 @@ def enhance_prompt(prompt_text: str) -> str:
         # Timestamps found, enhance each section's text
         print(f"LLM Enhancer: Enhancing {len(matches)} sections in a timestamped prompt.")
         enhanced_parts = []
+        last_end = 0
 
         for match in matches:
             # Add the part of the string before the current match (e.g., whitespace)
