@@ -16,7 +16,8 @@ COPY requirements.txt .
 # Install dependencies
 RUN pip3 install --no-cache-dir -r requirements.txt
 RUN export CUDA_SHORT_VERSION=$(echo "${CUDA_VERSION}" | sed 's/\.//g' | cut -c 1-3) && \
-    pip3 install --no-cache-dir torch torchvision torchaudio --index-url "https://download.pytorch.org/whl/cu${CUDA_SHORT_VERSION}"
+    pip3 install --no-cache-dir torch torchvision torchaudio --index-url "https://download.pytorch.org/whl/cu${CUDA_SHORT_VERSION}" && \
+    pip3 install -U xformers --index-url "https://download.pytorch.org/whl/cu${CUDA_SHORT_VERSION}"
 
 # Copy the source code to /app
 COPY . .
